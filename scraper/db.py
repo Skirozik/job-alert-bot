@@ -52,7 +52,7 @@ def norm_role(r: str) -> str:
     r = re.sub(r"[-–—].*?(fall|spring|summer|winter)\s*20\d\d.*$", "", r)
     r = re.sub(r"\((fall|spring|summer|winter)\s*20\d\d\)", "", r)
     r = re.sub(r"[^a-z0-9 ]", " ", r)
-    r = re.sub(r"\b(internship|intern|co-op|coop)\b", "", r)
+    r = re.sub(r"\b(internship|intern|co\s*op|coop)\b", "", r)
     r = re.sub(r"\s+", " ", r)
     return r.strip()
 
@@ -98,4 +98,3 @@ def insert_job(job: dict) -> None:
         log.info("DB: stored %s [%s]", job.get("id"), job.get("tier"))
     except Exception as exc:
         log.error("DB insert failed for job %s: %s", job.get("id"), exc)
-        raise
