@@ -19,7 +19,7 @@ _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
 MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 200
+MAX_TOKENS = 300
 
 
 def _get_client() -> anthropic.Anthropic:
