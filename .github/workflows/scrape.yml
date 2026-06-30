@@ -2,11 +2,8 @@ name: Job Scraper
 
 on:
   schedule:
-    # Every 30 minutes. GitHub Actions cron runs on UTC — this fires at :00 and :30 each hour.
-    # Note: during peak load GitHub may delay runs by 15–60 min. The 2-hour lookback window
-    # in the scraper ensures no jobs slip through during drift. See README for Railway upgrade.
     - cron: '*/30 * * * *'
-  workflow_dispatch:  # allows manual trigger from GitHub Actions UI for testing
+  workflow_dispatch:
 
 jobs:
   scrape:
