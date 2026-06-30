@@ -1,0 +1,40 @@
+name: Job Scraper
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub Actions cron runs on UTC — this fires at :00 and :30 each hour.
+    # Note: during peak load GitHub may delay runs by 15–60 min. The 2-hour lookback window
+    # in the scraper ensures no jobs slip through during drift. See README for Railway upgrade.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:  # allows manual trigger from GitHub Actions UI for testing
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run scraper
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: python main.py
