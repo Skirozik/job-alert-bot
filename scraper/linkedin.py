@@ -26,9 +26,9 @@ HEADERS = {
 
 
 def fetch_listings(
-    keyword: str, location: str, lookback_seconds: int = 7200
+    keyword: str, location: str, lookback_seconds: int = 7200, start: int = 0
 ) -> tuple[list[dict], Optional[str]]:
-    """Fetch job listings from LinkedIn guest search API.
+    """Fetch one page of job listings from LinkedIn guest search API.
 
     Returns (jobs_list, error_string_or_None).
     error = "rate_limited" means back off; other strings are network/parse errors.
@@ -38,7 +38,7 @@ def fetch_listings(
         "location": location,
         "f_E": "1",              # Internship experience level
         "f_TPR": f"r{lookback_seconds}",
-        "start": "0",
+        "start": str(start),
     }
     try:
         resp = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=15)
