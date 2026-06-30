@@ -4,13 +4,14 @@ Run:  cd LinkedIn_Job_Bot/scraper && python main.py
 Env:  set variables in ../.env (local) or GitHub repo secrets (CI).
 
 Flow per run:
-  1. Search LinkedIn (5 terms × 2 locations)
+  1. Search LinkedIn (5 terms × 2 locations), paginating up to MAX_PAGES per search.
+     Dedup runs inline: once a full page returns zero new jobs, pagination stops early
+     (LinkedIn returns newest-first, so nothing deeper can be new).
   2. Canary check — 0 raw results across all searches = something is broken
-  3. Dedup against Supabase
-  4. Fetch description for each new job (separate detail request)
-  5. Classify with Claude Haiku against Candidate_Profile_and_Filters.md
-  6. ntfy.sh push for APPLY and MAYBE
-  7. Store all results in Supabase (including SKIP — so they're never re-classified)
+  3. Fetch description for each new job (separate detail request)
+  4. Classify with Claude Haiku against Candidate_Profile_and_Filters.md
+  5. ntfy.sh push for APPLY and MAYBE
+  6. Store all results in Supabase (including SKIP — so they're never re-classified)
 """
 
 import logging
@@ -50,37 +51,70 @@ def _is_senior_role(title: str) -> bool:
     return any(signal in t for signal in _SENIOR_SIGNALS)
 
 
+MAX_PAGES_PER_SEARCH = 5  # 50 results max per search term/location pair
+
+
 def run():
     log.info("=== Job scraper starting — %d terms × %d locations ===",
              len(SEARCH_TERMS), len(LOCATIONS))
 
-    # ── 1. Fetch raw listings ───────────────────────────────────────────────
-    all_raw: list[dict] = []
+    # ── 1. Fetch + dedup inline, paginating until all-duplicate page ────────
+    # LinkedIn returns newest-first. Once a full page is all duplicates,
+    # everything deeper is older and already stored — stop paginating.
+    new_jobs: list[dict] = []
+    seen_in_run: set[str] = set()
+    total_raw = 0
     rate_limited_count = 0
 
     for term in SEARCH_TERMS:
         for location in LOCATIONS:
             log.info("Searching: '%s' in %s", term, location)
-            jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS)
 
-            if err == "rate_limited":
-                rate_limited_count += 1
-                log.warning("  Rate limited — skipping")
-            elif err:
-                log.error("  Error: %s", err)
-            else:
-                log.info("  Got %d listings", len(jobs))
+            for page in range(MAX_PAGES_PER_SEARCH):
+                start = page * 10
+                jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS, start=start)
+
+                if err == "rate_limited":
+                    rate_limited_count += 1
+                    log.warning("  p%d: rate limited — stopping pagination", page)
+                    break
+                if err:
+                    log.error("  p%d: error — %s", page, err)
+                    break
+                if not jobs:
+                    log.info("  p%d: 0 listings — done", page)
+                    break
+
+                total_raw += len(jobs)
+                new_on_page = 0
+
                 for j in jobs:
-                    j["search_term"] = term
-                all_raw.extend(jobs)
+                    if j["id"] in seen_in_run:
+                        continue
+                    seen_in_run.add(j["id"])
+                    if not is_duplicate(j["id"], j["company"], j["title"]):
+                        j["search_term"] = term
+                        new_jobs.append(j)
+                        new_on_page += 1
+
+                log.info("  p%d (start=%d): %d listings, %d new", page, start, len(jobs), new_on_page)
+
+                if new_on_page == 0:
+                    log.info("  All duplicates — stopping pagination")
+                    break
+
+                if len(jobs) < 10:
+                    break  # partial page = last page
+
+                time.sleep(random.uniform(2.0, 3.5))
 
             time.sleep(random.uniform(2.0, 3.5))
 
-    log.info("Total raw listings: %d (rate limited: %d/%d searches)",
-             len(all_raw), rate_limited_count, len(SEARCH_TERMS) * len(LOCATIONS))
+    log.info("Total raw: %d | New: %d | Rate limited: %d/%d searches",
+             total_raw, len(new_jobs), rate_limited_count, len(SEARCH_TERMS) * len(LOCATIONS))
 
-    # ── 2. Canary: 0 results across ALL searches = likely blocked ──────────
-    if not all_raw:
+    # ── 2. Canary: 0 raw results across ALL searches = likely blocked ───────
+    if total_raw == 0:
         msg = (
             "Scraper returned 0 results across all searches.\n"
             f"Rate limited: {rate_limited_count}/{len(SEARCH_TERMS) * len(LOCATIONS)} searches.\n"
@@ -90,32 +124,18 @@ def run():
         push_canary(msg)
         sys.exit(0)
 
-    # ── 3. Dedup ────────────────────────────────────────────────────────────
-    seen_in_run: set[str] = set()
-    new_jobs: list[dict] = []
-
-    for job in all_raw:
-        if job["id"] in seen_in_run:
-            continue  # deduplicate within this run before hitting Supabase
-        seen_in_run.add(job["id"])
-
-        if not is_duplicate(job["id"], job["company"], job["title"]):
-            new_jobs.append(job)
-
-    log.info("New jobs after dedup: %d / %d", len(new_jobs), len(seen_in_run))
-
     if not new_jobs:
         log.info("No new jobs this run — done.")
         return
 
-    # ── 4–7. Per-job: describe → classify → notify → store ─────────────────
+    # ── 3–6. Per-job: describe → classify → notify → store ─────────────────
     notified = 0
 
     for job in new_jobs:
         log.info("Processing: '%s' @ %s [%s]",
                  job["title"], job["company"], job["id"])
 
-        # 4a. Pre-filter: skip senior/non-intern titles without hitting Claude
+        # 3a. Pre-filter: skip senior/non-intern titles without hitting Claude
         if _is_senior_role(job["title"]):
             log.info("  Pre-filter SKIP (senior title)")
             job["tier"] = "SKIP"
@@ -124,7 +144,7 @@ def run():
             insert_job(job)
             continue
 
-        # 4b. Fetch description (adds a delay internally)
+        # 3b. Fetch description (adds a delay internally)
         desc = fetch_description(job["id"])
         if desc:
             job["description"] = desc
@@ -132,7 +152,7 @@ def run():
         else:
             log.info("  No description — classifying on title/company/location")
 
-        # 5c. Classify
+        # 4. Classify
         result = classify(job)
         job["tier"] = result.get("tier", "MAYBE")
         job["reason"] = result.get("reason", "")
@@ -140,12 +160,12 @@ def run():
         log.info("  → %s | %s | Resume: %s",
                  job["tier"], job["reason"], job["suggested_resume"])
 
-        # 6. Push notification for APPLY and MAYBE
+        # 5. Push notification for APPLY and MAYBE
         if job["tier"] in ("APPLY", "MAYBE"):
             push_job(job)
             notified += 1
 
-        # 7. Store in Supabase (including SKIP — prevents re-classification)
+        # 6. Store in Supabase (including SKIP — prevents re-classification)
         insert_job(job)
 
     log.info("=== Run complete: %d new jobs, %d notified ===",
