@@ -36,7 +36,7 @@ def push_job(job: dict) -> None:
             f"{NTFY_BASE}/{NTFY_TOPIC}",
             data=body.encode("utf-8"),
             headers={
-                "Title": f"{job.get('company', '')} - {job.get('title', '')}",
+                "Title": f"{job.get('company', '')} - {job.get('title', '')}".encode("ascii", "replace").decode("ascii"),
                 "Priority": _TIER_PRIORITY.get(tier, "default"),
                 "Tags": _TIER_TAGS.get(tier, "yellow_circle"),
                 "Click": job.get("url", ""),
