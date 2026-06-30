@@ -14,7 +14,7 @@ SEARCH_TERMS = [
 
 LOCATIONS = ["United States", "Atlanta, GA"]
 
-LOOKBACK_SECONDS = 86400  # 24 hours — temporarily widened for manual review
+LOOKBACK_SECONDS = 7200  # 2 hours — wide enough to survive GitHub Actions cron drift
 
 CANDIDATE_PROFILE_PATH = REPO_ROOT / "Candidate_Profile_and_Filters.md"
 
