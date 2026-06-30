@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+.venv/
+venv/
+node_modules/
+.next/
+*.log
