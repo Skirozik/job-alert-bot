@@ -19,7 +19,7 @@ _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
 MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 300
+MAX_TOKENS = 400
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -57,7 +57,7 @@ Location: {job.get("location", "")}
 Description: {job.get("description") or "(not available — classify on title/company/location only)"}
 
 Return exactly this JSON:
-{{"tier": "APPLY" or "MAYBE" or "SKIP", "reason": "<one sentence explaining the match or mismatch>", "suggested_resume": "Mobile" or "AI" or "Frontend" or "1Password" or "General"}}"""
+{{"tier": "APPLY" or "MAYBE" or "SKIP", "reason": "<one sentence explaining the match or mismatch>", "suggested_resume": "Mobile" or "AI" or "Frontend" or "1Password" or "General", "salary": "<salary if mentioned in description, e.g. '$20-30/hr' or '$85,000-$110,000/yr', otherwise null>"}}"""
 
     raw = ""
     try:
