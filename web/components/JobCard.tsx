@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import type { Job, Status } from '@/types/job'
 
 const TIER_BADGE: Record<string, string> = {
@@ -57,6 +58,24 @@ export function JobCard({
     }`}>
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
+        {/* Company logo */}
+        <div className="shrink-0 mt-0.5">
+          {job.logo_url ? (
+            <Image
+              src={job.logo_url}
+              alt={job.company}
+              width={40}
+              height={40}
+              className="rounded-lg object-contain bg-white"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center text-gray-400 font-bold text-sm select-none">
+              {job.company[0]?.toUpperCase() ?? '?'}
+            </div>
+          )}
+        </div>
+
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${TIER_BADGE[job.tier]}`}>
