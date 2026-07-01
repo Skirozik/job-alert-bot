@@ -87,6 +87,7 @@ def insert_job(job: dict) -> None:
         "url": job.get("url", ""),
         "search_term": job.get("search_term", ""),
         "description": job.get("description"),
+        "logo_url": job.get("logo_url"),
         "norm_key": make_norm_key(job.get("company", ""), job.get("title", "")),
         "tier": job.get("tier", "MAYBE"),
         "reason": job.get("reason", ""),

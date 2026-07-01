@@ -144,13 +144,16 @@ def run():
             insert_job(job)
             continue
 
-        # 3b. Fetch description (adds a delay internally)
-        desc = fetch_description(job["id"])
+        # 3b. Fetch description + logo (adds a delay internally)
+        desc, logo_url = fetch_description(job["id"])
         if desc:
             job["description"] = desc
             log.info("  Description: %d chars", len(desc))
         else:
             log.info("  No description — classifying on title/company/location")
+        if logo_url:
+            job["logo_url"] = logo_url
+            log.info("  Logo: %s", logo_url)
 
         # 4. Classify
         result = classify(job)
