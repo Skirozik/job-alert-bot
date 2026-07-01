@@ -26,6 +26,7 @@ export function JobCard({
 }) {
   const [pending, setPending] = useState(false)
   const [saveError, setSaveError] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   async function setStatus(status: Status) {
     setPending(true)
@@ -43,7 +44,12 @@ export function JobCard({
         setPending(false)
         return
       }
-      onStatusChange(job.id, status)
+      const label = status === 'applied' ? 'Marked as applied' : status === 'dismissed' ? 'Dismissed' : status === 'saved' ? 'Saved' : 'Reset'
+      setToast(label)
+      setTimeout(() => {
+        setToast(null)
+        onStatusChange(job.id, status)
+      }, 1200)
     } catch (err) {
       console.error('Status update error:', err)
       setSaveError(true)
@@ -55,11 +61,16 @@ export function JobCard({
   const currentStatus = job.status ?? 'new'
 
   return (
-    <div className={`rounded-xl border p-5 transition-opacity ${
+    <div className={`relative rounded-xl border p-5 transition-opacity ${
       isSkip
         ? 'bg-gray-900/50 border-gray-800/50 opacity-40 hover:opacity-70'
         : 'bg-gray-900 border-gray-800'
     }`}>
+      {toast && (
+        <div className="absolute inset-0 rounded-xl bg-gray-900/95 flex items-center justify-center z-10 pointer-events-none">
+          <span className="text-green-400 font-semibold text-sm">{toast} ✓</span>
+        </div>
+      )}
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         {/* Company logo */}
