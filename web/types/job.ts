@@ -17,4 +17,7 @@ export interface Job {
   posted_at: string | null
   found_at: string
   logo_url: string | null
+  apply_url: string | null
+  is_easy_apply: boolean
+  salary: string | null
 }
