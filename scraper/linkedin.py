@@ -82,6 +82,8 @@ def _parse_listings(html: str) -> list[dict]:
                 else f"https://www.linkedin.com/jobs/view/{job_id}/"
             )
 
+            is_easy_apply = "easy apply" in card.get_text(separator=" ").lower()
+
             jobs.append({
                 "id": job_id,
                 "title": title,
@@ -90,6 +92,7 @@ def _parse_listings(html: str) -> list[dict]:
                 "url": url,
                 "posted_at": posted_at,
                 "description": None,
+                "is_easy_apply": is_easy_apply,
             })
         except Exception as exc:
             log.debug("Card parse error: %s", exc)
