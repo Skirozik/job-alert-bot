@@ -27,12 +27,22 @@ export function JobCard({
 
   async function setStatus(status: Status) {
     setPending(true)
-    await fetch(`/api/jobs/${job.id}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    })
-    onStatusChange(job.id, status)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error('Status update failed:', res.status, body)
+        setPending(false)
+        return
+      }
+      onStatusChange(job.id, status)
+    } catch (err) {
+      console.error('Status update error:', err)
+    }
     setPending(false)
   }
 
