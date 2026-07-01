@@ -10,6 +10,8 @@ SEARCH_TERMS = [
     "AI engineer intern",
     "full stack developer intern",
     "python developer intern",
+    "frontend developer intern",
+    "software development intern",
 ]
 
 LOCATIONS = ["United States", "Atlanta, GA"]
