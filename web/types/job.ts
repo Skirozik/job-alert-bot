@@ -16,4 +16,5 @@ export interface Job {
   status: Status
   posted_at: string | null
   found_at: string
+  logo_url: string | null
 }

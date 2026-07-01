@@ -100,10 +100,10 @@ def _text(soup, tag: str, cls: str) -> str:
     return el.get_text(strip=True) if el else ""
 
 
-def fetch_description(job_id: str) -> Optional[str]:
-    """Fetch full job description from the LinkedIn job detail endpoint.
+def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str]]:
+    """Fetch job description and company logo URL from the LinkedIn detail endpoint.
 
-    Returns description text (truncated to 4000 chars) or None on failure.
+    Returns (description_text, logo_url). Either may be None on failure.
     Always sleeps before the request to avoid rate limiting.
     """
     time.sleep(random.uniform(2.0, 3.5))
@@ -113,22 +113,31 @@ def fetch_description(job_id: str) -> Optional[str]:
         )
         if resp.status_code == 429:
             log.warning("Rate limited on detail fetch: job %s", job_id)
-            return None
+            return None, None
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # Primary: expanded description markup
+        # ── Description ────────────────────────────────────────────────────
+        description = None
         desc_el = soup.find("div", class_="show-more-less-html__markup")
         if desc_el:
-            return desc_el.get_text(separator=" ", strip=True)[:4000]
+            description = desc_el.get_text(separator=" ", strip=True)[:4000]
+        else:
+            criteria_el = soup.find("ul", class_="description__job-criteria-list")
+            if criteria_el:
+                description = criteria_el.get_text(separator=" ", strip=True)[:2000]
 
-        # Fallback: job criteria section (seniority, employment type, etc.)
-        criteria_el = soup.find("ul", class_="description__job-criteria-list")
-        if criteria_el:
-            return criteria_el.get_text(separator=" ", strip=True)[:2000]
+        # ── Company logo ────────────────────────────────────────────────────
+        # LinkedIn lazy-loads images; the real URL is in data-delayed-url.
+        logo_url = None
+        for img in soup.find_all("img"):
+            src = img.get("data-delayed-url") or img.get("src") or ""
+            if "media.licdn.com" in src and "company-logo" in src:
+                logo_url = src
+                break
 
-        return None
+        return description, logo_url
     except Exception as exc:
         log.warning("Description fetch failed for job %s: %s", job_id, exc)
-        return None
+        return None, None
