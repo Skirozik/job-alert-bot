@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabaseServer } from '@/lib/supabase-server'
+import { getSupabaseServer } from '@/lib/supabase-server'
 
 const VALID_STATUSES = ['new', 'saved', 'applied', 'dismissed']
 
@@ -13,7 +13,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from('jobs')
     .update({ status })
     .eq('id', params.id)
