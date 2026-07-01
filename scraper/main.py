@@ -46,9 +46,25 @@ _SENIOR_SIGNALS = frozenset([
     "architect", "fellow", "distinguished", "executive",
 ])
 
+_NEW_GRAD_SIGNALS = frozenset([
+    "new grad",
+    "new graduate",
+    "new college grad",
+    "college grad",
+    " ncg ",
+    "university grad",
+    "university graduate",
+    "recent grad",
+    "recent graduate",
+])
+
 def _is_senior_role(title: str) -> bool:
     t = " " + title.lower() + " "
     return any(signal in t for signal in _SENIOR_SIGNALS)
+
+def _is_new_grad_role(title: str) -> bool:
+    t = " " + title.lower() + " "
+    return any(signal in t for signal in _NEW_GRAD_SIGNALS)
 
 
 MAX_PAGES_PER_SEARCH = 5  # 50 results max per search term/location pair
@@ -140,6 +156,14 @@ def run():
             log.info("  Pre-filter SKIP (senior title)")
             job["tier"] = "SKIP"
             job["reason"] = "Pre-filtered: seniority keyword in title"
+            job["suggested_resume"] = "General"
+            insert_job(job)
+            continue
+
+        if _is_new_grad_role(job["title"]):
+            log.info("  Pre-filter SKIP (new grad / full-time role)")
+            job["tier"] = "SKIP"
+            job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
             job["suggested_resume"] = "General"
             insert_job(job)
             continue

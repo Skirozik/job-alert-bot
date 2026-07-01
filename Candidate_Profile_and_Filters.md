@@ -48,6 +48,7 @@
 - **When in doubt between MAYBE and SKIP for an internship at a real company, always choose MAYBE.** It is always better to surface a stretch opportunity than to silently miss it.
 
 ### 🔴 SKIP — never surface
+- **New grad / full-time roles** — any listing with "New Grad", "New Graduate", "New College Grad", "College Grad", "NCG", "University Grad", "Recent Grad", or "Recent Graduate" in the title. These are full-time hires, not internships.
 - Quant / trading / HFT
 - **ML Research / Applied Scientist / Computer Vision / Deep Learning research** (these want PyTorch, model training, foundation models, a PhD/MS — NOT my lane). Note: "AI Engineer building with LLM APIs" is 🟢, but "ML/CV researcher training models" is 🔴.
 - Hardware, Embedded, Firmware, FPGA, ASIC, RTL, Verification, Flight Software, Rendering
