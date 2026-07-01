@@ -53,11 +53,26 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
     return true
   })
 
+  const applyCount = jobs.filter(j => j.tier === 'APPLY').length
+  const maybeCount = jobs.filter(j => j.tier === 'MAYBE').length
+  const skipCount  = jobs.filter(j => j.tier === 'SKIP').length
   const internCount = jobs.filter(j => j.tier !== 'SKIP' && isInternship(j)).length
   const entryCount  = jobs.filter(j => j.tier !== 'SKIP' && !isInternship(j)).length
 
   return (
     <div>
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-white">Job Dashboard</h1>
+        <p className="text-gray-500 text-sm mt-1">
+          <span className="text-green-400 font-medium">{applyCount} APPLY</span>
+          {' · '}
+          <span className="text-yellow-400 font-medium">{maybeCount} MAYBE</span>
+          {' · '}
+          <span className="text-gray-500">{skipCount} SKIP</span>
+        </p>
+      </div>
+
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
 
