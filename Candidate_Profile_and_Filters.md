@@ -11,15 +11,17 @@
 
 ## My stack
 - **Languages:** Python, Swift, JavaScript, TypeScript, SQL, HTML/CSS
-- **Frontend/Mobile:** SwiftUI, React, Next.js, React Native, Tailwind
-- **Backend/Data:** Node.js, Express, Flask, PostgreSQL, Redis, Firebase, Cloudflare Workers
+- **Frontend/Mobile:** SwiftUI, React, React Native, Next.js, Vite, Tailwind, Axios
+- **Backend:** Node.js, Express, FastAPI, Flask, Uvicorn, Pydantic
+- **Databases/Data:** PostgreSQL, Redis, Firebase, Prisma ORM, pandas
+- **Infra/DevOps:** Docker, docker-compose, BullMQ (job queues), ioredis, Cloudflare Workers
 - **AI:** Anthropic Claude + OpenAI APIs, agentic/tool-calling systems, prompt engineering (application layer, NOT ML research)
-- **Other:** REST/GraphQL, Stripe, Git, Stripe + blockchain payments
+- **Other tools:** REST/GraphQL, Stripe, Git, BeautifulSoup, PDF parsing (pdfplumber), Streamlit
 
 ## Target areas (priority order)
 1. **iOS / Mobile** (strongest — shipped App Store app)
-2. **Full-stack / Web** (React, Next.js, Node, Python)
-3. **Python / Backend**
+2. **Full-stack / Web** (React, Next.js, Vite, Node, Python)
+3. **Python / Backend** (FastAPI, Flask, Node, PostgreSQL)
 4. **AI-application / AI Engineer** (building WITH LLM APIs and agents)
 5. **General SWE Intern** at any tech-forward company
 
@@ -33,13 +35,14 @@
 ## TRIAGE RUBRIC (the bot applies this to every listing)
 
 ### 🟢 APPLY — surface immediately
-- Title contains: Software Engineer/Developer Intern, iOS, Mobile, Swift, Full-Stack, Frontend, Backend, Web, React, Node, Next.js, Python, AI Engineer, Applied AI, AI-application, SWE Intern
+- Title contains: Software Engineer/Developer Intern, iOS, Mobile, Swift, Full-Stack, Frontend, Backend, Web, React, Node, Next.js, Python, FastAPI, AI Engineer, Applied AI, AI-application, SWE Intern
+- Stack overlap with any of: React, Next.js, Vite, Node.js, Python, FastAPI, Flask, Swift, TypeScript, JavaScript, PostgreSQL, Docker, Redis, Prisma, Anthropic/OpenAI APIs
 - US location (incl. Remote-US) or anywhere I'd relocate (all US cities qualify)
 - No advanced-degree requirement
 
 ### 🟡 MAYBE — surface, lower priority
 - Data Engineering, general "Software" intern at a non-tech company, DevOps/Cloud, QA/Test, startup generalist
-- Asks for ONE adjacent language I don't have as a primary (Java, C#, Go, Kotlin) **but** the role has meaningful overlap with my stack (JS/Python/TS also accepted, or the work itself is web/backend/AI-application layer) — my "I shipped iOS in Swift, web in Node, tools in Python, I pick up languages fast" story covers this in interviews
+- Asks for ONE adjacent language I don't have as a primary (Java, C#, Go, Kotlin) **but** the role has meaningful overlap with my stack (JS/Python/TS also accepted, or the work itself is web/backend/AI-application layer) — my "I shipped iOS in Swift, web in Node, tools in Python, I pick up languages fast" story covers this in interviews. Internships teach you the stack; do not SKIP these.
 - An Android/Kotlin mobile role (adjacent to my iOS strength — flag as a stretch)
 - A role at a strong company where I'd be a stretch candidate but the domain is interesting and not a hard mismatch
 - **When in doubt between MAYBE and SKIP for an internship at a real company, always choose MAYBE.** It is always better to surface a stretch opportunity than to silently miss it.
@@ -54,6 +57,7 @@
 - Roles where **2+ years of professional experience is a hard requirement** (not a guideline or preference) — a real mid/senior-level hire is not an internship regardless of the title. If years of experience are listed as "preferred" or "a plus," that is NOT a hard requirement — treat those normally.
 - Non-US location with no US-remote option
 - A role where the ONLY language is one I have zero overlap with AND there is no other meaningful skill match (e.g. pure Rust systems, pure C++ embedded, pure COBOL). If there is ANY overlap with my stack, prefer MAYBE over SKIP.
+- **Staffing/placement agencies with no named end client** — if the hiring company is clearly a staffing, placement, or body-shop recruiter (name contains "Staffing", "Placement", "Recruiting", "HireX", "Staff Solutions", "Outsourcing", etc.) AND the job description does not name the actual end-client company, SKIP. These are not real internships.
 
 ---
 
@@ -66,7 +70,7 @@
 ## Resume to suggest per tier (the classifier can hint this)
 - iOS/Mobile role → **Mobile** resume
 - AI/agentic/LLM role → **AI** resume
-- Frontend/React role → **Frontend** variant
+- Frontend/React/Vite role → **Frontend** variant
 - Security/dev-tooling → **1Password** variant
 - Everything else → **General** resume
 
