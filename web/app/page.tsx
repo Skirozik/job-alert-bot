@@ -1,11 +1,11 @@
-import { supabaseServer } from '@/lib/supabase-server'
+import { getSupabaseServer } from '@/lib/supabase-server'
 import { JobList } from '@/components/JobList'
 import type { Job } from '@/types/job'
 
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const { data: jobs } = await supabaseServer
+  const { data: jobs } = await getSupabaseServer()
     .from('jobs')
     .select('*')
     .order('found_at', { ascending: false })
