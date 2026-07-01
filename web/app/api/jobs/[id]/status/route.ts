@@ -13,13 +13,20 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
   }
 
-  const { error } = await supabaseServer
+  const { data, error } = await supabaseServer
     .from('jobs')
     .update({ status })
     .eq('id', params.id)
+    .select('id')
 
   if (error) {
+    console.error('[status] supabase error:', error.message, 'job:', params.id)
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  if (!data || data.length === 0) {
+    console.error('[status] no rows updated for job:', params.id)
+    return NextResponse.json({ error: 'Job not found' }, { status: 404 })
   }
 
   return NextResponse.json({ ok: true })
