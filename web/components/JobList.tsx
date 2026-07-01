@@ -56,8 +56,14 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
   const applyCount = jobs.filter(j => j.tier === 'APPLY').length
   const maybeCount = jobs.filter(j => j.tier === 'MAYBE').length
   const skipCount  = jobs.filter(j => j.tier === 'SKIP').length
-  const internCount = jobs.filter(j => j.tier !== 'SKIP' && isInternship(j)).length
-  const entryCount  = jobs.filter(j => j.tier !== 'SKIP' && !isInternship(j)).length
+
+  // Tab counts exclude applied/dismissed so they match what's visible in default view
+  const isActive = (j: Job) => { const s = j.status ?? 'new'; return s !== 'applied' && s !== 'dismissed' }
+  const internCount = jobs.filter(j => j.tier !== 'SKIP' && isInternship(j) && isActive(j)).length
+  const entryCount  = jobs.filter(j => j.tier !== 'SKIP' && !isInternship(j) && isActive(j)).length
+
+  const savedCount   = jobs.filter(j => (j.status ?? 'new') === 'saved').length
+  const appliedCount = jobs.filter(j => (j.status ?? 'new') === 'applied').length
 
   return (
     <div>
@@ -100,15 +106,20 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
 
         {/* Status filter */}
         <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1">
-          {(['all', 'new', 'saved', 'applied'] as const).map(s => (
+          {([
+            { key: 'all',     label: 'All' },
+            { key: 'new',     label: 'New' },
+            { key: 'saved',   label: `Saved${savedCount ? ` (${savedCount})` : ''}` },
+            { key: 'applied', label: `Applied${appliedCount ? ` (${appliedCount})` : ''}` },
+          ] as const).map(({ key, label }) => (
             <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
+              key={key}
+              onClick={() => setFilterStatus(key)}
               className={`text-xs px-3 py-1 rounded-md transition-colors ${
-                filterStatus === s ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
+                filterStatus === key ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
               }`}
             >
-              {s}
+              {label}
             </button>
           ))}
         </div>
