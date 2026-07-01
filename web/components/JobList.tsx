@@ -69,10 +69,12 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
     return true
   })
 
-  const applyCount    = jobs.filter(j => j.tier === 'APPLY').length
-  const maybeCount    = jobs.filter(j => j.tier === 'MAYBE').length
-  const skipCount     = jobs.filter(j => j.tier === 'SKIP').length
-  const appliedCount  = jobs.filter(j => (j.status ?? 'new') === 'applied').length
+  const isActive = (j: Job) => { const s = j.status ?? 'new'; return s !== 'applied' && s !== 'dismissed' }
+
+  const applyCount     = jobs.filter(j => j.tier === 'APPLY' && isActive(j)).length
+  const maybeCount     = jobs.filter(j => j.tier === 'MAYBE' && isActive(j)).length
+  const skipCount      = jobs.filter(j => j.tier === 'SKIP').length
+  const appliedCount   = jobs.filter(j => (j.status ?? 'new') === 'applied').length
   const dismissedCount = jobs.filter(j => (j.status ?? 'new') === 'dismissed').length
 
   const ROLE_LABELS: Record<RoleFilter, string> = {
