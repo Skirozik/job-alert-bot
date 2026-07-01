@@ -93,6 +93,9 @@ def insert_job(job: dict) -> None:
         "reason": job.get("reason", ""),
         "suggested_resume": job.get("suggested_resume", "General"),
         "posted_at": job.get("posted_at"),
+        "apply_url": job.get("apply_url"),
+        "is_easy_apply": job.get("is_easy_apply", False),
+        "salary": job.get("salary"),
     }
     try:
         client.table("jobs").upsert(payload, on_conflict="id", ignore_duplicates=True).execute()
