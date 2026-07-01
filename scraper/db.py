@@ -95,7 +95,7 @@ def insert_job(job: dict) -> None:
         "posted_at": job.get("posted_at"),
     }
     try:
-        client.table("jobs").upsert(payload, on_conflict="id").execute()
+        client.table("jobs").upsert(payload, on_conflict="id", ignore_duplicates=True).execute()
         log.info("DB: stored %s [%s]", job.get("id"), job.get("tier"))
     except Exception as exc:
         log.error("DB insert failed for job %s: %s", job.get("id"), exc)
