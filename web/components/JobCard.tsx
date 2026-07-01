@@ -104,25 +104,27 @@ export function JobCard({
                 {job.suggested_resume} resume
               </span>
             )}
-            {job.salary && (
-              <span className="text-xs bg-green-900/30 text-green-400 px-2 py-0.5 rounded-md border border-green-700/30">
-                {job.salary}
-              </span>
-            )}
           </div>
 
           <p className="text-gray-400 text-sm">
             {job.company}
             {job.location && <span className="text-gray-600"> · {job.location}</span>}
           </p>
-          <a
-            href={job.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-white text-lg font-bold leading-snug hover:text-blue-400 transition-colors"
-          >
-            {job.title}
-          </a>
+          <div className="flex items-center gap-2 mt-0.5">
+            {job.salary && (
+              <span className="text-xs bg-green-900/30 text-green-400 px-2 py-0.5 rounded-md border border-green-700/30 shrink-0">
+                {job.salary}
+              </span>
+            )}
+            <a
+              href={job.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white text-lg font-bold leading-snug hover:text-blue-400 transition-colors"
+            >
+              {job.title}
+            </a>
+          </div>
         </div>
 
         <p className="text-gray-600 text-xs shrink-0">
