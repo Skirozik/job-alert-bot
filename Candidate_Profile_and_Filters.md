@@ -25,7 +25,7 @@
 
 ## Location rules
 - **Prefer:** Atlanta GA (local), Remote (US)
-- **OK:** any US city I'd relocate to for a summer/fall term
+- **OK:** ANY US city — willing to relocate anywhere in the US for an internship term (semester or summer)
 - **Exclude:** non-US roles unless explicitly US-remote eligible
 
 ---
@@ -34,29 +34,34 @@
 
 ### 🟢 APPLY — surface immediately
 - Title contains: Software Engineer/Developer Intern, iOS, Mobile, Swift, Full-Stack, Frontend, Backend, Web, React, Node, Next.js, Python, AI Engineer, Applied AI, AI-application, SWE Intern
-- US location (incl. Remote-US) or somewhere I'd relocate
+- US location (incl. Remote-US) or anywhere I'd relocate (all US cities qualify)
 - No advanced-degree requirement
 
 ### 🟡 MAYBE — surface, lower priority
 - Data Engineering, general "Software" intern at a non-tech company, DevOps/Cloud, QA/Test, startup generalist
-- Asks for ONE adjacent language I don't have (Java, C#, Go, Kotlin) — my "I shipped iOS in Swift, web in Node, tools in Python, I pick up languages fast" story covers it
+- Asks for ONE adjacent language I don't have as a primary (Java, C#, Go, Kotlin) **but** the role has meaningful overlap with my stack (JS/Python/TS also accepted, or the work itself is web/backend/AI-application layer) — my "I shipped iOS in Swift, web in Node, tools in Python, I pick up languages fast" story covers this in interviews
 - An Android/Kotlin mobile role (adjacent to my iOS strength — flag as a stretch)
+- A role at a strong company where I'd be a stretch candidate but the domain is interesting and not a hard mismatch
+- **When in doubt between MAYBE and SKIP for an internship at a real company, always choose MAYBE.** It is always better to surface a stretch opportunity than to silently miss it.
 
 ### 🔴 SKIP — never surface
 - Quant / trading / HFT
 - **ML Research / Applied Scientist / Computer Vision / Deep Learning research** (these want PyTorch, model training, foundation models, a PhD/MS — NOT my lane). Note: "AI Engineer building with LLM APIs" is 🟢, but "ML/CV researcher training models" is 🔴.
-- Hardware, Embedded, Firmware, FPGA, ASIC, RTL, Verification, Flight Software (C++), Rendering
+- Hardware, Embedded, Firmware, FPGA, ASIC, RTL, Verification, Flight Software, Rendering
 - Electrical/Mechanical or other non-CS engineering
-- Anything requiring an advanced degree (MS/PhD), or 2-3+ years of professional experience as a hard requirement (intern postings that tack this on are usually fine, but a real senior/mid role is a SKIP)
-- Requires a U.S. security clearance I don't have
+- Requires a U.S. security clearance I don't currently hold
+- Roles where an **advanced degree (MS/PhD) is explicitly required** — not just preferred
+- Roles where **2+ years of professional experience is a hard requirement** (not a guideline or preference) — a real mid/senior-level hire is not an internship regardless of the title. If years of experience are listed as "preferred" or "a plus," that is NOT a hard requirement — treat those normally.
 - Non-US location with no US-remote option
+- A role where the ONLY language is one I have zero overlap with AND there is no other meaningful skill match (e.g. pure Rust systems, pure C++ embedded, pure COBOL). If there is ANY overlap with my stack, prefer MAYBE over SKIP.
 
 ---
 
-## Honesty filters (do not surface roles I'd have to lie to qualify for)
-- No roles centered on **Rust, Go, C#/.NET, AutoCAD/CAD/LISP** as core requirements (I don't have these; C# only as "familiarity").
+## Honesty filters (do not surface roles I'd have to outright lie to qualify for)
+- **Java/C#/.NET as a core requirement:** MAYBE (not SKIP) — I can credibly pitch "I learn languages fast, I shipped iOS in Swift, web in Node, Python backend; I'll ramp on Java/C# on the job." This is a legitimate intern pitch and companies hire interns to teach them.
+- **Pure Rust / pure Go / pure C++ systems/embedded** with zero JS/Python overlap: SKIP — these require deep systems programming I cannot defend.
 - No **computer vision / ML model training** roles (PyTorch, CLIP, SAM, object detection, segmentation) — application-layer LLM work only.
-- No roles where the core requirement is something I can't defend in an interview.
+- No roles where the SOLE core requirement is something I genuinely cannot defend at all AND there is no overlap with my stack.
 
 ## Resume to suggest per tier (the classifier can hint this)
 - iOS/Mobile role → **Mobile** resume
