@@ -25,9 +25,11 @@ export function JobCard({
   onStatusChange: (id: string, status: Status) => void
 }) {
   const [pending, setPending] = useState(false)
+  const [saveError, setSaveError] = useState(false)
 
   async function setStatus(status: Status) {
     setPending(true)
+    setSaveError(false)
     try {
       const res = await fetch(`/api/jobs/${job.id}/status`, {
         method: 'PATCH',
@@ -37,12 +39,14 @@ export function JobCard({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         console.error('Status update failed:', res.status, body)
+        setSaveError(true)
         setPending(false)
         return
       }
       onStatusChange(job.id, status)
     } catch (err) {
       console.error('Status update error:', err)
+      setSaveError(true)
     }
     setPending(false)
   }
@@ -117,7 +121,10 @@ export function JobCard({
 
       {/* Actions */}
       {!isSkip && (
-        <div className="flex gap-2 mt-4">
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          {saveError && (
+            <span className="text-xs text-red-400 w-full">Failed to save — check Vercel env vars (SUPABASE_SERVICE_KEY)</span>
+          )}
           <button
             onClick={() => setStatus('applied')}
             disabled={pending || currentStatus === 'applied'}
