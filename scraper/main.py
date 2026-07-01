@@ -168,8 +168,8 @@ def run():
             insert_job(job)
             continue
 
-        # 3b. Fetch description + logo (adds a delay internally)
-        desc, logo_url = fetch_description(job["id"])
+        # 3b. Fetch description + logo + apply info (adds a delay internally)
+        desc, logo_url, apply_url, is_easy_apply, salary_li = fetch_description(job["id"])
         if desc:
             job["description"] = desc
             log.info("  Description: %d chars", len(desc))
@@ -178,12 +178,22 @@ def run():
         if logo_url:
             job["logo_url"] = logo_url
             log.info("  Logo: %s", logo_url)
+        job["is_easy_apply"] = is_easy_apply
+        if apply_url:
+            job["apply_url"] = apply_url
+            log.info("  Apply URL: %s", apply_url)
+        if salary_li:
+            job["salary"] = salary_li
+            log.info("  Salary (LinkedIn): %s", salary_li)
 
         # 4. Classify
         result = classify(job)
         job["tier"] = result.get("tier", "MAYBE")
         job["reason"] = result.get("reason", "")
         job["suggested_resume"] = result.get("suggested_resume", "General")
+        if not job.get("salary") and result.get("salary"):
+            job["salary"] = result["salary"]
+            log.info("  Salary (Claude): %s", job["salary"])
         log.info("  → %s | %s | Resume: %s",
                  job["tier"], job["reason"], job["suggested_resume"])
 

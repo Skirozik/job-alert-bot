@@ -1,4 +1,5 @@
 import re
+import json as _json
 import time
 import random
 import logging
@@ -100,10 +101,10 @@ def _text(soup, tag: str, cls: str) -> str:
     return el.get_text(strip=True) if el else ""
 
 
-def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str]]:
-    """Fetch job description and company logo URL from the LinkedIn detail endpoint.
+def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str], Optional[str], bool, Optional[str]]:
+    """Fetch job description, logo, apply URL, Easy Apply flag, and salary.
 
-    Returns (description_text, logo_url). Either may be None on failure.
+    Returns (description, logo_url, apply_url, is_easy_apply, salary).
     Always sleeps before the request to avoid rate limiting.
     """
     time.sleep(random.uniform(2.0, 3.5))
@@ -113,7 +114,7 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str]]:
         )
         if resp.status_code == 429:
             log.warning("Rate limited on detail fetch: job %s", job_id)
-            return None, None
+            return None, None, None, False, None
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "lxml")
@@ -129,7 +130,6 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str]]:
                 description = criteria_el.get_text(separator=" ", strip=True)[:2000]
 
         # ── Company logo ────────────────────────────────────────────────────
-        # LinkedIn lazy-loads images; the real URL is in data-delayed-url.
         logo_url = None
         for img in soup.find_all("img"):
             src = img.get("data-delayed-url") or img.get("src") or ""
@@ -137,7 +137,36 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str]]:
                 logo_url = src
                 break
 
-        return description, logo_url
+        # ── Apply URL + Easy Apply + Salary ─────────────────────────────────
+        apply_url = None
+        is_easy_apply = False
+        salary = None
+
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = _json.loads(script.string or "")
+                if data.get("@type") == "JobPosting":
+                    is_easy_apply = bool(data.get("directApply", False))
+                    if not is_easy_apply:
+                        ext = data.get("url", "")
+                        if ext and "linkedin.com" not in ext:
+                            apply_url = ext
+                    bs = data.get("baseSalary", {}).get("value", {})
+                    lo = bs.get("minValue")
+                    hi = bs.get("maxValue")
+                    unit = bs.get("unitText", "")
+                    if lo and hi:
+                        salary = f"${int(lo):,}–${int(hi):,}{(' ' + unit) if unit else ''}"
+                    elif lo:
+                        salary = f"${int(lo):,}{(' ' + unit) if unit else ''}"
+                    break
+            except Exception:
+                pass
+
+        if not is_easy_apply and "easy apply" in resp.text.lower():
+            is_easy_apply = True
+
+        return description, logo_url, apply_url, is_easy_apply, salary
     except Exception as exc:
         log.warning("Description fetch failed for job %s: %s", job_id, exc)
-        return None, None
+        return None, None, None, False, None
