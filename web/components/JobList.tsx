@@ -5,10 +5,19 @@ import { supabaseBrowser } from '@/lib/supabase-browser'
 import { JobCard } from './JobCard'
 import type { Job, Status } from '@/types/job'
 
+const INTERN_RE = /intern|internship|co[\s-]?op|apprentice/i
+
+function isInternship(job: Job): boolean {
+  return INTERN_RE.test(job.title)
+}
+
+type RoleFilter = 'all' | 'internships' | 'entry-level'
+
 export function JobList({ initialJobs }: { initialJobs: Job[] }) {
   const [jobs, setJobs] = useState<Job[]>(initialJobs)
   const [showSkip, setShowSkip] = useState(false)
   const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'saved' | 'applied'>('all')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('internships')
 
   // Real-time: new jobs float in as they're inserted
   useEffect(() => {
@@ -37,16 +46,41 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
   const displayed = jobs.filter(j => {
     if (!showSkip && j.tier === 'SKIP') return false
     if (filterStatus !== 'all' && (j.status ?? 'new') !== filterStatus) return false
+    if (roleFilter === 'internships' && !isInternship(j)) return false
+    if (roleFilter === 'entry-level' && isInternship(j)) return false
     return true
   })
 
-  const applyCount = jobs.filter(j => j.tier === 'APPLY').length
-  const maybeCount = jobs.filter(j => j.tier === 'MAYBE').length
+  const internCount = jobs.filter(j => j.tier !== 'SKIP' && isInternship(j)).length
+  const entryCount  = jobs.filter(j => j.tier !== 'SKIP' && !isInternship(j)).length
 
   return (
     <div>
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
+
+        {/* Role type filter */}
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1">
+          <button
+            onClick={() => setRoleFilter('internships')}
+            className={`text-xs px-3 py-1 rounded-md transition-colors ${roleFilter === 'internships' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Internships ({internCount})
+          </button>
+          <button
+            onClick={() => setRoleFilter('entry-level')}
+            className={`text-xs px-3 py-1 rounded-md transition-colors ${roleFilter === 'entry-level' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Entry-level ({entryCount})
+          </button>
+          <button
+            onClick={() => setRoleFilter('all')}
+            className={`text-xs px-3 py-1 rounded-md transition-colors ${roleFilter === 'all' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            All
+          </button>
+        </div>
+
         {/* Status filter */}
         <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1">
           {(['all', 'new', 'saved', 'applied'] as const).map(s => (
@@ -54,12 +88,10 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
               key={s}
               onClick={() => setFilterStatus(s)}
               className={`text-xs px-3 py-1 rounded-md transition-colors ${
-                filterStatus === s
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-500 hover:text-gray-300'
+                filterStatus === s ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'
               }`}
             >
-              {s === 'all' ? `All (${applyCount + maybeCount})` : s}
+              {s}
             </button>
           ))}
         </div>
