@@ -104,6 +104,11 @@ export function JobCard({
                 {job.suggested_resume} resume
               </span>
             )}
+            {job.salary && (
+              <span className="text-xs bg-green-900/30 text-green-400 px-2 py-0.5 rounded-md border border-green-700/30">
+                {job.salary}
+              </span>
+            )}
           </div>
 
           <p className="text-gray-400 text-sm">
@@ -136,6 +141,14 @@ export function JobCard({
           {saveError && (
             <span className="text-xs text-red-400 w-full">Failed to save — check Vercel env vars (SUPABASE_SERVICE_KEY)</span>
           )}
+          <a
+            href={job.is_easy_apply ? job.url : (job.apply_url ?? job.url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 transition-colors"
+          >
+            {job.is_easy_apply ? 'Easy Apply ↗' : 'Apply ↗'}
+          </a>
           <button
             onClick={() => setStatus('applied')}
             disabled={pending || currentStatus === 'applied'}
