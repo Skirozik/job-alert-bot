@@ -62,18 +62,18 @@ export function JobCard({
             )}
           </div>
 
+          <p className="text-gray-400 text-sm">
+            {job.company}
+            {job.location && <span className="text-gray-600"> · {job.location}</span>}
+          </p>
           <a
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-white font-semibold leading-snug hover:text-blue-400 transition-colors"
+            className="text-white text-lg font-bold leading-snug hover:text-blue-400 transition-colors"
           >
             {job.title}
           </a>
-          <p className="text-gray-400 text-sm mt-0.5">
-            {job.company}
-            {job.location && <span className="text-gray-600"> · {job.location}</span>}
-          </p>
         </div>
 
         <p className="text-gray-600 text-xs shrink-0">
