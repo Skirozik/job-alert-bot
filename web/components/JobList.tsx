@@ -45,7 +45,9 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
 
   const displayed = jobs.filter(j => {
     if (!showSkip && j.tier === 'SKIP') return false
-    if (filterStatus !== 'all' && (j.status ?? 'new') !== filterStatus) return false
+    const status = j.status ?? 'new'
+    if (filterStatus === 'all' && (status === 'applied' || status === 'dismissed')) return false
+    if (filterStatus !== 'all' && status !== filterStatus) return false
     if (roleFilter === 'internships' && !isInternship(j)) return false
     if (roleFilter === 'entry-level' && isInternship(j)) return false
     return true
