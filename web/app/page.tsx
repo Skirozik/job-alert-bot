@@ -18,16 +18,19 @@ export default async function HomePage() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const key = process.env.SUPABASE_SERVICE_KEY!
 
-  // Jobs you've acted on (applied/saved/dismissed) must never fall off the
-  // page just because more jobs got scraped later — only the unreviewed
-  // "new" queue is capped, since that's the one that's fine to trim by age.
-  const [tracked, recent] = await Promise.all([
+  // Only the low-priority SKIP backlog is capped by recency — everything
+  // else must load in full regardless of how many jobs pile up over time:
+  //   - status != 'new' (applied/saved/dismissed): jobs you've acted on
+  //   - tier APPLY/MAYBE + status = 'new': jobs still awaiting your decision
+  //   - tier SKIP + status = 'new': already bot-rejected, fine to trim by age
+  const [tracked, activeReview, skipRecent] = await Promise.all([
     fetchJobs(url, key, 'select=*&status=neq.new&order=found_at.desc'),
-    fetchJobs(url, key, 'select=*&status=eq.new&order=found_at.desc&limit=500'),
+    fetchJobs(url, key, 'select=*&status=eq.new&tier=in.(APPLY,MAYBE)&order=found_at.desc'),
+    fetchJobs(url, key, 'select=*&status=eq.new&tier=eq.SKIP&order=found_at.desc&limit=500'),
   ])
 
   const seen = new Set<string>()
-  const jobs: Job[] = [...tracked, ...recent]
+  const jobs: Job[] = [...tracked, ...activeReview, ...skipRecent]
     .filter((j) => (seen.has(j.id) ? false : (seen.add(j.id), true)))
     .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
 

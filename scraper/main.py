@@ -39,6 +39,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from config import SEARCH_TERMS, LOCATIONS, LOOKBACK_SECONDS
 from linkedin import fetch_listings, fetch_description
 from github_sources import fetch_github_listings
+from external_descriptions import fetch_external_description
 from classifier import classify
 from notifier import push_job, push_canary
 from db import load_dedup_index, make_norm_key, insert_job, start_run, finish_run
@@ -222,8 +223,9 @@ def run():
                 insert_job(job)
                 continue
 
-            # 3b. Fetch description + logo + apply info (LinkedIn jobs only —
-            # GitHub-sourced jobs already carry their own apply_url/location).
+            # 3b. Fetch description + logo + apply info. LinkedIn jobs get a
+            # full detail-page fetch; GitHub-sourced jobs already carry their
+            # own apply_url/location and get a description from the ATS API.
             if not job["id"].startswith("gh:"):
                 desc, logo_url, apply_url, is_easy_apply, salary_li = fetch_description(job["id"])
                 if desc:
@@ -244,7 +246,12 @@ def run():
                     job["salary"] = salary_li
                     log.info("  Salary (LinkedIn): %s", salary_li)
             else:
-                log.info("  GitHub source — using tracker data (no LinkedIn detail fetch)")
+                desc = fetch_external_description(job.get("apply_url", ""))
+                if desc:
+                    job["description"] = desc
+                    log.info("  GitHub source — fetched description: %d chars", len(desc))
+                else:
+                    log.info("  GitHub source — no description available (unrecognized/unfetchable ATS)")
 
             # 4. Classify
             result = classify(job)
