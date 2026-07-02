@@ -99,7 +99,7 @@ export function JobCard({
             <span className={`text-xs px-2 py-0.5 rounded-md ${STATUS_BADGE[currentStatus]}`}>
               {currentStatus}
             </span>
-            {job.suggested_resume && job.suggested_resume !== 'General' && job.suggested_resume !== 'N/A' && (
+            {job.suggested_resume && job.suggested_resume !== 'N/A' && (
               <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-md">
                 {job.suggested_resume} resume
               </span>
