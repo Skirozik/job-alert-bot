@@ -1,14 +1,17 @@
-name: Job Scraper
+name: Job Digest Email
 
+# 13:00 and 23:00 UTC ≈ 8am and 6pm US Eastern during EST (winter).
+# During EDT (summer) these land ~9am/7pm instead — cron doesn't follow DST.
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 13 * * *'
+    - cron: '0 23 * * *'
   workflow_dispatch:
 
 jobs:
-  scrape:
+  digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
 
     steps:
       - name: Checkout
@@ -24,14 +27,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
 
-      - name: Run scraper
+      - name: Send digest
         working-directory: scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM: ${{ secrets.RESEND_FROM }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-        run: python main.py
+        run: python digest.py
