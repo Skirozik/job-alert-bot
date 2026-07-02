@@ -11,7 +11,7 @@ function isInternship(job: Job): boolean {
   return INTERN_RE.test(job.title)
 }
 
-type View = 'all' | 'applied' | 'skipped' | 'dismissed'
+type View = 'all' | 'applied' | 'saved' | 'skipped' | 'dismissed'
 type RoleFilter = 'all' | 'internships' | 'entry-level'
 
 export function JobList({ initialJobs }: { initialJobs: Job[] }) {
@@ -32,7 +32,8 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Real-time: new jobs float in as they're inserted
+  // Real-time: new jobs float in as they're inserted, and status/tier edits
+  // made elsewhere (another tab, another device) sync in live too.
   useEffect(() => {
     const channel = supabaseBrowser
       .channel('jobs-live')
@@ -47,6 +48,14 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
           })
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'jobs' },
+        (payload) => {
+          const job = payload.new as Job
+          setJobs(prev => prev.map(j => j.id === job.id ? job : j))
+        }
+      )
       .subscribe()
 
     return () => { supabaseBrowser.removeChannel(channel) }
@@ -58,6 +67,7 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
 
   const displayed = jobs.filter(j => {
     if (view === 'applied')   return (j.status ?? 'new') === 'applied'
+    if (view === 'saved')     return (j.status ?? 'new') === 'saved'
     if (view === 'skipped')   return j.tier === 'SKIP'
     if (view === 'dismissed') return (j.status ?? 'new') === 'dismissed'
     // view === 'all': APPLY + MAYBE tier, active status only
@@ -75,6 +85,7 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
   const maybeCount     = jobs.filter(j => j.tier === 'MAYBE' && isActive(j)).length
   const skipCount      = jobs.filter(j => j.tier === 'SKIP').length
   const appliedCount   = jobs.filter(j => (j.status ?? 'new') === 'applied').length
+  const savedCount     = jobs.filter(j => (j.status ?? 'new') === 'saved').length
   const dismissedCount = jobs.filter(j => (j.status ?? 'new') === 'dismissed').length
 
   const ROLE_LABELS: Record<RoleFilter, string> = {
@@ -140,6 +151,18 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
           }`}
         >
           Applied ({appliedCount})
+        </button>
+
+        {/* Saved toggle */}
+        <button
+          onClick={() => setView(v => v === 'saved' ? 'all' : 'saved')}
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+            view === 'saved'
+              ? 'bg-purple-600/20 border-purple-500/40 text-purple-300'
+              : 'bg-gray-900 border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300'
+          }`}
+        >
+          Saved ({savedCount})
         </button>
 
         {/* Skipped toggle */}

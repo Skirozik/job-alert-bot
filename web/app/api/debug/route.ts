@@ -20,7 +20,6 @@ export async function GET() {
 
   const data = await res.json()
   return NextResponse.json({
-    env: { url: url.slice(0, 30) + '...', key_prefix: key.slice(0, 20) + '...' },
     non_new_jobs: data,
     count: Array.isArray(data) ? data.length : 'error',
   })

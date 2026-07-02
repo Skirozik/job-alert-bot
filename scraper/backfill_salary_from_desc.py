@@ -12,6 +12,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+# See main.py for why: Windows console encoding can't print emoji/non-ASCII job data.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from db import get_client
 
 logging.basicConfig(
@@ -22,18 +26,23 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Separator between range bounds: a dash or the word "to" — NOT a character
+# class, since [-–—to]+ matches the individual letters 't' and 'o' too (so it
+# would wrongly match e.g. "$20oo$30").
+_SEP = r'(?:[-–—]+|\s*to\s*)'
+
 # Salary patterns — ordered most-specific first
 _PATTERNS = [
     # Range with $ and /hr or /hour: $20 - $30/hr, $20.50-$35/hour
-    r'\$[\d,]+(?:\.\d+)?\s*[-–—to]+\s*\$[\d,]+(?:\.\d+)?\s*/\s*h(?:ou)?r',
+    rf'\$[\d,]+(?:\.\d+)?\s*{_SEP}\s*\$[\d,]+(?:\.\d+)?\s*/\s*h(?:ou)?r',
     # Range with $ and per hour: $20 - $30 per hour
-    r'\$[\d,]+(?:\.\d+)?\s*[-–—to]+\s*\$[\d,]+(?:\.\d+)?\s*per\s*hour',
+    rf'\$[\d,]+(?:\.\d+)?\s*{_SEP}\s*\$[\d,]+(?:\.\d+)?\s*per\s*hour',
     # Range with $ and /yr or annually: $80,000 - $120,000/yr
-    r'\$[\d,]+(?:\.\d+)?\s*[-–—to]+\s*\$[\d,]+(?:\.\d+)?\s*(?:/\s*yr|per\s*year|annually)',
+    rf'\$[\d,]+(?:\.\d+)?\s*{_SEP}\s*\$[\d,]+(?:\.\d+)?\s*(?:/\s*yr|per\s*year|annually)',
     # Plain dollar range (likely annual): $80,000 - $120,000
-    r'\$[\d,]{5,}\s*[-–—to]+\s*\$[\d,]{5,}',
+    rf'\$[\d,]{{5,}}\s*{_SEP}\s*\$[\d,]{{5,}}',
     # K range: $80K - $120K, $80k–$120k
-    r'\$\d+[kK]\s*[-–—to]+\s*\$\d+[kK]',
+    rf'\$\d+[kK]\s*{_SEP}\s*\$\d+[kK]',
     # Single value /hr: $25/hr, $25.50 / hour
     r'\$[\d,]+(?:\.\d+)?\s*/\s*h(?:ou)?r',
     # Single value per hour
@@ -46,14 +55,28 @@ _PATTERNS = [
 
 _COMPILED = [re.compile(p, re.IGNORECASE) for p in _PATTERNS]
 
+# The last two patterns (K value, bare large dollar figure) have no hourly/
+# annual anchor, so they also catch tuition reimbursement caps, signing
+# bonuses, and relocation stipends. Skip a match if one of these phrases
+# appears just before it.
+_FALSE_POSITIVE_CONTEXT = re.compile(
+    r'(tuition|reimburs|bonus|sign[- ]?on|relocation|stipend)', re.IGNORECASE
+)
+_UNANCHORED_PATTERN_COUNT = 2
+
 
 def extract_salary(text: str) -> str | None:
     if not text:
         return None
-    for pattern in _COMPILED:
+    for idx, pattern in enumerate(_COMPILED):
         m = pattern.search(text)
-        if m:
-            return m.group(0).strip()
+        if not m:
+            continue
+        if idx >= len(_COMPILED) - _UNANCHORED_PATTERN_COUNT:
+            context = text[max(0, m.start() - 40):m.start()]
+            if _FALSE_POSITIVE_CONTEXT.search(context):
+                continue
+        return m.group(0).strip()
     return None
 
 
