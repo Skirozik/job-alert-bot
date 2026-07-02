@@ -220,34 +220,38 @@ def run():
             log.info("Processing: '%s' @ %s [%s]",
                      job["title"], job["company"], job["id"])
 
-            # 3a. Pre-filter: skip senior/non-intern titles without hitting Claude
-            if _is_senior_role(job["title"]):
-                log.info("  Pre-filter SKIP (senior title)")
-                job["tier"] = "SKIP"
-                job["reason"] = "Pre-filtered: seniority keyword in title"
-                job["suggested_resume"] = "General"
-                insert_job(job)
-                continue
+            # 3a. Pre-filter: skip senior/non-intern titles without hitting Claude.
+            # GitHub-tracker sources are curated, internship-only lists the
+            # user trusts completely — every one should reach APPLY/MAYBE for
+            # a human decision, never get auto-SKIPped by a title heuristic.
+            # (The "never SKIP" policy for gh: jobs is also enforced at the
+            # classifier level — see _never_skip_github_sourced in
+            # classifier.py — so it holds even if a description reveals a
+            # mismatch Claude would otherwise SKIP for.)
+            if not job["id"].startswith("gh:"):
+                if _is_senior_role(job["title"]):
+                    log.info("  Pre-filter SKIP (senior title)")
+                    job["tier"] = "SKIP"
+                    job["reason"] = "Pre-filtered: seniority keyword in title"
+                    job["suggested_resume"] = "General"
+                    insert_job(job)
+                    continue
 
-            if _is_new_grad_role(job["title"]):
-                log.info("  Pre-filter SKIP (new grad / full-time role)")
-                job["tier"] = "SKIP"
-                job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
-                job["suggested_resume"] = "General"
-                insert_job(job)
-                continue
+                if _is_new_grad_role(job["title"]):
+                    log.info("  Pre-filter SKIP (new grad / full-time role)")
+                    job["tier"] = "SKIP"
+                    job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
+                    job["suggested_resume"] = "General"
+                    insert_job(job)
+                    continue
 
-            # GitHub-tracker sources are internship-only by construction and
-            # occasionally list a genuine internship without "intern" in the
-            # title — gating those here risks a silent, permanent
-            # false-negative SKIP, so this check is LinkedIn-only.
-            if not job["id"].startswith("gh:") and _is_non_internship_title(job["title"]):
-                log.info("  Pre-filter SKIP (no internship marker in title)")
-                job["tier"] = "SKIP"
-                job["reason"] = "Pre-filtered: no internship marker in title"
-                job["suggested_resume"] = "General"
-                insert_job(job)
-                continue
+                if _is_non_internship_title(job["title"]):
+                    log.info("  Pre-filter SKIP (no internship marker in title)")
+                    job["tier"] = "SKIP"
+                    job["reason"] = "Pre-filtered: no internship marker in title"
+                    job["suggested_resume"] = "General"
+                    insert_job(job)
+                    continue
 
             # 3b. Fetch description + logo + apply info. LinkedIn jobs get a
             # full detail-page fetch; GitHub-sourced jobs already carry their
