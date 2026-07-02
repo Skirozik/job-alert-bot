@@ -69,12 +69,13 @@
 - No **computer vision / ML model training** roles (PyTorch, CLIP, SAM, object detection, segmentation) — application-layer LLM work only.
 - No roles where the SOLE core requirement is something I genuinely cannot defend at all AND there is no overlap with my stack.
 
-## Resume to suggest per tier (the classifier can hint this)
-- iOS/Mobile role → **Mobile** resume
-- AI/agentic/LLM role → **AI** resume
-- Frontend/React/Vite role → **Frontend** variant
-- Security/dev-tooling → **1Password** variant
-- Everything else → **General** resume
+## Resume to suggest (exactly 4 variants exist — pick the one that best fits
+## the actual responsibilities/stack described in the JD, not just the title)
+- **Mobile** — the role is meaningfully iOS/Android/React Native work: building or maintaining a mobile app, SwiftUI/UIKit, mobile-specific architecture, App Store shipping.
+- **AI** — the role centers on building WITH LLMs/agents: prompt engineering, tool-calling, RAG, agentic workflows, integrating Anthropic/OpenAI APIs into a product. (Not ML research/model training — those are SKIP entirely, see above.)
+- **Frontend** — the role is primarily UI/web-frontend: React, Next.js, Vite, component/design-system work, little-to-no backend ownership.
+- **General** — everything else: full-stack, backend/API, Python/data, DevOps, or any role that's a genuine mix without one clearly dominant lane above. This is the default when in doubt.
+Read the actual JD — a title like "Software Engineer Intern" at an AI company can still be **AI** if the day-to-day is building agents, and a "Full Stack" role that's 80% React work can still be **Frontend**.
 
 ## Class-year note
 Most internships accept rising juniors AND seniors. A few pre-internships target rising juniors only — surface them but flag "check class-year eligibility."

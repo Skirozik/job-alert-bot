@@ -60,8 +60,10 @@ _CLASSIFY_TOOL = {
             },
             "suggested_resume": {
                 "type": "string",
-                "enum": ["Mobile", "AI", "Frontend", "1Password", "General"],
-                "description": "Which resume variant best fits this role.",
+                "enum": ["Mobile", "AI", "Frontend", "General"],
+                "description": "Which of the candidate's 4 resume variants best fits this "
+                               "specific role, based on the actual responsibilities and stack "
+                               "described in the posting — not just title keywords.",
             },
             "salary": {
                 "type": "string",
