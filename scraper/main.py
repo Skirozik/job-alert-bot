@@ -83,6 +83,20 @@ def _is_senior_role(title: str) -> bool:
 def _is_new_grad_role(title: str) -> bool:
     return bool(_NEW_GRAD_RE.search(title.lower()))
 
+# Positive gate: LinkedIn's search does fuzzy/semantic matching, so generic
+# professional titles with no internship signal in either direction (e.g.
+# "Backend Engineer", "Associate Machine Learning Engineer") still show up
+# despite every search term ending in "intern". Require an explicit marker
+# instead of relying on the classifier to catch these via judgment alone —
+# validated against production data: 0 of 33 jobs actually applied to lack
+# this marker, while 35% of a given active queue can. LinkedIn-only (see
+# call site) — GitHub tracker sources are internship-only by construction
+# and occasionally omit "intern" from the title on a genuine internship.
+_INTERN_TITLE_RE = re.compile(r"\bintern(?:ship)?s?\b|\bco[\s-]?ops?\b|\bapprentice(?:ship)?s?\b")
+
+def _is_non_internship_title(title: str) -> bool:
+    return not _INTERN_TITLE_RE.search(title.lower())
+
 
 MAX_PAGES_PER_SEARCH = 5  # 50 results max per search term/location pair
 
@@ -219,6 +233,18 @@ def run():
                 log.info("  Pre-filter SKIP (new grad / full-time role)")
                 job["tier"] = "SKIP"
                 job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
+                job["suggested_resume"] = "General"
+                insert_job(job)
+                continue
+
+            # GitHub-tracker sources are internship-only by construction and
+            # occasionally list a genuine internship without "intern" in the
+            # title — gating those here risks a silent, permanent
+            # false-negative SKIP, so this check is LinkedIn-only.
+            if not job["id"].startswith("gh:") and _is_non_internship_title(job["title"]):
+                log.info("  Pre-filter SKIP (no internship marker in title)")
+                job["tier"] = "SKIP"
+                job["reason"] = "Pre-filtered: no internship marker in title"
                 job["suggested_resume"] = "General"
                 insert_job(job)
                 continue
