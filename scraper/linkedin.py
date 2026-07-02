@@ -26,13 +26,17 @@ HEADERS = {
 }
 
 
+MAX_RETRIES = 2  # on a 429, retry with backoff this many times before giving up
+
+
 def fetch_listings(
     keyword: str, location: str, lookback_seconds: int = 7200, start: int = 0
 ) -> tuple[list[dict], Optional[str]]:
     """Fetch one page of job listings from LinkedIn guest search API.
 
     Returns (jobs_list, error_string_or_None).
-    error = "rate_limited" means back off; other strings are network/parse errors.
+    error = "rate_limited" means back off (after retrying); other strings are
+    network/parse errors.
     """
     params = {
         "keywords": keyword,
@@ -41,17 +45,30 @@ def fetch_listings(
         "f_TPR": f"r{lookback_seconds}",
         "start": str(start),
     }
-    try:
-        resp = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=15)
-        if resp.status_code == 429:
-            log.warning("Rate limited: '%s' in %s", keyword, location)
-            return [], "rate_limited"
-        resp.raise_for_status()
-        jobs = _parse_listings(resp.text)
-        return jobs, None
-    except Exception as exc:
-        log.error("Search error '%s'/%s: %s", keyword, location, exc)
-        return [], str(exc)
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            resp = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=15)
+            if resp.status_code == 429:
+                if attempt < MAX_RETRIES:
+                    backoff = _backoff_seconds(attempt)
+                    log.warning("Rate limited: '%s' in %s — retry %d/%d in %.1fs",
+                                keyword, location, attempt + 1, MAX_RETRIES, backoff)
+                    time.sleep(backoff)
+                    continue
+                log.warning("Rate limited: '%s' in %s — giving up after %d retries",
+                            keyword, location, MAX_RETRIES)
+                return [], "rate_limited"
+            resp.raise_for_status()
+            jobs = _parse_listings(resp.text)
+            return jobs, None
+        except Exception as exc:
+            log.error("Search error '%s'/%s: %s", keyword, location, exc)
+            return [], str(exc)
+    return [], "rate_limited"
+
+
+def _backoff_seconds(attempt: int) -> float:
+    return 5 * (2 ** attempt) + random.uniform(0, 2)
 
 
 def _parse_listings(html: str) -> list[dict]:
@@ -108,18 +125,33 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str], Option
     """Fetch job description, logo, apply URL, Easy Apply flag, and salary.
 
     Returns (description, logo_url, apply_url, is_easy_apply, salary).
-    Always sleeps before the request to avoid rate limiting.
+    Always sleeps before the request to avoid rate limiting; retries with
+    backoff on a 429 before giving up.
     """
-    time.sleep(random.uniform(2.0, 3.5))
-    try:
-        resp = requests.get(
-            DETAIL_URL.format(job_id), headers=HEADERS, timeout=15
-        )
-        if resp.status_code == 429:
-            log.warning("Rate limited on detail fetch: job %s", job_id)
+    resp = None
+    for attempt in range(MAX_RETRIES + 1):
+        time.sleep(random.uniform(2.0, 3.5))
+        try:
+            resp = requests.get(
+                DETAIL_URL.format(job_id), headers=HEADERS, timeout=15
+            )
+            if resp.status_code == 429:
+                if attempt < MAX_RETRIES:
+                    backoff = _backoff_seconds(attempt)
+                    log.warning("Rate limited on detail fetch: job %s — retry %d/%d in %.1fs",
+                                job_id, attempt + 1, MAX_RETRIES, backoff)
+                    time.sleep(backoff)
+                    continue
+                log.warning("Rate limited on detail fetch: job %s — giving up after %d retries",
+                            job_id, MAX_RETRIES)
+                return None, None, None, False, None
+            resp.raise_for_status()
+            break
+        except Exception as exc:
+            log.warning("Description fetch failed for job %s: %s", job_id, exc)
             return None, None, None, False, None
-        resp.raise_for_status()
 
+    try:
         soup = BeautifulSoup(resp.text, "lxml")
 
         # ── Description ────────────────────────────────────────────────────
@@ -158,10 +190,15 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str], Option
                     lo = bs.get("minValue")
                     hi = bs.get("maxValue")
                     unit = bs.get("unitText", "")
+                    # minValue/maxValue can come back as comma-formatted strings
+                    # (e.g. "41,600") — strip commas before int() or this raises
+                    # and the salary is silently dropped by the except below.
+                    lo = int(str(lo).replace(",", "")) if lo not in (None, "") else None
+                    hi = int(str(hi).replace(",", "")) if hi not in (None, "") else None
                     if lo and hi:
-                        salary = f"${int(lo):,}–${int(hi):,}{(' ' + unit) if unit else ''}"
+                        salary = f"${lo:,}–${hi:,}{(' ' + unit) if unit else ''}"
                     elif lo:
-                        salary = f"${int(lo):,}{(' ' + unit) if unit else ''}"
+                        salary = f"${lo:,}{(' ' + unit) if unit else ''}"
                     break
             except Exception:
                 pass

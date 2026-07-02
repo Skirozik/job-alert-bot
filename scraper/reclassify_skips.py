@@ -12,6 +12,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+# See main.py for why: Windows console encoding can't print emoji/non-ASCII job data.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from classifier import classify
 from db import get_client
 
