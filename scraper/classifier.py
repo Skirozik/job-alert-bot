@@ -12,12 +12,28 @@ so there's no markdown-fence stripping or JSONDecodeError fallback path.
 """
 
 import logging
+import re
 from typing import Optional
 
 import anthropic
 from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH
+from salary_extraction import extract_salary
 
 log = logging.getLogger(__name__)
+
+# Deterministic backstop: a stack-heavy description can pull the model
+# toward APPLY hard enough that it reasons right past an explicit statement
+# like "the base salary range for this full-time position is..." — seen in
+# practice even with an explicit rubric instruction to check internship
+# status first. Regex can't judge nuance, but it can catch exact phrases
+# perfectly, so use it as a hard override rather than relying on the model
+# to always prioritize one sentence correctly under attention pressure from
+# a long, well-matched job description.
+_FULL_TIME_PHRASE_RE = re.compile(
+    r"\bfull[\s-]time\s+(position|role|employee|employment|hire)\b|\bpermanent\s+(position|role|employee)\b",
+    re.IGNORECASE,
+)
+_INTERNSHIP_WORD_RE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
 
 _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
@@ -117,8 +133,46 @@ Description: {job.get("description") or "(not available — classify on title/co
             log.warning("Unexpected tier '%s' for job %s — defaulting to MAYBE", result.get("tier"), job.get("id"))
             result["tier"] = "MAYBE"
 
+        result = _apply_full_time_override(job, result)
+        result = _apply_salary_fallback(job, result)
+
         return result
 
     except Exception as exc:
         log.error("Classifier failed for job %s: %s", job.get("id"), exc)
         return {"tier": "MAYBE", "reason": "Classifier error — review manually", "suggested_resume": "General"}
+
+
+def _apply_full_time_override(job: dict, result: dict) -> dict:
+    """Force SKIP if the description explicitly says "full-time position"
+    (etc.) and never mentions internship/co-op anywhere — regardless of how
+    the model scored stack fit. Never fires on postings that also mention
+    internship/co-op (e.g. "may convert to full-time after graduation" is a
+    normal, desirable internship perk, not a full-time posting)."""
+    if result.get("tier") not in ("APPLY", "MAYBE"):
+        return result
+
+    desc = job.get("description") or ""
+    if _FULL_TIME_PHRASE_RE.search(desc) and not _INTERNSHIP_WORD_RE.search(desc):
+        log.info("  Full-time override: job %s described as full-time with no internship language",
+                  job.get("id"))
+        result["tier"] = "SKIP"
+        result["reason"] = (
+            "Overridden: description explicitly states this is a full-time/permanent "
+            "position, with no internship/co-op language anywhere in the posting."
+        )
+
+    return result
+
+
+def _apply_salary_fallback(job: dict, result: dict) -> dict:
+    """The model doesn't reliably notice every stated salary, especially
+    when it's phrased unusually (e.g. "$ 25.00 to $40.00 per Hour") or the
+    description is long — fall back to the same regex extractor used for
+    backfilling already-stored jobs when the model's own extraction is empty."""
+    if result.get("salary"):
+        return result
+    salary = extract_salary(job.get("description") or "")
+    if salary:
+        result["salary"] = salary
+    return result

@@ -48,6 +48,8 @@ def fetch_external_description(apply_url: str) -> Optional[str]:
             return _fetch_ashby(apply_url)
         if "myworkdayjobs.com" in domain:
             return _fetch_workday(apply_url)
+        if "icims.com" in domain:
+            return _fetch_icims(apply_url)
         return _fetch_generic(apply_url)
     except Exception as exc:
         log.debug("External description fetch failed for %s: %s", apply_url, exc)
@@ -140,6 +142,22 @@ def _fetch_workday(apply_url: str) -> Optional[str]:
         if desc_html:
             return _html_to_text(desc_html) or None
     return None
+
+
+def _fetch_icims(apply_url: str) -> Optional[str]:
+    # The main career-site page is a heavy JS shell with no description in
+    # the static HTML, but iCIMS also serves a lightweight server-rendered
+    # iframe view (used to embed postings elsewhere) via ?in_iframe=1.
+    sep = "&" if "?" in apply_url else "?"
+    resp = requests.get(f"{apply_url}{sep}in_iframe=1", headers=HEADERS, timeout=15)
+    if not resp.ok:
+        return None
+    soup = BeautifulSoup(resp.text, "lxml")
+    content = soup.select_one("div.iCIMS_JobContent")
+    if not content:
+        return None
+    text = content.get_text(separator=" ", strip=True)
+    return text[:MAX_LEN] if len(text) > 200 else None
 
 
 def _fetch_generic(apply_url: str) -> Optional[str]:
