@@ -1,5 +1,6 @@
 export type Tier = 'APPLY' | 'MAYBE' | 'SKIP'
 export type Status = 'new' | 'saved' | 'applied' | 'dismissed'
+export type SuggestedResume = 'Mobile' | 'AI' | 'Frontend' | '1Password' | 'General' | 'N/A'
 
 export interface Job {
   id: string
@@ -12,7 +13,7 @@ export interface Job {
   norm_key: string
   tier: Tier
   reason: string
-  suggested_resume: string
+  suggested_resume: SuggestedResume
   status: Status
   posted_at: string | null
   found_at: string
