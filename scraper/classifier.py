@@ -137,6 +137,7 @@ Description: {job.get("description") or "(not available — classify on title/co
 
         result = _apply_full_time_override(job, result)
         result = _apply_salary_fallback(job, result)
+        result = _never_skip_github_sourced(job, result)
 
         return result
 
@@ -177,4 +178,15 @@ def _apply_salary_fallback(job: dict, result: dict) -> dict:
     salary = extract_salary(job.get("description") or "")
     if salary:
         result["salary"] = salary
+    return result
+
+
+def _never_skip_github_sourced(job: dict, result: dict) -> dict:
+    """GitHub tracker sources (SimplifyJobs/speedyapply) are curated,
+    internship-only lists the user trusts completely — never auto-SKIP one,
+    regardless of what the rubric or the full-time override above decided.
+    Always leave it in APPLY or MAYBE for a human decision. Runs last so it
+    overrides every other mechanism that could have produced SKIP."""
+    if job.get("id", "").startswith("gh:") and result.get("tier") == "SKIP":
+        result["tier"] = "MAYBE"
     return result
