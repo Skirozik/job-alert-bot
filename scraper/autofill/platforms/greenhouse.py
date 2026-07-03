@@ -38,6 +38,32 @@ _SIMPLE_FIELD_IDS = {
 _SUBMIT_BUTTON_PATTERN = "Submit Application|Submit|Apply|Finish"
 
 
+def _fill_combobox(page, frame, input_locator, search_text: str) -> bool:
+    """Fills a react-select-style searchable dropdown (country, and several
+    of Greenhouse's yes/no custom questions all use this same widget) by
+    opening it, typing the search text, and clicking the resulting option.
+
+    Typing alone (human_type) is NOT enough for these — it only populates
+    the widget's internal search box, it never actually selects anything,
+    so the field is left effectively blank even though text was typed into
+    it. Confirmed live: this was silently leaving 4 required questions
+    unanswered on a real posting before this fix. Must target role="option"
+    specifically — a plain text search also matches the widget's ARIA
+    live-region announcement ("N results available for search term ..."),
+    which sits earlier in the DOM and intercepts the click instead of the
+    real option.
+    """
+    input_locator.click()
+    human_pause(0.2, 0.5)
+    page.keyboard.type(search_text, delay=random.uniform(40, 120))
+    human_pause(0.6, 1.2)
+    option = frame.get_by_role("option", name=search_text, exact=False).first
+    if option.count() > 0:
+        option.click()
+        return True
+    return False
+
+
 def fill(page, job: dict, profile: dict) -> dict:
     """Returns a report dict: {"filled": [...], "unmapped": [...], "submit_button_text": str|None}."""
     report = {"filled": [], "unmapped": [], "submit_button_text": None}
@@ -78,26 +104,19 @@ def fill(page, job: dict, profile: dict) -> dict:
             report["filled"].append("phone")
             human_pause()
 
-    # 4. Country — react-select searchable dropdown, not a plain input. Must
-    # target role="option" specifically: a plain text search (get_by_text)
-    # also matches the widget's ARIA live-region announcement ("N results
-    # available for search term ..."), which sits earlier in the DOM and
-    # intercepts the click instead of the real option — confirmed live.
+    # 4. Country — react-select searchable dropdown, not a plain input.
     country_loc = frame.locator("#country")
     if country_loc.count() > 0 and not (country_loc.get_attribute("value") or ""):
         country = profile["personal"]["address"].get("country")
-        if country:
-            country_loc.click()
-            human_pause(0.2, 0.5)
-            page.keyboard.type(country, delay=random.uniform(40, 120))
-            human_pause(0.6, 1.2)
-            option = frame.get_by_role("option", name=country, exact=False).first
-            if option.count() > 0:
-                option.click()
-                report["filled"].append("country")
-            human_pause()
+        if country and _fill_combobox(page, frame, country_loc, country):
+            report["filled"].append("country")
+        human_pause()
 
     # 5. Dynamic per-posting custom questions — label-matched, never guessed.
+    # These come in two widget types on Greenhouse: plain text/textarea
+    # inputs, and the same react-select combobox as the country field above
+    # (used for most yes/no screening questions) — role="combobox" is how
+    # to tell them apart, and each needs its own fill strategy.
     question_labels = frame.locator("label[id$='-label'][for^='question_']")
     for i in range(question_labels.count()):
         label_el = question_labels.nth(i)
@@ -108,20 +127,29 @@ def fill(page, job: dict, profile: dict) -> dict:
         target = frame.locator(f"#{input_id}")
         if target.count() == 0:
             continue
+
+        is_combobox = (target.get_attribute("role") or "") == "combobox"
         try:
-            if target.input_value():
+            if not is_combobox and target.input_value():
                 continue  # already has a value (e.g. resume parser filled it)
         except Exception:
             pass  # not a fillable input (e.g. a file input) — skip
 
         match = match_field(label_text, profile)
-        if match:
-            field_key, value = match
+        if not match:
+            report["unmapped"].append(label_text)
+            continue
+
+        field_key, value = match
+        if is_combobox:
+            if _fill_combobox(page, frame, target, value):
+                report["filled"].append(f"{label_text} -> {field_key}")
+            else:
+                report["unmapped"].append(f"{label_text} (no matching option for '{value}')")
+        else:
             human_type(target, value)
             report["filled"].append(f"{label_text} -> {field_key}")
-            human_pause()
-        else:
-            report["unmapped"].append(label_text)
+        human_pause()
 
     # 6. Locate (but never click) the submit button.
     submit_btn = frame.get_by_role("button", name=_SUBMIT_BUTTON_PATTERN, exact=False)
