@@ -1,13 +1,13 @@
 # LinkedIn Internship Job Alert Bot
 
-Scrapes LinkedIn (plus a few GitHub-tracked internship lists) every 30 min, classifies each new internship against your candidate profile using Claude Haiku, and pushes APPLY/MAYBE matches to your phone (ntfy.sh), a twice-daily email digest (Resend), and a password-protected web dashboard. Runs entirely on GitHub Actions — your PC never needs to be on.
+Scrapes LinkedIn (plus a few GitHub-tracked internship lists) every 20 min, classifies each new internship against your candidate profile using Claude Haiku, and pushes APPLY/MAYBE matches to your phone (ntfy.sh), a twice-daily email digest (Resend), and a password-protected web dashboard. Runs entirely on GitHub Actions — your PC never needs to be on.
 
 ---
 
 ## How it works
 
 ```
-GitHub Actions (every 30 min)
+GitHub Actions (every 20 min)
   └─ scraper/main.py
        ├─ Run-lock: skip if another scheduler's run is still in progress (scrape_runs table)
        ├─ Load dedup index once (all known job ids + norm_keys, one bulk query)
@@ -229,7 +229,7 @@ LinkedIn_Job_Bot/
 │   └── middleware.ts                    # dashboard auth gate
 ├── .github/
 │   └── workflows/
-│       ├── scrape.yml                   # GitHub Actions cron (every 30 min)
+│       ├── scrape.yml                   # GitHub Actions cron (every 20 min)
 │       └── digest.yml                   # GitHub Actions cron (8am & 6pm ET)
 ├── Candidate_Profile_and_Filters.md     # your profile — classifier reads this
 ├── LinkedIn_Searches.md                 # search terms reference
