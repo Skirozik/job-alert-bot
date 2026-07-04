@@ -127,8 +127,15 @@ export function JobCard({
           </div>
         </div>
 
-        <p className="text-gray-600 text-xs shrink-0">
-          {new Date(job.found_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        <p
+          className="text-gray-600 text-xs shrink-0"
+          title={`Picked up ${new Date(job.found_at).toLocaleString('en-US', {
+            month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+          })}`}
+        >
+          {new Date(job.found_at).toLocaleString('en-US', { month: 'short', day: 'numeric' })}
+          <br />
+          {new Date(job.found_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
         </p>
       </div>
 
