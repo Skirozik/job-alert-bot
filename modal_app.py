@@ -21,7 +21,7 @@ app = modal.App("job-alert-scraper", image=image)
 
 
 @app.function(
-    schedule=modal.Period(minutes=30),
+    schedule=modal.Period(minutes=20),
     secrets=[modal.Secret.from_name("job-alert-secrets")],
 )
 def scrape():
