@@ -83,6 +83,24 @@ def _normalize_school(name: str) -> str:
 
 _CANDIDATE_SCHOOL_CORE = _normalize_school(CANDIDATE_SCHOOL)
 
+# Deterministic backstop: the model has been observed to write a reason that
+# already correctly concludes a role requires grad-only enrollment
+# ("candidate is a rising senior in a BS program, ineligible") and then
+# return tier=MAYBE anyway — a reasoning/tier inconsistency, not a missing
+# rubric instruction (Candidate_Profile_and_Filters.md already lists
+# "advanced degree explicitly required" as a hard SKIP). Verified against
+# every stored description before shipping: only fires when no
+# bachelor's/undergraduate alternative is mentioned anywhere in the posting,
+# so postings phrased as "Bachelor's or Master's" (the common case, and
+# genuinely open to a BS candidate) never trigger this.
+_GRAD_DEGREE_KEYWORD = r"(?:MS|M\.S\.|master'?s|Ph\.?D\.?|doctoral|graduate)"
+_GRAD_ONLY_PHRASE_RE = re.compile(
+    r"\b(?:pursuing|enrolled in|completing)\s+(?:an?\s+)?" + _GRAD_DEGREE_KEYWORD
+    + r"(?:\s*(?:,|or|/)\s*" + _GRAD_DEGREE_KEYWORD + r"){0,2}\s+(?:degree|program)\b",
+    re.IGNORECASE,
+)
+_UNDERGRAD_WORD_RE = re.compile(r"\bbachelor|undergraduate|\bB\.?S\.?\b", re.IGNORECASE)
+
 _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
@@ -185,6 +203,7 @@ Description: {job.get("description") or "(not available — classify on title/co
 
         result = _apply_full_time_override(job, result)
         result = _apply_school_specific_override(job, result)
+        result = _apply_advanced_degree_override(job, result)
         result = _apply_salary_fallback(job, result)
         result = _never_skip_github_sourced(job, result)
 
@@ -249,6 +268,28 @@ def _apply_school_specific_override(job: dict, result: dict) -> dict:
         f"Overridden: this co-op is restricted to students currently enrolled at "
         f"{school}, not {CANDIDATE_SCHOOL}."
     )
+    return result
+
+
+def _apply_advanced_degree_override(job: dict, result: dict) -> dict:
+    """Force SKIP if the description requires current enrollment in a
+    graduate-level program (MS/PhD/doctoral) with no bachelor's/undergraduate
+    alternative mentioned anywhere in the posting. See module-level comment
+    above _GRAD_ONLY_PHRASE_RE for why this exists as a deterministic catch
+    rather than a rubric instruction."""
+    if result.get("tier") not in ("APPLY", "MAYBE"):
+        return result
+
+    desc = job.get("description") or ""
+    if _GRAD_ONLY_PHRASE_RE.search(desc) and not _UNDERGRAD_WORD_RE.search(desc):
+        log.info("  Advanced-degree override: job %s requires grad-only enrollment", job.get("id"))
+        result["tier"] = "SKIP"
+        result["reason"] = (
+            "Overridden: description requires current enrollment in a graduate-level "
+            "(MS/PhD) program, with no bachelor's/undergraduate alternative mentioned — "
+            "candidate is a BS student."
+        )
+
     return result
 
 

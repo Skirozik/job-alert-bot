@@ -53,6 +53,15 @@ KNOWN_BAD_IDS = [
     "gh:5e38bc3e0a1b3e2c",   # Xfinity "Comcast AI Strategy & Transformation Co-op" (status=dismissed)
     "gh:a004f82aaa9c4617",   # SIG "Financial Reporting AI Co-op" (status=applied)
     "gh:6c37d2ab4c1ede73",   # SIG "AI Co-op" (status=applied)
+    # Grad-only enrollment (MS/PhD, no bachelor's alternative) — same bug
+    # class as the American Heart Association job above (line 45): the
+    # model's own reason already says "ineligible" but tier stayed
+    # MAYBE/APPLY anyway. These are all gh:-sourced, so expect MAYBE (never-
+    # skip-github still applies) with the corrected reason, not SKIP.
+    "gh:162d811b0541a340",   # Lila Sciences "Co-Op - ML Scientist for Biology" (status=new)
+    "gh:d0d29085a0b76090",   # "Provider Data Reporting Intern" (status=new)
+    "gh:67ac72a51c86f268",   # Optiver "Quantitative Research Intern - PhD" (status=dismissed)
+    "gh:23b493b5d73e499f",   # X Development "PhD Residency Intern" (status=dismissed)
 ]
 
 SAMPLE_SIZE = 10
