@@ -35,6 +35,54 @@ _FULL_TIME_PHRASE_RE = re.compile(
 )
 _INTERNSHIP_WORD_RE = re.compile(r"\bintern(ship)?s?\b|\bco[\s-]?op\b", re.IGNORECASE)
 
+# Deterministic backstop: some co-op postings are restricted to students
+# currently enrolled at one specific partner university (e.g. "Comcast's
+# Drexel Co-op Program"). The model has been observed to score these purely
+# on stack/company fit and never mention the school restriction at all, even
+# though it's the single dispositive fact for a candidate who doesn't attend
+# that school. [A-Z] (not re.IGNORECASE) is deliberate here — it's what
+# makes this safe: it's the signal "this is a real proper noun," not a
+# generic phrase like "an accredited college or university."
+CANDIDATE_SCHOOL = "Georgia State University"
+
+_SCHOOL_NAME_RE = (
+    r"(?:[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,3}\s+(?:University|College)"
+    r"|(?:University|College)\s+of\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})"
+)
+
+# "Comcast's Drexel Co-op Program" — anchored on the possessive apostrophe so
+# it never mis-captures a preceding capitalized phrase that has no possessive
+# (e.g. "...Overview The Susquehanna Co-op Program..." has no "'s" at all).
+_SCHOOL_COOP_PROGRAM_RE = re.compile(
+    r"\b(?:[A-Z][A-Za-z&.,-]*)['’]s\s+((?:[A-Z][A-Za-z]+\s+)??[A-Z][A-Za-z]+)\s+"
+    r"[Cc]o[\s-]?op\s+[Pp]rogram\b"
+)
+# "Technology Co-op with Drexel University" / "...AI Co-op with Drexel University in Bala Cynwyd..."
+_SCHOOL_COOP_WITH_RE = re.compile(
+    r"\b[Cc]o[\s-]?op\s+(?:[Pp]rogram\s+)?with\s+(" + _SCHOOL_NAME_RE + r")\b"
+)
+# "Currently pursuing a bachelor's degree from Drexel University, with a..."
+_SCHOOL_ELIGIBILITY_RE = re.compile(
+    r"\b[Pp]ursuing\s+(?:a|an|your)?\s*(?:[\w'’]+\s+)??degree\b"
+    r"(?:\s+in\s+[A-Za-z][A-Za-z\s]{0,40}?)?\s+from\s+(" + _SCHOOL_NAME_RE + r")\b"
+)
+
+_SCHOOL_SUFFIX_RE = re.compile(r"\b(?:university|college)\b", re.IGNORECASE)
+
+
+def _normalize_school(name: str) -> str:
+    """'Drexel University' -> 'drexel'; 'Georgia State University' -> 'georgia
+    state' — strips the generic University/College word (and stray 'of') so
+    comparison is exact-but-form-insensitive, not brittle full-string or
+    over-eager substring matching."""
+    core = _SCHOOL_SUFFIX_RE.sub("", name)
+    core = re.sub(r"\bof\b", "", core)
+    core = re.sub(r"[^\w\s]", " ", core)
+    return " ".join(core.lower().split())
+
+
+_CANDIDATE_SCHOOL_CORE = _normalize_school(CANDIDATE_SCHOOL)
+
 _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
@@ -136,6 +184,7 @@ Description: {job.get("description") or "(not available — classify on title/co
             result["tier"] = "MAYBE"
 
         result = _apply_full_time_override(job, result)
+        result = _apply_school_specific_override(job, result)
         result = _apply_salary_fallback(job, result)
         result = _never_skip_github_sourced(job, result)
 
@@ -165,6 +214,41 @@ def _apply_full_time_override(job: dict, result: dict) -> dict:
             "position, with no internship/co-op language anywhere in the posting."
         )
 
+    return result
+
+
+def _apply_school_specific_override(job: dict, result: dict) -> dict:
+    """Force SKIP if the description names a specific partner university as a
+    hard enrollment requirement (a same-school-only co-op, e.g. "Comcast's
+    Drexel Co-op Program") and that school isn't the candidate's own (Georgia
+    State University). The model has been observed to never mention this
+    restriction in its own reasoning even though it's the single dispositive
+    fact, so this is a deterministic catch rather than a rubric instruction.
+    Runs before _never_skip_github_sourced so a gh:-sourced posting still
+    gets the same never-auto-SKIP protection every other override respects."""
+    if result.get("tier") not in ("APPLY", "MAYBE"):
+        return result
+
+    desc = job.get("description") or ""
+    match = (
+        _SCHOOL_COOP_PROGRAM_RE.search(desc)
+        or _SCHOOL_COOP_WITH_RE.search(desc)
+        or _SCHOOL_ELIGIBILITY_RE.search(desc)
+    )
+    if not match:
+        return result
+
+    school = match.group(1).strip()
+    if _normalize_school(school) == _CANDIDATE_SCHOOL_CORE:
+        return result  # candidate's own school named — not a mismatch
+
+    log.info("  School-specific override: job %s restricted to %s (candidate attends %s)",
+              job.get("id"), school, CANDIDATE_SCHOOL)
+    result["tier"] = "SKIP"
+    result["reason"] = (
+        f"Overridden: this co-op is restricted to students currently enrolled at "
+        f"{school}, not {CANDIDATE_SCHOOL}."
+    )
     return result
 
 
