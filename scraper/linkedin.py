@@ -13,6 +13,14 @@ log = logging.getLogger(__name__)
 SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
 
+# Was 4000/2000 — a live DB check found 54.5% of stored descriptions were
+# hitting the 4000 cap exactly (median length == cap), silently truncating
+# out whatever came after it, which commonly includes the
+# requirements/eligibility section near the end of a posting. See the same
+# constant/comment in external_descriptions.py.
+MAX_LEN = 12000
+MAX_LEN_CRITERIA_FALLBACK = 6000
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -158,11 +166,11 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str], Option
         description = None
         desc_el = soup.find("div", class_="show-more-less-html__markup")
         if desc_el:
-            description = desc_el.get_text(separator=" ", strip=True)[:4000]
+            description = desc_el.get_text(separator=" ", strip=True)[:MAX_LEN]
         else:
             criteria_el = soup.find("ul", class_="description__job-criteria-list")
             if criteria_el:
-                description = criteria_el.get_text(separator=" ", strip=True)[:2000]
+                description = criteria_el.get_text(separator=" ", strip=True)[:MAX_LEN_CRITERIA_FALLBACK]
 
         # ── Company logo ────────────────────────────────────────────────────
         logo_url = None
