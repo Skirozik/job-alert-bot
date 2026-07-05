@@ -43,6 +43,16 @@ KNOWN_BAD_IDS = [
     "4436148998",   # AssetWatch "Backend Engineer" — explicit "full-time position"
     "4435223212",   # GTECH "Mobile Application Developer" — 5+ yrs required, no marker
     "gh:a9f07e130f51032c",  # American Heart Association — requires MS/PhD
+    # Comcast's Drexel Co-op Program / SIG's "Co-op with Drexel University" —
+    # restricted to students currently enrolled at Drexel, never mentioned in
+    # the model's own reasoning. The two SIG/Xfinity ones are gh:-sourced and
+    # already applied/dismissed, so expect MAYBE (never-skip-github still
+    # applies) with the corrected reason, not SKIP.
+    "4435406993",            # Comcast "Comcast Platform Software Engineer Co-op"
+    "4435478554",            # Comcast "Comcast Software Engineer Co-op" (status=applied)
+    "gh:5e38bc3e0a1b3e2c",   # Xfinity "Comcast AI Strategy & Transformation Co-op" (status=dismissed)
+    "gh:a004f82aaa9c4617",   # SIG "Financial Reporting AI Co-op" (status=applied)
+    "gh:6c37d2ab4c1ede73",   # SIG "AI Co-op" (status=applied)
 ]
 
 SAMPLE_SIZE = 10
