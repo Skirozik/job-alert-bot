@@ -31,7 +31,14 @@ HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     ),
 }
-MAX_LEN = 4000
+# Was 4000 — a live DB check found 54.5% of stored descriptions were hitting
+# that cap exactly (median length == cap), silently truncating out whatever
+# came after it. Requirements/eligibility sections typically sit near the
+# END of a posting (after the company blurb, responsibilities, etc.), so
+# this was a systemic way for a hard disqualifier to never reach the
+# classifier at all — not just the school-specific-co-op case that
+# surfaced it. Haiku is cheap enough that a 3x cap costs nothing meaningful.
+MAX_LEN = 12000
 
 
 def fetch_external_description(apply_url: str) -> Optional[str]:
