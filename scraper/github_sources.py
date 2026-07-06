@@ -4,11 +4,19 @@ Unlike LinkedIn, these don't rate-limit — they're plain README fetches — so
 they're a free hedge against LinkedIn blocking the scraper's IP. Two markup
 styles are in use across these repos and both are parsed:
   - SimplifyJobs: literal <table> HTML embedded in the README
-  - speedyapply: markdown pipe tables (with HTML links inside cells)
+  - speedyapply/sndsh404: markdown pipe tables (with HTML links inside cells)
 
 In both, the row shape is consistently
   [Company, Role, Location, ...(optional Salary)..., Apply link, Age]
 so the apply-link cell is always second-to-last and the age is always last.
+(Other trackers exist with a different column order or a year-less relative
+date format — e.g. zapplyjobs/Internships-2027, vanshb03/Summer2027-Internships
+— deliberately not added here; see the age/date column note below and the
+project's plan notes for why.)
+
+The last column's format also varies by tracker: SimplifyJobs/speedyapply use
+a relative "Nd" age (e.g. "3d"), while sndsh404 uses an absolute ISO date
+(e.g. "2026-06-28") — both are handled by _age_days().
 """
 
 import hashlib
@@ -29,6 +37,8 @@ _SOURCES = [
      "speedyapply/2026-SWE-College-Jobs"),
     ("https://raw.githubusercontent.com/speedyapply/2026-AI-College-Jobs/main/README.md",
      "speedyapply/2026-AI-College-Jobs"),
+    ("https://raw.githubusercontent.com/sndsh404/summer-2027-internships/main/README.md",
+     "sndsh404/summer-2027-internships"),
 ]
 
 # Only pull recently-posted rows. These lists carry the entire season's
@@ -39,6 +49,7 @@ _SOURCES = [
 MAX_AGE_DAYS = 7
 
 _AGE_RE = re.compile(r"^(\d+)\s*d$", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 
 
 def fetch_github_listings() -> list[dict]:
@@ -160,5 +171,19 @@ def _make_job(
 
 
 def _age_days(age_text: str) -> Optional[int]:
-    m = _AGE_RE.match(age_text.strip())
-    return int(m.group(1)) if m else None
+    text = age_text.strip()
+
+    m = _AGE_RE.match(text)
+    if m:
+        return int(m.group(1))
+
+    m = _ISO_DATE_RE.match(text)
+    if m:
+        try:
+            posted_date = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), tzinfo=timezone.utc).date()
+        except ValueError:
+            return None
+        days = (datetime.now(timezone.utc).date() - posted_date).days
+        return max(days, 0)  # clock skew/timezone edge cases shouldn't yield a negative age
+
+    return None
