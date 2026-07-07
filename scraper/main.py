@@ -98,7 +98,17 @@ def _is_non_internship_title(title: str) -> bool:
     return not _INTERN_TITLE_RE.search(title.lower())
 
 
-MAX_PAGES_PER_SEARCH = 5  # 50 results max per search term/location pair
+MAX_PAGES_PER_SEARCH = 10  # 100 results max per search term/location pair
+# Was 5 (50 results). Confirmed live that LinkedIn's guest search endpoint
+# does NOT reliably return newest-first, despite the assumption embedded in
+# the "stop once a page is all duplicates" logic below (sortBy=DD produces a
+# different, still-non-chronological order) — a real job took 3 full scan
+# cycles to climb into the top 50 results for its own matching search term
+# before this ever showed up. Doubling the search depth is the lowest-risk
+# lever to catch a brand-new posting sooner, without touching scan
+# frequency (which independently controls worst-case latency once a job IS
+# visible). Runs currently finish in ~50-70s against a 20-minute budget, so
+# there's ample headroom before this risks the timeout.
 
 
 def run():
@@ -144,8 +154,21 @@ def run():
                         log.error("  p%d: error — %s", page, err)
                         break
                     if not jobs:
-                        log.info("  p%d: 0 listings — done", page)
-                        break
+                        # Confirmed live: this endpoint is flaky, not just
+                        # exhausted — the identical request (same term/
+                        # location/start) returned 10 results, then 10, then
+                        # 0 across back-to-back attempts seconds apart. A
+                        # single empty page isn't reliable evidence pagination
+                        # is done, so retry once before treating it that way —
+                        # otherwise a transient glitch silently truncates the
+                        # search and can delay catching a job an entire extra
+                        # scan cycle for no real reason.
+                        time.sleep(random.uniform(1.5, 2.5))
+                        jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS, start=start)
+                        if err or not jobs:
+                            log.info("  p%d: 0 listings on retry too — done", page)
+                            break
+                        log.info("  p%d: 0 listings on first try, %d on retry — continuing", page, len(jobs))
 
                     total_raw += len(jobs)
                     new_on_page = 0
