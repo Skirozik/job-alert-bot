@@ -33,6 +33,19 @@ def scrape():
     run()
 
 
+@app.function(
+    schedule=modal.Period(minutes=2),
+    secrets=[modal.Secret.from_name("job-alert-secrets")],
+)
+def watch_github():
+    import sys
+    import os
+    sys.path.insert(0, "/app/scraper")
+    os.chdir("/app/scraper")
+    from github_watch import run
+    run()
+
+
 @app.local_entrypoint()
 def main():
     """Run one scrape immediately: modal run modal_app.py"""
