@@ -111,6 +111,73 @@ MAX_PAGES_PER_SEARCH = 10  # 100 results max per search term/location pair
 # there's ample headroom before this risks the timeout.
 
 
+def process_job(job: dict) -> bool:
+    """Fetch description, classify, store, and notify for a single job that
+    has already passed the title pre-filter (or is gh:-sourced, which skips
+    that filter entirely — see the pre-filter block in run()). Returns True
+    if a push notification was sent.
+
+    Factored out so github_watch.py's fast-path trigger (polls GitHub
+    tracker commit feeds far more often than the main 20-min scan, to
+    notify sooner than waiting for the next full cycle) reuses the exact
+    same classify/store/notify logic as the main run loop, instead of a
+    second copy that could silently drift out of sync with it.
+    """
+    log.info("Processing: '%s' @ %s [%s]", job["title"], job["company"], job["id"])
+
+    # Fetch description + logo + apply info. LinkedIn jobs get a full
+    # detail-page fetch; GitHub-sourced jobs already carry their own
+    # apply_url/location and get a description from the ATS API.
+    if not job["id"].startswith("gh:"):
+        desc, logo_url, apply_url, is_easy_apply, salary_li = fetch_description(job["id"])
+        if desc:
+            job["description"] = desc
+            log.info("  Description: %d chars", len(desc))
+        else:
+            log.info("  No description — classifying on title/company/location")
+        if logo_url:
+            job["logo_url"] = logo_url
+            log.info("  Logo: %s", logo_url)
+        # Card-level detection (linkedin.py) can catch cases the detail
+        # page misses (and vice versa on rate limit) — keep True from either.
+        job["is_easy_apply"] = job.get("is_easy_apply", False) or is_easy_apply
+        if apply_url:
+            job["apply_url"] = apply_url
+            log.info("  Apply URL: %s", apply_url)
+        if salary_li:
+            job["salary"] = salary_li
+            log.info("  Salary (LinkedIn): %s", salary_li)
+    else:
+        desc = fetch_external_description(job.get("apply_url", ""))
+        if desc:
+            job["description"] = desc
+            log.info("  GitHub source — fetched description: %d chars", len(desc))
+        else:
+            log.info("  GitHub source — no description available (unrecognized/unfetchable ATS)")
+
+    # Classify
+    result = classify(job)
+    job["tier"] = result.get("tier", "MAYBE")
+    job["reason"] = result.get("reason", "")
+    job["suggested_resume"] = result.get("suggested_resume", "General")
+    if not job.get("salary") and result.get("salary"):
+        job["salary"] = result["salary"]
+        log.info("  Salary (Claude): %s", job["salary"])
+    log.info("  → %s | %s | Resume: %s",
+             job["tier"], job["reason"], job["suggested_resume"])
+
+    # Store in Supabase first (including SKIP — prevents re-classification)
+    stored = insert_job(job)
+
+    # Push notification for APPLY and MAYBE — only if it was actually
+    # persisted, so a DB hiccup doesn't cause the same job to be
+    # re-classified and re-notified every run until the write succeeds.
+    if job["tier"] in ("APPLY", "MAYBE") and stored:
+        push_job(job)
+        return True
+    return False
+
+
 def run():
     log.info("=== Job scraper starting — %d terms × %d locations ===",
              len(SEARCH_TERMS), len(LOCATIONS))
@@ -276,55 +343,7 @@ def run():
                     insert_job(job)
                     continue
 
-            # 3b. Fetch description + logo + apply info. LinkedIn jobs get a
-            # full detail-page fetch; GitHub-sourced jobs already carry their
-            # own apply_url/location and get a description from the ATS API.
-            if not job["id"].startswith("gh:"):
-                desc, logo_url, apply_url, is_easy_apply, salary_li = fetch_description(job["id"])
-                if desc:
-                    job["description"] = desc
-                    log.info("  Description: %d chars", len(desc))
-                else:
-                    log.info("  No description — classifying on title/company/location")
-                if logo_url:
-                    job["logo_url"] = logo_url
-                    log.info("  Logo: %s", logo_url)
-                # Card-level detection (linkedin.py) can catch cases the detail
-                # page misses (and vice versa on rate limit) — keep True from either.
-                job["is_easy_apply"] = job.get("is_easy_apply", False) or is_easy_apply
-                if apply_url:
-                    job["apply_url"] = apply_url
-                    log.info("  Apply URL: %s", apply_url)
-                if salary_li:
-                    job["salary"] = salary_li
-                    log.info("  Salary (LinkedIn): %s", salary_li)
-            else:
-                desc = fetch_external_description(job.get("apply_url", ""))
-                if desc:
-                    job["description"] = desc
-                    log.info("  GitHub source — fetched description: %d chars", len(desc))
-                else:
-                    log.info("  GitHub source — no description available (unrecognized/unfetchable ATS)")
-
-            # 4. Classify
-            result = classify(job)
-            job["tier"] = result.get("tier", "MAYBE")
-            job["reason"] = result.get("reason", "")
-            job["suggested_resume"] = result.get("suggested_resume", "General")
-            if not job.get("salary") and result.get("salary"):
-                job["salary"] = result["salary"]
-                log.info("  Salary (Claude): %s", job["salary"])
-            log.info("  → %s | %s | Resume: %s",
-                     job["tier"], job["reason"], job["suggested_resume"])
-
-            # 5. Store in Supabase first (including SKIP — prevents re-classification)
-            stored = insert_job(job)
-
-            # 6. Push notification for APPLY and MAYBE — only if it was actually
-            #    persisted, so a DB hiccup doesn't cause the same job to be
-            #    re-classified and re-notified every run until the write succeeds.
-            if job["tier"] in ("APPLY", "MAYBE") and stored:
-                push_job(job)
+            if process_job(job):
                 notified += 1
 
         log.info("=== Run complete: %d new jobs, %d notified ===",
