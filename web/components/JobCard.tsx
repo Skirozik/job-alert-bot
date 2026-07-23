@@ -59,11 +59,18 @@ export function JobCard({
 
   const isSkip = job.tier === 'SKIP'
   const currentStatus = job.status ?? 'new'
+  // ats_watch.py prefixes ids with "ats:" for jobs caught via the direct
+  // company-ATS fast-path (vs. LinkedIn or the "gh:" GitHub-tracker source)
+  // — surfaced here since those were found straight from the source, often
+  // well before LinkedIn's own syndication would have shown them at all.
+  const isAtsSourced = job.id.startsWith('ats:')
 
   return (
     <div className={`relative rounded-xl border p-5 transition-opacity ${
       isSkip
         ? 'bg-gray-900/50 border-gray-800/50 opacity-40 hover:opacity-70'
+        : isAtsSourced
+        ? 'bg-gray-900 border-indigo-500/50 ring-1 ring-indigo-500/20'
         : 'bg-gray-900 border-gray-800'
     }`}>
       {toast && (
@@ -99,6 +106,14 @@ export function JobCard({
             <span className={`text-xs px-2 py-0.5 rounded-md ${STATUS_BADGE[currentStatus]}`}>
               {currentStatus}
             </span>
+            {isAtsSourced && (
+              <span
+                className="text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 border border-indigo-500/30"
+                title="Caught directly from the company's own ATS, ahead of LinkedIn"
+              >
+                ⚡ Direct
+              </span>
+            )}
             {job.suggested_resume && job.suggested_resume !== 'N/A' && (
               <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-md">
                 {job.suggested_resume} resume
