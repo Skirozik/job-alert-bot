@@ -127,8 +127,15 @@ def process_job(job: dict) -> bool:
 
     # Fetch description + logo + apply info. LinkedIn jobs get a full
     # detail-page fetch; GitHub-sourced jobs already carry their own
-    # apply_url/location and get a description from the ATS API.
-    if not job["id"].startswith("gh:"):
+    # apply_url/location and get a description from the ATS API; ATS-watch
+    # jobs (ats_watch.py) already carry a full description from the listing
+    # call itself, so there's nothing left to fetch for them.
+    if job["id"].startswith("ats:"):
+        if job.get("description"):
+            log.info("  ATS source — description already provided: %d chars", len(job["description"]))
+        else:
+            log.info("  ATS source — no description in listing (platform doesn't include one)")
+    elif not job["id"].startswith("gh:"):
         desc, logo_url, apply_url, is_easy_apply, salary_li = fetch_description(job["id"])
         if desc:
             job["description"] = desc
