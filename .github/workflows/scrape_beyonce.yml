@@ -1,0 +1,63 @@
+name: Job Scraper (Beyonce)
+
+# Runs on GitHub Actions rather than Modal. modal_app_beyonce.py exists and
+# is correct, but the Modal workspace is over its spend limit and `modal
+# deploy` fails outright — this is what unblocks the pipeline. Actions
+# minutes are free and unmetered on a public repo.
+#
+# Entirely separate from the other two personas — separate secrets, separate
+# Supabase project, separate ntfy topic. The run-lock lives in each project's
+# own scrape_runs table, so these three can never block each other.
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+# See scrape_hassan.yml for why this exists: the in-DB run-lock goes stale
+# after 20 minutes, so a long run stops holding it and the next scheduled run
+# starts alongside.
+concurrency:
+  group: scrape-beyonce
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper_beyonce/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper_beyonce/requirements.txt
+
+      # Gitignored — names a real third party, and this remote is public.
+      # classifier.py hard-crashes without it.
+      - name: Materialize candidate profile
+        env:
+          PROFILE: ${{ secrets.BEYONCE_PROFILE_MD }}
+        run: |
+          printf '%s' "$PROFILE" > Beyonce_Candidate_Profile_and_Filters.md
+          test -s Beyonce_Candidate_Profile_and_Filters.md || {
+            echo "::error::BEYONCE_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+          echo "profile materialized: $(wc -c < Beyonce_Candidate_Profile_and_Filters.md) bytes"
+
+      - name: Run scraper
+        working-directory: scraper_beyonce
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL_BEYONCE }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY_BEYONCE }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC_BEYONCE }}
+        run: python main.py

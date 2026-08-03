@@ -1,0 +1,66 @@
+name: Job Scraper (Hassan)
+
+# Runs on GitHub Actions rather than Modal: the Modal workspace is over its
+# spend limit, and Actions minutes are free and unmetered on a public repo.
+# Entirely separate from the other two personas — separate secrets, separate
+# Supabase project, separate ntfy topic. The run-lock lives in each project's
+# own scrape_runs table, so these three can never block each other.
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+# Never let two runs of THIS workflow overlap. The in-DB run-lock treats a
+# run as stale after 20 minutes, so a long run stops holding it and the next
+# scheduled run starts alongside — which is how the Jul 23 duplicate-
+# notification storm happened on the original pipeline. This is the guard
+# the run-lock alone doesn't give.
+concurrency:
+  group: scrape-hassan
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper_hassan/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper_hassan/requirements.txt
+
+      # The candidate profile is gitignored — it names a real third party and
+      # this remote is public. classifier.py hard-crashes without it, so
+      # materialize it from a repository secret at job start.
+      #
+      # Passed via env: rather than inline ${{ }} so multi-line content and
+      # shell metacharacters survive intact.
+      - name: Materialize candidate profile
+        env:
+          PROFILE: ${{ secrets.HASSAN_PROFILE_MD }}
+        run: |
+          printf '%s' "$PROFILE" > Hassan_Candidate_Profile_and_Filters.md
+          test -s Hassan_Candidate_Profile_and_Filters.md || {
+            echo "::error::HASSAN_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+          echo "profile materialized: $(wc -c < Hassan_Candidate_Profile_and_Filters.md) bytes"
+
+      - name: Run scraper
+        working-directory: scraper_hassan
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL_HASSAN }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY_HASSAN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC_HASSAN }}
+        run: python main.py
