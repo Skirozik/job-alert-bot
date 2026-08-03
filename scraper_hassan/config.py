@@ -37,9 +37,24 @@ SEARCH_TERMS = [
 # the DC metro alone is too thin.
 LOCATIONS = ["Washington, DC"]
 
-# Cron runs every 2 hours (see .github/workflows/scrape_hassan.yml) —
-# lookback just needs to comfortably exceed the cron interval plus drift.
-LOOKBACK_SECONDS = 9000  # 2.5 hours
+# Cron runs every 2 hours (see .github/workflows/scrape_hassan.yml), so 9000s
+# (2.5h) would be the minimum that covers the interval plus drift. This is
+# deliberately much wider.
+#
+# Measured 2026-08-03: a 7-day window across the five strongest terms returned
+# 50 results containing only 3 unique genuine internships. DC IT internships
+# are sparse — roughly one every two days, and August is the low season.
+#
+# At that volume a 2.5h window gives each posting exactly ONE chance to be
+# seen, and there is no watermark or catch-up (bot_state is unused), so a
+# failed, skipped, or unlucky run loses that posting permanently. A 24h window
+# gives each posting ~12 chances instead.
+#
+# The cost is near zero: re-seeing a job is free (dedup on id and norm_key
+# drops it before any description fetch or Claude call), and ~90% of what
+# LinkedIn returns for these terms fails the internship-title pre-filter and
+# is dropped for free too.
+LOOKBACK_SECONDS = 86400  # 24 hours
 
 CANDIDATE_PROFILE_PATH = REPO_ROOT / "Hassan_Candidate_Profile_and_Filters.md"
 
