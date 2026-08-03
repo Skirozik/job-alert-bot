@@ -1,0 +1,66 @@
+name: Job Scraper (User C)
+
+# Runs on GitHub Actions rather than Modal: the Modal workspace is over its
+# spend limit, and Actions minutes are free and unmetered on a public repo.
+# Entirely separate from the other two personas — separate secrets, separate
+# Supabase project, separate ntfy topic. The run-lock lives in each project's
+# own scrape_runs table, so these three can never block each other.
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+# Never let two runs of THIS workflow overlap. The in-DB run-lock treats a
+# run as stale after 20 minutes, so a long run stops holding it and the next
+# scheduled run starts alongside — which is how the Jul 23 duplicate-
+# notification storm happened on the original pipeline. This is the guard
+# the run-lock alone doesn't give.
+concurrency:
+  group: scrape-user_c
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper_user_c/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper_user_c/requirements.txt
+
+      # The candidate profile is gitignored — it names a real third party and
+      # this remote is public. classifier.py hard-crashes without it, so
+      # materialize it from a repository secret at job start.
+      #
+      # Passed via env: rather than inline ${{ }} so multi-line content and
+      # shell metacharacters survive intact.
+      - name: Materialize candidate profile
+        env:
+          PROFILE: ${{ secrets[format('{0}_PROFILE_MD', vars.USER_C_SECRETS)] }}
+        run: |
+          printf '%s' "$PROFILE" > User_C_Candidate_Profile_and_Filters.md
+          test -s User_C_Candidate_Profile_and_Filters.md || {
+            echo "::error::USER_C_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+          echo "profile materialized: $(wc -c < User_C_Candidate_Profile_and_Filters.md) bytes"
+
+      - name: Run scraper
+        working-directory: scraper_user_c
+        env:
+          SUPABASE_URL: ${{ secrets[format('SUPABASE_URL_{0}', vars.USER_C_SECRETS)] }}
+          SUPABASE_SERVICE_KEY: ${{ secrets[format('SUPABASE_SERVICE_KEY_{0}', vars.USER_C_SECRETS)] }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets[format('NTFY_TOPIC_{0}', vars.USER_C_SECRETS)] }}
+        run: python main.py

@@ -1,11 +1,22 @@
 import { NextResponse } from 'next/server'
+import { requirePersonaApi } from '@/lib/auth'
 
 export async function GET() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_KEY
+  const persona = await requirePersonaApi()
+  if (!persona) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
+  const url = persona.supabaseUrl
+  const key = persona.serviceKey
+
+  // Scoped to the caller's OWN persona only. Never enumerate the others — a
+  // logged-in user must not be able to learn who else has an account here.
   if (!url || !key) {
-    return NextResponse.json({ error: 'Missing env vars', url: !!url, key: !!key })
+    return NextResponse.json({
+      persona: { id: persona.id, label: persona.label, hasUrl: !!url, hasKey: !!key },
+      error: 'Missing credentials for this persona',
+    })
   }
 
   const res = await fetch(
@@ -20,6 +31,7 @@ export async function GET() {
 
   const data = await res.json()
   return NextResponse.json({
+    persona: { id: persona.id, label: persona.label },
     non_new_jobs: data,
     count: Array.isArray(data) ? data.length : 'error',
   })

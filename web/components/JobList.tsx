@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { supabaseBrowser } from '@/lib/supabase-browser'
+import { useRouter } from 'next/navigation'
 import { JobCard } from './JobCard'
 import type { Job, Status } from '@/types/job'
 
@@ -67,7 +67,14 @@ const ROLE_OPTIONS: { key: RoleFilter; label: string }[] = [
   { key: 'entry-level', label: 'Entry-level' },
 ]
 
-export function JobList({ initialJobs }: { initialJobs: Job[] }) {
+export function JobList({
+  initialJobs,
+  personaLabel,
+}: {
+  initialJobs: Job[]
+  personaLabel?: string
+}) {
+  const router = useRouter()
   const [jobs, setJobs] = useState<Job[]>(initialJobs)
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
@@ -86,34 +93,41 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Real-time: new jobs float in as they're inserted, and status/tier edits
-  // made elsewhere (another tab, another device) sync in live too.
+  // Adopt refreshed server data. Without this, `useState(initialJobs)` above
+  // captures the first render's array forever and every router.refresh() below
+  // would silently change nothing on screen. `initialJobs` is a fresh array
+  // identity on each server render, so this fires on every refresh — intended.
+  //
+  // Safe against the optimistic updates in handleStatusChange: the PATCH has
+  // already persisted (and is read-back-verified server-side) before
+  // onStatusChange runs, so a refresh landing afterwards carries the same value.
   useEffect(() => {
-    const channel = supabaseBrowser
-      .channel('jobs-live')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'jobs' },
-        (payload) => {
-          const job = payload.new as Job
-          setJobs(prev => {
-            if (prev.some(j => j.id === job.id)) return prev
-            return [job, ...prev]
-          })
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'jobs' },
-        (payload) => {
-          const job = payload.new as Job
-          setJobs(prev => prev.map(j => j.id === job.id ? job : j))
-        }
-      )
-      .subscribe()
+    setJobs(initialJobs)
+  }, [initialJobs])
 
-    return () => { supabaseBrowser.removeChannel(channel) }
-  }, [])
+  // Poll instead of subscribing to Supabase realtime.
+  //
+  // Realtime needed NEXT_PUBLIC_SUPABASE_ANON_KEY in the browser, which is
+  // inlined at build time and therefore single-valued — it cannot vary per
+  // logged-in person, so it can't work on a multi-tenant deployment. Making it
+  // work would also require a permissive anon SELECT policy on every project,
+  // which would put real people's job-search history behind a key that ships
+  // in a publicly-served JS bundle.
+  //
+  // Polling removes the browser's Supabase access entirely. Freshness costs
+  // nothing here: the scrapers run every 20 minutes to 2 hours, so a 60-second
+  // poll is an order of magnitude fresher than the underlying data.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'visible') router.refresh()
+    }
+    const id = setInterval(tick, 60_000)
+    window.addEventListener('focus', tick)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('focus', tick)
+    }
+  }, [router])
 
   function handleStatusChange(id: string, status: Status) {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status } : j))
@@ -158,15 +172,41 @@ export function JobList({ initialJobs }: { initialJobs: Job[] }) {
   return (
     <div>
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Job Dashboard</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          <span className="text-green-400 font-medium">{applyCount} APPLY</span>
-          {' · '}
-          <span className="text-yellow-400 font-medium">{maybeCount} MAYBE</span>
-          {' · '}
-          <span className="text-gray-500">{skipCount} SKIP</span>
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">
+            Job Dashboard
+            {personaLabel && (
+              <span className="ml-2 text-sm font-normal text-gray-500">{personaLabel}</span>
+            )}
+          </h1>
+          <p className="text-gray-500 text-sm mt-1">
+            <span className="text-green-400 font-medium">{applyCount} APPLY</span>
+            {' · '}
+            <span className="text-yellow-400 font-medium">{maybeCount} MAYBE</span>
+            {' · '}
+            <span className="text-gray-500">{skipCount} SKIP</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => router.refresh()}
+            title="Refresh now (also refreshes automatically every 60s)"
+            className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-gray-300 hover:border-gray-500 transition-colors"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={async () => {
+              await fetch('/api/auth/logout', { method: 'POST' })
+              router.push('/login')
+              router.refresh()
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-800 text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
       {/* Controls — Tier and Status are independent filters that compose;
