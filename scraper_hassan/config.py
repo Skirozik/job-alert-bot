@@ -27,15 +27,31 @@ SEARCH_TERMS = [
     "IT security intern",
 ]
 
-# He's in Lorton, VA. LinkedIn's location filter is metro-wide, so this one
-# entry returns Arlington, Alexandria, Fairfax, Reston, Tysons, McLean,
-# Springfield, and DC proper.
+# He's in Lorton, VA. "Washington, DC" is metro-wide on LinkedIn, so it
+# returns Arlington, Alexandria, Fairfax, Reston, Tysons, McLean, Springfield
+# and DC proper.
 #
-# Tunable: adding "United States" would surface nationwide-remote internships
-# too, but doubles the request volume AND spends a Haiku call on every
-# out-of-area posting the rubric then SKIPs. Left off until there's evidence
-# the DC metro alone is too thin.
-LOCATIONS = ["Washington, DC"]
+# "United States" is here to catch REMOTE internships, which the rubric treats
+# exactly like a DC-onsite role since he's Lorton-based either way. It was
+# added after measuring, not on principle:
+#
+#   2026-08-03, 24h window, f_E=1, internship-titled results only:
+#     term                             DC   US
+#     IT support intern                 0    3
+#     help desk intern                  0    4
+#     cybersecurity intern              0    6
+#     information technology intern     0   10
+#                                      ---  ---
+#                                       0   23
+#
+#   A 30-day backfill of DC alone produced 404 raw listings and just 3
+#   actionable jobs. DC-only was not a viable feed in August.
+#
+# Cost is small because dedup classifies each job exactly once — later runs
+# drop it before any description fetch or Claude call. ~23 new internship
+# -titled jobs/day at roughly $0.005 each is about $0.12/day. Most will SKIP
+# as out-of-area onsite; the genuinely remote ones are the point.
+LOCATIONS = ["Washington, DC", "United States"]
 
 # Cron runs every 2 hours (see .github/workflows/scrape_hassan.yml), so 9000s
 # (2.5h) would be the minimum that covers the interval plus drift. This is
