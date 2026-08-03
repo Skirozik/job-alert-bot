@@ -94,8 +94,40 @@ Total raw: <N> | New: <M> | Rate limited: 0/12
 === Run complete: <M> new jobs, <K> notified ===
 ```
 
-No measured baseline exists yet — this pipeline has never run. Record the first
-run's numbers here so later runs have something to be compared against.
+**Measured baselines, 2026-08-03 (first live runs).** Expect low yield — this
+is a genuinely thin market right now, and that is the pipeline working, not
+failing:
+
+| Run | Raw | New | Reached classifier | Notified |
+|---|---|---|---|---|
+| DC only, 2.5h window | 56 | 21 | 0 | 0 |
+| DC only, 24h window | 176 | 91 | 3 | 0 |
+| DC only, 30d backfill | 404 | 285 | ~30 | **3** |
+| DC + nationwide, 24h | 366 | 172 | 46 | 0 |
+
+The 30-day backfill is the honest measure of supply: **3 actionable jobs in a
+month** (Narrative Strategies, BOLAND, Textron).
+
+Three things drive that, and only the last one will change on its own:
+
+1. **LinkedIn's `f_E=1` filter is loose.** Under it, "network intern" returned
+   *Registered Nurse - Med Surg* and *Senior Cost and Pricing Manager*. Roughly
+   90% of results fail the internship-title gate. That gate is doing real work
+   and costs nothing — pre-filtered jobs never reach a description fetch or a
+   Claude call.
+2. **IT support internships are rarely remote.** Adding `"United States"` to
+   LOCATIONS raised internship-titled volume from 0 to ~23/day, but of the 46
+   jobs that then reached the classifier, 20 SKIPped purely on location —
+   onsite in another metro. The work involves physically handling hardware, so
+   geography cannot be widened around. Nationwide is kept as cheap insurance
+   (~$0.12/day) for when a genuinely remote one appears, not because it
+   materially raises yield.
+3. **It is August.** Summer 2027 internship postings ramp up September through
+   November. Expect this feed to fill out considerably in the fall.
+
+If yield is still near zero by late September, the lever to reach for is
+broader SEARCH_TERMS (or dropping `f_E` entirely and leaning on the
+pre-filter), not more geography.
 
 Then check:
 - **Supabase** → `jobs` row count equals `New`; `tier` is a mix of APPLY/MAYBE/SKIP;
