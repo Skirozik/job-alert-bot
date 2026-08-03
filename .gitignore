@@ -1,4 +1,17 @@
 .env
+.env.beyonce
+.env.hassan
+
+# These contain real third parties' identifying details (name, school, employer,
+# and the fact that they are job-hunting while still employed). This GitHub
+# remote is PUBLIC, and a push is irreversible — history, forks, and caches all
+# retain it. Nothing in the deploy needs them committed: the Modal image reads
+# from the working tree, and the GitHub Actions workflows materialize them from
+# a repository secret at job start. Remove these lines only after making the
+# repo private or stripping the identifying details.
+Beyonce_Candidate_Profile_and_Filters.md
+Hassan_Candidate_Profile_and_Filters.md
+
 __pycache__/
 *.pyc
 *.pyo
@@ -9,3 +22,12 @@ node_modules/
 .next/
 *.log
 *.tsbuildinfo
+
+# Scratch ATS/job-board JSON dumps left at the repo root during research
+# (onepw.json, riot_jobs.json, wiz.json, s1.json, ...). Raw job data, not
+# credentials, but ~3 MB of noise that a careless `git add .` would sweep into
+# a public repo. Delete them when you're done with them.
+/*_jobs.json
+/onepw.json
+/s1.json
+/wiz.json
