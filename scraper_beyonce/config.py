@@ -25,7 +25,12 @@ LOCATIONS = ["Atlanta, GA"]
 # Cron runs every 2 hours (see modal_app_beyonce.py) — timing isn't a
 # priority for this search (postings run ~20 days median time-to-fill), so
 # lookback just needs to comfortably exceed the cron interval + drift.
-LOOKBACK_SECONDS = 9000  # 2.5 hours
+# Was 9000 (2.5h) against a 2h cron. Widened for the same reason as the other
+# two pipelines: a GitHub Actions runner-capacity incident on 2026-08-06 left
+# a ~6 hour hole, which a 2.5h window cannot cover, and there is no catch-up
+# mechanism. Re-seeing a job is free — dedup drops it before any fetch or
+# Claude call.
+LOOKBACK_SECONDS = 21600  # 6 hours
 
 CANDIDATE_PROFILE_PATH = REPO_ROOT / "Beyonce_Candidate_Profile_and_Filters.md"
 
