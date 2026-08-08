@@ -1,26 +1,28 @@
 import { NextResponse } from 'next/server'
 import { createSessionToken, passwordTag } from '@/lib/session'
-import { findPersonaByPassword, sessionSecret } from '@/lib/personas'
+import { findPersonaByCredentials, sessionSecret } from '@/lib/personas'
 import { COOKIE_NAME } from '@/lib/auth'
 
-// The password alone identifies who you are — there's no "who are you?"
-// dropdown. A picker would publish the roster of everyone using this dashboard
-// on an unauthenticated page, which is the same disclosure .gitignore already
-// works to prevent, and it hands out an enumeration oracle for free.
+// Username + password. There is no "who are you?" dropdown and no user list
+// anywhere on an unauthenticated page — a picker would publish the roster of
+// everyone using this dashboard, which is the same disclosure .gitignore
+// already works to prevent, and would hand out an enumeration oracle.
 //
-// The cost is that passwords double as identity, so they must be unique and
-// high-entropy. personas.ts refuses to authenticate on a collision rather than
-// picking one, and the 401 below is bare — no hint about which persona, or
-// whether any, was close.
+// For the same reason every failure below returns an IDENTICAL bare 401: a
+// wrong username, a wrong password, and a well-formed request for an account
+// that doesn't exist are indistinguishable to the caller. findPersonaByCredentials
+// also does one constant-time comparison either way, so timing doesn't leak
+// which usernames are real.
 export async function POST(request: Request) {
+  let username: unknown
   let password: unknown
   try {
-    ;({ password } = await request.json())
+    ;({ username, password } = await request.json())
   } catch {
     return NextResponse.json({ error: 'Bad request' }, { status: 400 })
   }
 
-  if (typeof password !== 'string' || !password) {
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
   }
 
-  const persona = findPersonaByPassword(password)
+  const persona = findPersonaByCredentials(username, password)
   if (!persona) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
