@@ -1,22 +1,33 @@
 import { NextResponse } from 'next/server'
+import { requirePersonaApi } from '@/lib/auth'
 
 const VALID_STATUSES = ['new', 'saved', 'applied', 'dismissed']
 
+// Keep the Next 14 `{ params: { id: string } }` signature — Next 15 changes it
+// to a Promise, and package.json pins next to exactly 14.2.35.
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
+  // Cross-tenant writes aren't merely denied here, they're unrepresentable:
+  // the PATCH targets `?id=eq.<id>` against THIS persona's project, so another
+  // persona's job id simply matches no row and falls through to the 404 below.
+  const persona = await requirePersonaApi()
+  if (!persona) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { status } = await request.json()
 
   if (!VALID_STATUSES.includes(status)) {
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_KEY
+  const url = persona.supabaseUrl
+  const key = persona.serviceKey
 
   if (!url || !key) {
-    console.error('[status] missing env vars — URL:', !!url, 'KEY:', !!key)
+    console.error(`[status] persona "${persona.id}" missing credentials`)
     return NextResponse.json({ error: 'Server misconfigured — missing env vars' }, { status: 500 })
   }
 
