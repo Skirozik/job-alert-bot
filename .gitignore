@@ -31,3 +31,9 @@ node_modules/
 /onepw.json
 /s1.json
 /wiz.json
+
+# Paste-ready Vercel env block for the multi-tenant dashboard — real keys.
+.env.vercel
+
+.vercel
+.env*
