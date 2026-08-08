@@ -112,16 +112,31 @@ def _is_new_grad_role(title: str) -> bool:
     return bool(_NEW_GRAD_RE.search(title.lower()))
 
 
-# Positive gate: LinkedIn's search does fuzzy/semantic matching, so generic
-# professional titles with no internship signal (e.g. "Help Desk Technician",
-# "SOC Analyst II") still come back despite every search term ending in
-# "intern". Require an explicit marker rather than relying on the classifier
-# to catch these by judgment alone.
-_INTERN_TITLE_RE = re.compile(r"\bintern(?:ship)?s?\b|\bco[\s-]?ops?\b|\bapprentice(?:ship)?s?\b")
+# There is deliberately NO positive internship gate here, unlike
+# scraper/main.py's _is_non_internship_title.
+#
+# This persona wants internships AND entry-level full-time/part-time IT work.
+# Requiring "intern" in the title dropped 2,515 of his first 3,136 scraped
+# jobs before the classifier ever saw them — including 739 entry-level IT
+# roles in the DC metro, which is exactly what he originally asked for
+# ("IT Support Specialist", "Desktop Support", "Junior System Admin").
+# Measured 2026-08-07: 739 discarded vs 10 surfaced.
+#
+# Employment type is now judged by the rubric on the full description rather
+# than guessed from the title, which is the right place for it — "IT
+# Specialist II" and "Help Desk Technician" are legitimate targets, and no
+# title regex can tell an entry-level one from a five-years-experience one.
+#
+# The seniority gate above therefore carries more weight now: without the
+# internship requirement, senior titles reach the classifier unless caught
+# there. _EXPERIENCED_LEVEL_RE below adds the level suffixes that imply
+# real experience ("Engineer II", "Analyst III") — cheap to filter on the
+# title, and it keeps them from costing a Claude call each.
+_EXPERIENCED_LEVEL_RE = re.compile(r"\b(?:ii|iii|iv|v)\b|\blevel\s*[2-5]\b|\bl[2-5]\b", re.I)
 
 
-def _is_non_internship_title(title: str) -> bool:
-    return not _INTERN_TITLE_RE.search(title.lower())
+def _is_experienced_level(title: str) -> bool:
+    return bool(_EXPERIENCED_LEVEL_RE.search(title or ""))
 
 
 MAX_PAGES_PER_SEARCH = 5  # 50 results max per search term/location pair —
@@ -285,16 +300,16 @@ def run():
                 continue
 
             if _is_new_grad_role(job["title"]):
-                log.info("  Pre-filter SKIP (new grad / full-time role)")
+                log.info("  Pre-filter SKIP (new grad program)")
                 job["tier"] = "SKIP"
-                job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
+                job["reason"] = "Pre-filtered: new grad program, he graduates May 2028"
                 insert_job(job)
                 continue
 
-            if _is_non_internship_title(job["title"]):
-                log.info("  Pre-filter SKIP (no internship marker in title)")
+            if _is_experienced_level(job["title"]):
+                log.info("  Pre-filter SKIP (experienced level suffix in title)")
                 job["tier"] = "SKIP"
-                job["reason"] = "Pre-filtered: no internship marker in title"
+                job["reason"] = "Pre-filtered: level suffix implies experience (II/III/IV)"
                 insert_job(job)
                 continue
 
