@@ -27,18 +27,31 @@ from config import AUTOFILL_BROWSER_PROFILE_DIR
 from playwright.sync_api import sync_playwright, Locator, BrowserContext, Page
 
 
-def launch_browser():
+def launch_browser(allow_extensions: bool = False):
     """Returns (playwright, context, page). Caller is responsible for calling
-    playwright.stop() when done (or use as a context manager via `with`)."""
+    playwright.stop() when done (or use as a context manager via `with`).
+
+    allow_extensions=True removes Playwright's default --disable-extensions
+    flag (and its background-pages variant) so a real installed extension in
+    this profile — e.g. Simplify, for the Simplify-assisted fill path — is
+    actually loaded. Off by default: the Greenhouse/Lever/etc. fillers don't
+    need or want any extension running alongside their own field-filling.
+    """
     AUTOFILL_BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
     pw = sync_playwright().start()
-    context = pw.chromium.launch_persistent_context(
+    launch_kwargs = dict(
         user_data_dir=str(AUTOFILL_BROWSER_PROFILE_DIR),
         channel="chrome",
         headless=False,
         viewport={"width": 1280, "height": 900},
     )
+    if allow_extensions:
+        launch_kwargs["ignore_default_args"] = [
+            "--disable-extensions",
+            "--disable-component-extensions-with-background-pages",
+        ]
+    context = pw.chromium.launch_persistent_context(**launch_kwargs)
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page
 
