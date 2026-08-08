@@ -22,6 +22,8 @@ one resume, not variants to choose between.
 """
 
 import logging
+import random
+import time
 from typing import Optional
 
 import anthropic
@@ -34,6 +36,32 @@ _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
 MODEL = "claude-haiku-4-5-20251001"
+
+# On a transient API failure the job is NOT stored at all — see _failed() and
+# main.process_job(). A missing row self-heals, because the next run
+# rediscovers the listing and classifies it properly. A row stored with a
+# fallback verdict does not: dedup means it is never looked at again.
+#
+# Confirmed the hard way on 2026-08-04, when an API outage stored jobs as
+# "MAYBE / Classifier error — review manually" across every pipeline; on the
+# main one, 32 of 82 such rows turned out to be APPLY.
+MAX_CLASSIFY_ATTEMPTS = 3
+
+
+def _backoff_seconds(attempt: int) -> float:
+    return 2.0 * (2 ** attempt) + random.uniform(0, 1.5)
+
+
+def _failed(detail: str) -> dict:
+    """Signals 'do not store this job'. Callers must check result["failed"]
+    BEFORE reading tier — the tier here is a placeholder, not a judgment."""
+    return {
+        "failed": True,
+        "tier": "MAYBE",
+        "reason": f"Classifier error — not stored, will retry next run ({detail[:120]})",
+    }
+
+
 MAX_TOKENS = 400
 
 _VALID_TIERS = ("APPLY", "MAYBE", "SKIP")
@@ -102,10 +130,16 @@ Company: {job.get("company", "")}
 Location: {job.get("location", "")}
 Description: {job.get("description") or "(not available — classify on title/company/location only)"}"""
 
-    try:
+    last_exc = None
+    for attempt in range(MAX_CLASSIFY_ATTEMPTS):
+      try:
         resp = _get_client().messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
+            # Pinned. Classification must be reproducible: at the API default,
+            # identical input produced different verdicts ~20-30% of the time
+            # on borderline jobs.
+            temperature=0,
             system=_system_prompt(),
             tools=[_CLASSIFY_TOOL],
             tool_choice={"type": "tool", "name": "classify_job"},
@@ -115,7 +149,7 @@ Description: {job.get("description") or "(not available — classify on title/co
         tool_use = next((b for b in resp.content if b.type == "tool_use"), None)
         if tool_use is None:
             log.error("Classifier returned no tool_use block for job %s", job.get("id"))
-            return {"tier": "MAYBE", "reason": "Classifier error — review manually"}
+            return _failed("no tool_use block in response")
 
         result = dict(tool_use.input)
 
@@ -127,9 +161,18 @@ Description: {job.get("description") or "(not available — classify on title/co
 
         return result
 
-    except Exception as exc:
-        log.error("Classifier failed for job %s: %s", job.get("id"), exc)
-        return {"tier": "MAYBE", "reason": "Classifier error — review manually"}
+      except Exception as exc:
+        last_exc = exc
+        if attempt < MAX_CLASSIFY_ATTEMPTS - 1:
+            backoff = _backoff_seconds(attempt)
+            log.warning("Classifier attempt %d/%d failed for job %s (%s) — retrying in %.1fs",
+                        attempt + 1, MAX_CLASSIFY_ATTEMPTS, job.get("id"), exc, backoff)
+            time.sleep(backoff)
+        else:
+            log.error("Classifier failed for job %s after %d attempts: %s",
+                      job.get("id"), MAX_CLASSIFY_ATTEMPTS, exc)
+
+    return _failed(str(last_exc))
 
 
 def _apply_salary_fallback(job: dict, result: dict) -> dict:

@@ -164,14 +164,27 @@ def process_job(job: dict) -> bool:
 
     # Classify
     result = classify(job)
+
+    # A transient API failure must NOT be persisted. Storing a fallback verdict
+    # puts the job in the dedup index, so it is never reconsidered — that is
+    # exactly how the 2026-08-04 outage buried real APPLY jobs as junk MAYBEs.
+    # Returning early leaves the row absent, and the next run rediscovers it.
+    if result.get("failed"):
+        log.warning("  Classification FAILED — not storing '%s' @ %s; the next run will retry it",
+                    job.get("title"), job.get("company"))
+        return False
     job["tier"] = result.get("tier", "MAYBE")
     job["reason"] = result.get("reason", "")
     job["suggested_resume"] = result.get("suggested_resume", "General")
     if not job.get("salary") and result.get("salary"):
         job["salary"] = result["salary"]
         log.info("  Salary (Claude): %s", job["salary"])
-    log.info("  → %s | %s | Resume: %s",
-             job["tier"], job["reason"], job["suggested_resume"])
+    # NOTE: the reason is deliberately NOT logged. This repo is public, which
+    # makes Actions logs world-readable, and ~1% of reasons quote the
+    # candidate's name, school, graduation timing or citizenship. The job id is
+    # logged instead — look the reason up in the database when debugging.
+    log.info("  → %s | Resume: %s | id=%s",
+             job["tier"], job["suggested_resume"], job["id"])
 
     # Store in Supabase first (including SKIP — prevents re-classification)
     stored = insert_job(job)
