@@ -1,10 +1,17 @@
 """LinkedIn guest job-search scraper.
 
-Fork of scraper/linkedin.py, byte-identical to it apart from this docstring:
-f_E="1" (Internship) matches the original, since this persona is an
-internship search too. Note the sibling scraper_beyonce/linkedin.py uses
-f_E="2,3" (Entry level, Associate) instead — that persona explicitly does
-NOT want internships. Do not copy between the two without checking f_E.
+Fork of scraper/linkedin.py; the only difference is the experience filter.
+
+f_E="1,2" (Internship + Entry level). This persona wants BOTH: internships
+during school AND entry-level full-time/part-time IT work he can do while
+enrolled. Measured 2026-08-07 — DC IT internships alone run about 3/month,
+while 739 entry-level IT roles in the DC metro were sitting in his database
+discarded, including the exact titles he asked for ("IT Support Specialist
+(Entry-Level)", "Service Desk Technician", "Help Desk Technician").
+
+For contrast: scraper/linkedin.py uses "1" (internships only) and
+scraper_beyonce/linkedin.py uses "2,3" (Entry level + Associate, explicitly
+no internships). Do not copy between the three without checking f_E.
 
 Everything else — pagination, description/salary/logo scraping — is generic
 HTML parsing with no persona-specific logic, copied unedited.
@@ -56,7 +63,7 @@ def fetch_listings(
     params = {
         "keywords": keyword,
         "location": location,
-        "f_E": "1",               # Internship experience level
+        "f_E": "1,2",             # Internship + Entry level
         "f_TPR": f"r{lookback_seconds}",
         "start": str(start),
     }

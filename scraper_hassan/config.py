@@ -5,26 +5,42 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 
 # Hassan's stated targets were "help desk intern", "it support specialist",
-# "desktop support", "junior system admin", and "cybersecurity analyst".
-# Four of those five are FULL-TIME job titles. This pipeline searches with
-# LinkedIn's internship filter (f_E="1", see linkedin.py), under which
-# "IT Support Specialist" / "Desktop Support" / "Junior System Admin" /
-# "Cybersecurity Analyst" return almost nothing — nobody posts an internship
-# under those names. Each target is therefore rewritten below into how the
-# internship version is actually posted, with the original intent noted.
+# "desktop support", "junior system admin", and "cybersecurity analyst" —
+# four of the five being full-time titles.
+#
+# This list originally rewrote all five into internship phrasings, because the
+# search was internship-only (f_E="1"). That scope proved far too narrow: DC
+# IT internships run ~3/month, and a 30-day backfill of 404 listings produced
+# 3 actionable jobs. Meanwhile 739 entry-level IT roles in the DC metro were
+# being scraped and discarded for lacking "intern" in the title.
+#
+# Now f_E="1,2" (internship + entry level), so his original titles work as
+# posted AND the internship phrasings still catch summer programs. Both are
+# kept: they surface genuinely different postings, and dedup makes any overlap
+# free.
 SEARCH_TERMS = [
-    "help desk intern",                # his "help desk intern"
-    "IT support intern",               # his "it support specialist"
-    "desktop support intern",          # his "desktop support"
-    "technical support intern",
-    "information technology intern",   # common umbrella posting
-    "information systems intern",      # matches his MIS major
-    "systems administrator intern",    # his "junior system admin"
-    "network intern",
-    "cybersecurity intern",            # his "cybersecurity analyst"
+    # His original five, as actually posted
+    "help desk",
+    "IT support specialist",
+    "desktop support",
+    "junior systems administrator",
+    "cybersecurity analyst",
+    # Same lanes, other common phrasings
+    "service desk analyst",
+    "IT support technician",
+    "technical support specialist",
+    "information technology specialist",
+    "SOC analyst",
+    "information security analyst",
+    "network technician",
+    "IAM analyst",                     # his Securcorp access-control experience
+    # Internship phrasings — still the goal for summers, and these surface
+    # postings the full-time terms miss entirely
+    "help desk intern",
+    "IT support intern",
+    "information technology intern",
+    "cybersecurity intern",
     "information security intern",
-    "security operations intern",      # SOC — the real entry-level cyber title
-    "IT security intern",
 ]
 
 # He's in Lorton, VA. "Washington, DC" is metro-wide on LinkedIn, so it

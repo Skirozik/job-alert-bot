@@ -20,7 +20,7 @@ load_dotenv(Path(__file__).parent.parent / ".env.hassan")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from main import _is_senior_role, _is_new_grad_role, _is_non_internship_title
+from main import _is_senior_role, _is_new_grad_role, _is_experienced_level
 from classifier import classify
 
 logging.basicConfig(
@@ -286,6 +286,64 @@ FIXTURES = [
         },
         "SKIP",
     ),
+    # --- Entry-level ongoing roles: the scope opened up on 2026-08-07 ---
+    (
+        "APPLY — entry-level full-time help desk, the primary new case",
+        {
+            "id": "t16", "title": "IT Support Specialist (Entry-Level)",
+            "company": "IDEMIA", "location": "Chantilly, VA",
+            "description": (
+                "Entry-level IT Support Specialist. Provide Tier 1 support to internal "
+                "users, manage tickets in ServiceNow, image and deploy laptops, reset "
+                "accounts, and troubleshoot hardware and software issues. CompTIA A+ "
+                "preferred. 0-2 years of experience. Full-time, onsite in Chantilly, VA. "
+                "US citizenship required."
+            ),
+        },
+        "APPLY",
+    ),
+    (
+        "APPLY — service desk technician, no experience stated",
+        {
+            "id": "t17", "title": "Service Desk Technician",
+            "company": "AMERICAN SYSTEMS", "location": "Arlington, VA",
+            "description": (
+                "Service Desk Technician supporting a federal customer. Answer inbound "
+                "calls, triage and document incidents, perform password resets and "
+                "account unlocks, and escalate to Tier 2. Must be able to obtain a "
+                "Public Trust clearance; we will sponsor. A+ certification a plus."
+            ),
+        },
+        "APPLY",
+    ),
+    (
+        "SKIP — same lane but demands 5 years of experience",
+        {
+            "id": "t18", "title": "Systems Administrator",
+            "company": "MANTECH", "location": "Fort Meade, MD",
+            "description": (
+                "Systems Administrator. Requires 5+ years administering Windows Server "
+                "and Active Directory in an enterprise environment, plus an active "
+                "TS/SCI clearance with polygraph. Manage domain controllers, patching, "
+                "and backup infrastructure."
+            ),
+        },
+        "SKIP",
+    ),
+    (
+        "APPLY — 1+ year stated, which is reachable, not a disqualifier",
+        {
+            "id": "t19", "title": "Help Desk Technician",
+            "company": "Federal Reserve Board", "location": "Washington, DC",
+            "description": (
+                "Help Desk Technician. Provide desktop and application support to staff. "
+                "1+ year of help desk or customer support experience preferred; CompTIA "
+                "A+ strongly preferred. Duties include ticket management, hardware "
+                "troubleshooting, PC imaging, and user account administration."
+            ),
+        },
+        "APPLY",
+    ),
     (
         "SKIP — new grad program, he graduates 2028",
         {
@@ -308,9 +366,9 @@ def _reclassify(job: dict) -> tuple[str, str]:
     if _is_senior_role(job["title"]):
         return "SKIP", "Pre-filtered: seniority keyword in title"
     if _is_new_grad_role(job["title"]):
-        return "SKIP", "Pre-filtered: new grad / full-time role, not an internship"
-    if _is_non_internship_title(job["title"]):
-        return "SKIP", "Pre-filtered: no internship marker in title"
+        return "SKIP", "Pre-filtered: new grad program, he graduates May 2028"
+    if _is_experienced_level(job["title"]):
+        return "SKIP", "Pre-filtered: level suffix implies experience (II/III/IV)"
     result = classify(job)
     return result.get("tier", "MAYBE"), result.get("reason", "")
 
