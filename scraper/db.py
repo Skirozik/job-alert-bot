@@ -56,8 +56,35 @@ def norm_role(r: str) -> str:
     # Strip only a trailing "- Season YYYY" tag, not everything after the
     # first dash — otherwise "Intern - iOS - Summer 2026" and
     # "Intern - Data - Summer 2026" both collapse to the same key.
-    r = re.sub(r"[-–—]\s*(fall|spring|summer|winter)\s*20\d\d\s*$", "", r)
-    r = re.sub(r"\((fall|spring|summer|winter)\s*20\d\d\)", "", r)
+    # Strip a "Season YYYY" tag wherever it appears, with or without
+    # surrounding brackets or dashes.
+    #
+    # Previously this only matched a TRAILING "- Season YYYY" or a
+    # parenthesised "(Season YYYY)", so a season sitting mid-title survived and
+    # the same job produced two different keys — i.e. two notifications.
+    # Confirmed live on the main pipeline:
+    #   "Software Engineer Intern (Fall 2026) - Austin, TX"
+    #       -> "software engineer austin tx"
+    #   "Software Engineer Intern - Fall 2026 - Austin - TX"
+    #       -> "software engineer fall 2026 austin tx"
+    # Same Cloudflare posting, two keys, notified twice. Google's
+    # "Intern, BS, Summer 2027" vs "Intern - BS - Summer 2027" failed the same way.
+    # Season tags are deliberately NOT stripped. They are normalised for free
+    # by the punctuation pass below: "(Fall 2026)" and "- Fall 2026 -" both
+    # reduce to the same " fall 2026 " token, so the same posting written two
+    # ways produces one key.
+    #
+    # The old code stripped a PARENTHESISED "(Fall 2026)" but not a mid-title
+    # "- Fall 2026 -", which is precisely why the same Cloudflare job produced
+    # two keys and notified twice ("software engineer austin tx" vs
+    # "software engineer fall 2026 austin tx"). Google's "Intern, BS, Summer
+    # 2027" vs "Intern - BS - Summer 2027" failed the same way.
+    #
+    # Stripping seasons everywhere would fix that but cause something worse:
+    # a Spring 2027 and a Summer 2027 posting for the same role would collapse
+    # into one key and one of them would never be surfaced. Heliux posts
+    # exactly that pair. A duplicate notification is a nuisance; a hidden job
+    # is a missed opportunity, so keep the season and let it distinguish them.
     r = re.sub(r"[^a-z0-9 ]", " ", r)
     r = re.sub(r"\b(internship|intern|co\s*op|coop)\b", "", r)
     r = re.sub(r"\s+", " ", r)

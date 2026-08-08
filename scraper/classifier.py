@@ -12,7 +12,9 @@ so there's no markdown-fence stripping or JSONDecodeError fallback path.
 """
 
 import logging
+import random
 import re
+import time
 from typing import Optional
 
 import anthropic
@@ -105,6 +107,32 @@ _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
 MODEL = "claude-haiku-4-5-20251001"
+
+# On a transient API failure the job is NOT stored at all — see _failed() and
+# main.process_job(). A missing row self-heals, because the next run rediscovers
+# the listing and classifies it properly. A row stored with a fallback verdict
+# does not: dedup means it is never looked at again.
+#
+# Confirmed the hard way on 2026-08-04, when an API outage stored 82 jobs as
+# "MAYBE / Classifier error — review manually". 32 of them were actually APPLY,
+# including four TikTok 2027 internships, Boeing and RTX, and they would have
+# stayed buried indefinitely.
+MAX_CLASSIFY_ATTEMPTS = 3
+
+
+def _backoff_seconds(attempt: int) -> float:
+    return 2.0 * (2 ** attempt) + random.uniform(0, 1.5)
+
+
+def _failed(detail: str) -> dict:
+    """Signals 'do not store this job'. Callers must check result["failed"]
+    BEFORE reading tier — the tier here is a placeholder, not a judgment."""
+    return {
+        "failed": True,
+        "tier": "MAYBE",
+        "reason": f"Classifier error — not stored, will retry next run ({detail[:120]})",
+        "suggested_resume": "General",
+    }
 MAX_TOKENS = 400
 
 _VALID_TIERS = ("APPLY", "MAYBE", "SKIP")
@@ -180,38 +208,57 @@ Company: {job.get("company", "")}
 Location: {job.get("location", "")}
 Description: {job.get("description") or "(not available — classify on title/company/location only)"}"""
 
-    try:
-        resp = _get_client().messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=_system_prompt(),
-            tools=[_CLASSIFY_TOOL],
-            tool_choice={"type": "tool", "name": "classify_job"},
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+    last_exc = None
+    for attempt in range(MAX_CLASSIFY_ATTEMPTS):
+        try:
+            resp = _get_client().messages.create(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                # Pinned. Classification is a judgment call that must be
+                # reproducible: at the API default, identical input produced
+                # different verdicts ~20-30% of the time on borderline jobs.
+                # Two Oracle postings with byte-identical 9,505-char
+                # descriptions once classified SKIP and APPLY in the same pass.
+                temperature=0,
+                system=_system_prompt(),
+                tools=[_CLASSIFY_TOOL],
+                tool_choice={"type": "tool", "name": "classify_job"},
+                messages=[{"role": "user", "content": user_prompt}],
+            )
 
-        tool_use = next((b for b in resp.content if b.type == "tool_use"), None)
-        if tool_use is None:
-            log.error("Classifier returned no tool_use block for job %s", job.get("id"))
-            return {"tier": "MAYBE", "reason": "Classifier error — review manually", "suggested_resume": "General"}
+            tool_use = next((b for b in resp.content if b.type == "tool_use"), None)
+            if tool_use is None:
+                # A malformed response is not retryable in any useful way, but
+                # it IS a failure — don't invent a verdict for it.
+                log.error("Classifier returned no tool_use block for job %s", job.get("id"))
+                return _failed("no tool_use block in response")
 
-        result = dict(tool_use.input)
+            result = dict(tool_use.input)
 
-        if result.get("tier") not in _VALID_TIERS:
-            log.warning("Unexpected tier '%s' for job %s — defaulting to MAYBE", result.get("tier"), job.get("id"))
-            result["tier"] = "MAYBE"
+            if result.get("tier") not in _VALID_TIERS:
+                log.warning("Unexpected tier '%s' for job %s — defaulting to MAYBE", result.get("tier"), job.get("id"))
+                result["tier"] = "MAYBE"
 
-        result = _apply_full_time_override(job, result)
-        result = _apply_school_specific_override(job, result)
-        result = _apply_advanced_degree_override(job, result)
-        result = _apply_salary_fallback(job, result)
-        result = _never_skip_github_sourced(job, result)
+            result = _apply_full_time_override(job, result)
+            result = _apply_school_specific_override(job, result)
+            result = _apply_advanced_degree_override(job, result)
+            result = _apply_salary_fallback(job, result)
+            result = _never_skip_github_sourced(job, result)
 
-        return result
+            return result
 
-    except Exception as exc:
-        log.error("Classifier failed for job %s: %s", job.get("id"), exc)
-        return {"tier": "MAYBE", "reason": "Classifier error — review manually", "suggested_resume": "General"}
+        except Exception as exc:
+            last_exc = exc
+            if attempt < MAX_CLASSIFY_ATTEMPTS - 1:
+                backoff = _backoff_seconds(attempt)
+                log.warning("Classifier attempt %d/%d failed for job %s (%s) — retrying in %.1fs",
+                            attempt + 1, MAX_CLASSIFY_ATTEMPTS, job.get("id"), exc, backoff)
+                time.sleep(backoff)
+            else:
+                log.error("Classifier failed for job %s after %d attempts: %s",
+                          job.get("id"), MAX_CLASSIFY_ATTEMPTS, exc)
+
+    return _failed(str(last_exc))
 
 
 def _apply_full_time_override(job: dict, result: dict) -> dict:
@@ -264,6 +311,7 @@ def _apply_school_specific_override(job: dict, result: dict) -> dict:
     log.info("  School-specific override: job %s restricted to %s (candidate attends %s)",
               job.get("id"), school, CANDIDATE_SCHOOL)
     result["tier"] = "SKIP"
+    result["hard_ineligible"] = True
     result["reason"] = (
         f"Overridden: this co-op is restricted to students currently enrolled at "
         f"{school}, not {CANDIDATE_SCHOOL}."
@@ -284,6 +332,7 @@ def _apply_advanced_degree_override(job: dict, result: dict) -> dict:
     if _GRAD_ONLY_PHRASE_RE.search(desc) and not _UNDERGRAD_WORD_RE.search(desc):
         log.info("  Advanced-degree override: job %s requires grad-only enrollment", job.get("id"))
         result["tier"] = "SKIP"
+        result["hard_ineligible"] = True
         result["reason"] = (
             "Overridden: description requires current enrollment in a graduate-level "
             "(MS/PhD) program, with no bachelor's/undergraduate alternative mentioned — "
@@ -308,10 +357,25 @@ def _apply_salary_fallback(job: dict, result: dict) -> dict:
 
 def _never_skip_github_sourced(job: dict, result: dict) -> dict:
     """GitHub tracker sources (SimplifyJobs/speedyapply) are curated,
-    internship-only lists the user trusts completely — never auto-SKIP one,
-    regardless of what the rubric or the full-time override above decided.
-    Always leave it in APPLY or MAYBE for a human decision. Runs last so it
-    overrides every other mechanism that could have produced SKIP."""
-    if job.get("id", "").startswith("gh:") and result.get("tier") == "SKIP":
-        result["tier"] = "MAYBE"
+    internship-only lists the user trusts completely — never auto-SKIP one on
+    a judgment call. Leave it in APPLY or MAYBE for a human decision. Runs
+    last so it overrides the rubric and the full-time override.
+
+    EXCEPTION: hard ineligibility is not a judgment call. If an override
+    established that the candidate literally cannot hold the role — it demands
+    a graduate program he isn't in, or a partner university he doesn't attend —
+    resurrecting it to MAYBE just parks an impossible job in the queue forever.
+    Those overrides set result["hard_ineligible"], and this respects it.
+
+    Found by test_current_classifications.py, which reported a PhD-only posting
+    and a Drexel-only co-op as "still wrong" run after run: the overrides were
+    firing correctly and this function was undoing them."""
+    if not job.get("id", "").startswith("gh:"):
+        return result
+    if result.get("tier") != "SKIP":
+        return result
+    if result.get("hard_ineligible"):
+        log.info("  gh: job %s stays SKIP — hard ineligibility, not a judgment call", job.get("id"))
+        return result
+    result["tier"] = "MAYBE"
     return result
