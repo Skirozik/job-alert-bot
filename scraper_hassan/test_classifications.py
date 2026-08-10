@@ -293,7 +293,7 @@ FIXTURES = [
     ),
     # --- Entry-level ongoing roles: the scope opened up on 2026-08-07 ---
     (
-        "APPLY — entry-level full-time help desk, the primary new case",
+        "SKIP — entry-level help desk, but ongoing employment not an internship",
         {
             "id": "t16", "title": "IT Support Specialist (Entry-Level)",
             "company": "IDEMIA", "location": "Chantilly, VA",
@@ -305,10 +305,10 @@ FIXTURES = [
                 "US citizenship required."
             ),
         },
-        "APPLY",
+        "SKIP",
     ),
     (
-        "APPLY — service desk technician, no experience stated",
+        "SKIP — service desk technician, right work but a permanent job",
         {
             "id": "t17", "title": "Service Desk Technician",
             "company": "AMERICAN SYSTEMS", "location": "Arlington, VA",
@@ -319,7 +319,7 @@ FIXTURES = [
                 "Public Trust clearance; we will sponsor. A+ certification a plus."
             ),
         },
-        "APPLY",
+        "SKIP",
     ),
     (
         "SKIP — same lane but demands 5 years of experience",
@@ -336,7 +336,7 @@ FIXTURES = [
         "SKIP",
     ),
     (
-        "APPLY — 1+ year stated, which is reachable, not a disqualifier",
+        "SKIP — help desk technician, ongoing role regardless of experience bar",
         {
             "id": "t19", "title": "Help Desk Technician",
             "company": "Federal Reserve Board", "location": "Washington, DC",
@@ -347,10 +347,10 @@ FIXTURES = [
                 "troubleshooting, PC imaging, and user account administration."
             ),
         },
-        "APPLY",
+        "SKIP",
     ),
     (
-        "APPLY — cross-country relocation, explicitly no relocation assistance",
+        "SKIP — out-of-state role is fine on location, but it is a job not an internship",
         {
             "id": "t20", "title": "IT Support Technician",
             "company": "Solar Turbines", "location": "San Diego, CA",
@@ -361,7 +361,40 @@ FIXTURES = [
                 "100% onsite in San Diego, CA. Relocation assistance is not provided."
             ),
         },
+        "SKIP",
+    ),
+    (
+        # The case that made us drop the title gate: a genuine internship whose
+        # title says "Analyst", not "Intern". A title-based filter loses it.
+        "APPLY — internship with no 'intern' anywhere in the title",
+        {
+            "id": "t22", "title": "Global Technology Summer Analyst 2027 - Cybersecurity",
+            "company": "Bank of America", "location": "Washington, DC",
+            "description": (
+                "Our Global Technology Summer Analyst Program is a 10-week summer "
+                "program for students returning to their degree program afterwards. "
+                "Summer Analysts join the cybersecurity organization supporting alert "
+                "triage, incident documentation, and security operations. Open to "
+                "undergraduates graduating between November 2027 and August 2028. "
+                "Orientation week, mentorship, and a formal review process."
+            ),
+        },
         "APPLY",
+    ),
+    (
+        # The mirror case: title says Intern, description describes a permanent job.
+        "SKIP — titled 'Intern' but the description is ongoing employment",
+        {
+            "id": "t23", "title": "IT Support Intern",
+            "company": "Meridian Managed Services", "location": "Reston, VA",
+            "description": (
+                "IT Support Intern. This is a permanent, full-time position with no "
+                "end date. Benefits eligible from day one including health insurance, "
+                "401k and PTO. Provide desktop support, manage tickets, and image "
+                "workstations. We are seeking a long-term addition to the team."
+            ),
+        },
+        "SKIP",
     ),
     (
         "SKIP — outside the US, the one location rule that remains",
