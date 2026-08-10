@@ -2,16 +2,26 @@
 
 Fork of scraper/linkedin.py; the only difference is the experience filter.
 
-f_E="1,2" (Internship + Entry level). This persona wants BOTH: internships
-during school AND entry-level full-time/part-time IT work he can do while
-enrolled. Measured 2026-08-07 — DC IT internships alone run about 3/month,
-while 739 entry-level IT roles in the DC metro were sitting in his database
-discarded, including the exact titles he asked for ("IT Support Specialist
-(Entry-Level)", "Service Desk Technician", "Help Desk Technician").
+f_E="1" (Internship only). Hassan wants internships, co-ops and
+apprenticeships — not ongoing entry-level employment.
 
-For contrast: scraper/linkedin.py uses "1" (internships only) and
-scraper_beyonce/linkedin.py uses "2,3" (Entry level + Associate, explicitly
-no internships). Do not copy between the three without checking f_E.
+This was briefly "1,2" (2026-08-07 to 08-10) because internships-only was
+yielding ~3 actionable jobs a month. That scarcity was a LOCATION problem, not
+a scope problem: the search was DC-metro-only at the time. Once he confirmed he
+will relocate anywhere in the US, internships-only became viable on its own —
+the same filter now surfaces co-ops and internships in Missouri, Tennessee,
+Arizona, Indiana, New Hampshire and California.
+
+Note the search terms in config.py are deliberately NOT all "... intern"
+phrasings. Under f_E="1" LinkedIn already restricts to internship-level
+postings, so a plain term like "cybersecurity analyst" returns cybersecurity
+INTERNSHIPS — including ones whose titles never say "intern", such as Bank of
+America's "Global Technology Summer Analyst 2027". There is no title gate in
+main.py for the same reason: employment type is judged from the description.
+
+For contrast: scraper/linkedin.py also uses "1" but DOES apply a title gate,
+and scraper_beyonce/linkedin.py uses "2,3" (Entry level + Associate,
+explicitly no internships). Do not copy between the three without checking f_E.
 
 Everything else — pagination, description/salary/logo scraping — is generic
 HTML parsing with no persona-specific logic, copied unedited.
@@ -63,7 +73,7 @@ def fetch_listings(
     params = {
         "keywords": keyword,
         "location": location,
-        "f_E": "1,2",             # Internship + Entry level
+        "f_E": "1",               # Internship only — see the module docstring
         "f_TPR": f"r{lookback_seconds}",
         "start": str(start),
     }
