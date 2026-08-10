@@ -164,7 +164,10 @@ FIXTURES = [
         "SKIP",
     ),
     (
-        "SKIP — onsite outside the DC metro, no remote option",
+        # Was SKIP under the DC-only location rule. He is now willing to
+        # relocate anywhere in the US, so an out-of-state role is a normal
+        # APPLY — location alone can no longer disqualify anything.
+        "APPLY — out-of-state onsite, fine now that he relocates",
         {
             "id": "t10", "title": "Desktop Support Intern",
             "company": "Cleveland Clinic", "location": "Cleveland, OH",
@@ -174,7 +177,7 @@ FIXTURES = [
                 "This role is 100% onsite in Cleveland, Ohio. No remote option."
             ),
         },
-        "SKIP",
+        "APPLY",
     ),
     (
         # Originally written expecting MAYBE. The classifier returned APPLY and
@@ -197,7 +200,9 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "MAYBE — Baltimore metro, commutable-but-a-stretch per the location rule",
+        # Was MAYBE purely on commute distance. With relocation on the table
+        # that consideration is gone, so this is judged on role fit alone.
+        "APPLY — Baltimore, no longer downgraded for distance",
         {
             "id": "t11b", "title": "Help Desk Support Intern",
             "company": "Johns Hopkins Health System", "location": "Baltimore, MD",
@@ -208,7 +213,7 @@ FIXTURES = [
                 "Baltimore, Maryland. Open to undergraduate students."
             ),
         },
-        "MAYBE",
+        "APPLY",
     ),
     (
         # Also originally expected MAYBE. The classifier said APPLY and exposed
@@ -343,6 +348,33 @@ FIXTURES = [
             ),
         },
         "APPLY",
+    ),
+    (
+        "APPLY — cross-country relocation, explicitly no relocation assistance",
+        {
+            "id": "t20", "title": "IT Support Technician",
+            "company": "Solar Turbines", "location": "San Diego, CA",
+            "description": (
+                "IT Support Technician. Provide Tier 1 desktop and application support, "
+                "manage tickets, image workstations, and support account provisioning. "
+                "Entry-level, 0-2 years experience. CompTIA A+ preferred. This role is "
+                "100% onsite in San Diego, CA. Relocation assistance is not provided."
+            ),
+        },
+        "APPLY",
+    ),
+    (
+        "SKIP — outside the US, the one location rule that remains",
+        {
+            "id": "t21", "title": "IT Service Desk Analyst",
+            "company": "Globex International", "location": "Toronto, ON, Canada",
+            "description": (
+                "IT Service Desk Analyst based in our Toronto office. Entry-level "
+                "ticketing, troubleshooting, and user support. Must have existing "
+                "authorization to work in Canada; we do not sponsor visas."
+            ),
+        },
+        "SKIP",
     ),
     (
         "SKIP — new grad program, he graduates 2028",
