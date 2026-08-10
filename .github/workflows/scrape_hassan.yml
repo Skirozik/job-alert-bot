@@ -23,7 +23,21 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 60, not 20. This pipeline searches 19 terms x 2 locations = 38 pairs, and
+    # since the internship-title gate was removed far more jobs reach the
+    # classifier — each costing a description fetch (~3s, rate-limit paced) plus
+    # a Claude call. At 20 minutes the run was being killed mid-loop on every
+    # invocation: confirmed 2026-08-10, three consecutive runs cancelled at
+    # ~20m15s inside step "Run scraper".
+    #
+    # The damage was quiet rather than loud. Jobs processed before the kill were
+    # stored fine, but the search terms later in the list never ran at all, and
+    # the `finally: finish_run(...)` block never executed — which is why those
+    # scrape_runs rows sit UNFINISHED with null stats.
+    #
+    # 60 min still leaves a wide margin under the 2-hour cron, and the
+    # concurrency guard above prevents overlap if a run ever does exceed it.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
