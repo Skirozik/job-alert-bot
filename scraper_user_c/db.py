@@ -139,7 +139,13 @@ def start_run() -> Optional[int]:
     """
     try:
         client = get_client()
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+        # 75 minutes, wider than the other two pipelines' 20. It must exceed
+        # this workflow's timeout-minutes (60) or a legitimately long run stops
+        # holding its own lock partway through, and anything started in the
+        # meantime — a local catch-up script, say — would double-process
+        # alongside it. The Actions `concurrency:` guard only covers
+        # Actions-vs-Actions; this covers everything else.
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=75)).isoformat()
         active = (
             client.table("scrape_runs")
             .select("id")
