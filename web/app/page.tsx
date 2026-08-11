@@ -1,5 +1,6 @@
 import { JobList } from '@/components/JobList'
 import { requirePersonaPage } from '@/lib/auth'
+import { groupNearDuplicates } from '@/lib/dupes'
 import type { Job } from '@/types/job'
 
 // Must stay force-dynamic. A cached render would serve one person's jobs to
@@ -48,10 +49,16 @@ export default async function HomePage() {
     .filter((j) => (seen.has(j.id) ? false : (seen.add(j.id), true)))
     .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
 
+  // Collapse near-identical postings into one card. The same job arrives from
+  // up to three sources with different title wording, which the scrapers'
+  // exact norm_key dedup cannot catch. This GROUPS rather than hides — see
+  // lib/dupes.ts for why auto-merging was backtested and rejected.
+  const grouped = groupNearDuplicates(jobs)
+
   return (
     <main className="min-h-screen bg-gray-950 text-white">
       <div className="max-w-3xl mx-auto px-4 py-10">
-        <JobList initialJobs={jobs} personaLabel={persona.label} />
+        <JobList initialJobs={grouped} personaLabel={persona.label} />
       </div>
     </main>
   )
