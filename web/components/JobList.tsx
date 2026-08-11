@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { JobCard } from './JobCard'
 import type { Job, Status } from '@/types/job'
+import type { Grouped } from '@/lib/dupes'
 
 const INTERN_RE = /intern|internship|co[\s-]?op|apprentice/i
 
@@ -71,11 +72,11 @@ export function JobList({
   initialJobs,
   personaLabel,
 }: {
-  initialJobs: Job[]
+  initialJobs: Grouped[]
   personaLabel?: string
 }) {
   const router = useRouter()
-  const [jobs, setJobs] = useState<Job[]>(initialJobs)
+  const [jobs, setJobs] = useState<Grouped[]>(initialJobs)
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')

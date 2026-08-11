@@ -21,7 +21,7 @@ export function JobCard({
   job,
   onStatusChange,
 }: {
-  job: Job
+  job: Job & { duplicates?: Job[] }
   onStatusChange: (id: string, status: Status) => void
 }) {
   const [pending, setPending] = useState(false)
@@ -139,6 +139,28 @@ export function JobCard({
             >
               {job.title}
             </a>
+            {/* Near-identical postings of the same job, collapsed into this
+                card. They are LINKED, never hidden — see lib/dupes.ts for why
+                auto-merging was backtested and rejected. */}
+            {job.duplicates && job.duplicates.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 text-gray-400">
+                  +{job.duplicates.length} duplicate posting{job.duplicates.length > 1 ? 's' : ''}
+                </span>
+                {job.duplicates.map((d) => (
+                  <a
+                    key={d.id}
+                    href={d.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={d.title}
+                    className="text-[11px] text-gray-500 hover:text-blue-400 underline decoration-dotted transition-colors"
+                  >
+                    {d.id.startsWith('gh:') ? 'GitHub tracker' : d.id.startsWith('ats:') ? 'company ATS' : 'LinkedIn'} version
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
