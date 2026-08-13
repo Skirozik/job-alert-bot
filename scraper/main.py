@@ -92,7 +92,16 @@ def _is_new_grad_role(title: str) -> bool:
 # this marker, while 35% of a given active queue can. LinkedIn-only (see
 # call site) — GitHub tracker sources are internship-only by construction
 # and occasionally omit "intern" from the title on a genuine internship.
-_INTERN_TITLE_RE = re.compile(r"\bintern(?:ship)?s?\b|\bco[\s-]?ops?\b|\bapprentice(?:ship)?s?\b")
+# The trailing boundary is (?![a-z0-9]) rather than \b because an underscore is
+# a WORD character in regex, so \b never fires between "p" and "_". That made
+# "Software Engineering Co-op_Summer 2027" (GE Appliances, seen twice) read as a
+# non-internship title and get pre-filtered without ever reaching the
+# classifier. Underscore-as-separator is a real convention in ATS-generated
+# titles — "Intern_Summer 2027", "Data Co-Op_Fall" — and every one of them was
+# being dropped silently.
+_INTERN_TITLE_RE = re.compile(
+    r"\bintern(?:ship)?s?(?![a-z0-9])|\bco[\s-]?ops?(?![a-z0-9])|\bapprentice(?:ship)?s?(?![a-z0-9])"
+)
 
 def _is_non_internship_title(title: str) -> bool:
     return not _INTERN_TITLE_RE.search(title.lower())
