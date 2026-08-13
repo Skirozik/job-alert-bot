@@ -103,8 +103,48 @@ _INTERN_TITLE_RE = re.compile(
     r"\bintern(?:ship)?s?(?![a-z0-9])|\bco[\s-]?ops?(?![a-z0-9])|\bapprentice(?:ship)?s?(?![a-z0-9])"
 )
 
+# Paid student-worker roles are functionally internships but rarely contain the
+# word. Universities, research institutes, and several large employers label
+# them "Student Assistant" / "Part-Time Student - Software Engineer" instead.
+# Measured over 90 days: 29 software-titled student roles were pre-filtered
+# without ever reaching the classifier, including a Georgia Tech Research
+# Institute "Software Engineer Student Assistant" — paid, Python and Java, in
+# his own city — and John Deere's long-running part-time student program.
+#
+# Deliberately requires a job-noun after "student" so this does NOT match
+# "Software Engineer II - Student Affairs", where "Student" names the
+# university department doing the hiring rather than who is being hired. The
+# optional middle word admits "Student IT Associate" without opening it up to
+# arbitrary phrases.
+# Requiring a fixed job-noun after "student" proved too brittle — it missed
+# "Student Web/Application Developer" on the slash. Instead: a student token
+# AND a software token, minus an explicit list of phrases where "student" names
+# the department being hired *for* rather than the person being hired. That
+# handles arbitrary word order and punctuation, which is what real ATS titles
+# actually look like.
+_STUDENT_TOKEN_RE = re.compile(r"\bstudent\b|\bwork[\s-]?study\b")
+_SOFTWARE_TOKEN_RE = re.compile(
+    r"software|developer|programmer|engineer|web|application|comput|data|\bIT\b|"
+    r"front.?end|back.?end|full.?stack|\bqa\b|test",
+    re.I,
+)
+# "Software Engineer II - Student Affairs" is an ordinary full-time job in a
+# university's Student Affairs office, not a student hire. Same for the loan,
+# services, life, success and housing departments.
+_STUDENT_DEPARTMENT_RE = re.compile(
+    r"student\s+(?:affairs|loan|services|success|life|housing|health|union|center|records|accounts|conduct)"
+)
+
+
+def _is_student_worker_title(title: str) -> bool:
+    t = title.lower()
+    if _STUDENT_DEPARTMENT_RE.search(t):
+        return False
+    return bool(_STUDENT_TOKEN_RE.search(t) and _SOFTWARE_TOKEN_RE.search(t))
+
+
 def _is_non_internship_title(title: str) -> bool:
-    return not _INTERN_TITLE_RE.search(title.lower())
+    return not (_INTERN_TITLE_RE.search(title.lower()) or _is_student_worker_title(title))
 
 
 MAX_PAGES_PER_SEARCH = 10  # 100 results max per search term/location pair
