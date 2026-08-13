@@ -148,7 +148,13 @@ FIXTURES = [
         "MAYBE",
     ),
     (
-        "MAYBE — staffing agency, legitimate function, no named end client",
+        # The staffing agency and the unnamed end client are NOT what demotes
+        # this one — rubric line 48 makes exactly that combination an APPLY.
+        # The only thing holding it at MAYBE is the straddling "$19-21/hr"
+        # range (rubric line 60: top clears the floor, so MAYBE, never SKIP).
+        # test-9b is the controlled pair: same agency, same unnamed client,
+        # flat above-floor rate, expected APPLY.
+        "MAYBE — straddling $19-21/hr range (staffing agency is not the cause)",
         {
             "id": "test-9", "title": "Administrative Assistant",
             "company": "Ultimate Staffing", "location": "Atlanta, GA",
@@ -159,6 +165,20 @@ FIXTURES = [
             ),
         },
         "MAYBE",
+    ),
+    (
+        "APPLY — staffing agency, legitimate function, no named end client, flat $23/hr",
+        {
+            "id": "test-9b", "title": "Front Office Coordinator",
+            "company": "PrideStaff", "location": "Atlanta, GA",
+            "description": (
+                "PrideStaff is recruiting a Front Office Coordinator for a client "
+                "company in the Atlanta area. Greet visitors, answer a multi-line "
+                "phone system, manage conference room scheduling, handle mail and "
+                "data entry. Full-time, temp-to-hire, $23.00/hr."
+            ),
+        },
+        "APPLY",
     ),
     (
         "APPLY — Prior Auth at a medical practice (vs. SKIP if PBM)",
