@@ -23,6 +23,59 @@ log = logging.getLogger(__name__)
 SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
 
+# LinkedIn renders the pay chip as its own element, and it is NOT always backed
+# by JSON-LD. Confirmed live on job 4444793701 (Quadrillion, "Software
+# Engineering Intern (Summer 2027)"): the page shows "$4,000.00/wk - $6,000.00/wk"
+# in this div while returning ZERO application/ld+json blocks, so the baseSalary
+# parser below never ran and the salary was silently dropped. The description
+# body had no pay figure either — its only "$" mentions were the company's
+# venture funding ("$18.3M from Conviction"), which the extractor correctly
+# ignores — so nothing downstream could recover it.
+_SALARY_EL_CLASSES = ("compensation__salary", "salary")
+
+# "$4,000.00/wk - $6,000.00/wk" -> lo, hi, unit. Both sides repeat the unit;
+# we keep one. The decimals are always ".00" on these chips.
+_SALARY_RANGE_RE = re.compile(
+    r"\$\s*([\d,]+)(?:\.00)?\s*/?\s*(hr|hour|wk|week|mo|month|yr|year)?\s*[-–—]\s*"
+    r"\$\s*([\d,]+)(?:\.00)?\s*/?\s*(hr|hour|wk|week|mo|month|yr|year)?",
+    re.I,
+)
+_SALARY_SINGLE_RE = re.compile(
+    r"\$\s*([\d,]+)(?:\.00)?\s*/?\s*(hr|hour|wk|week|mo|month|yr|year)?", re.I
+)
+
+
+def _salary_from_html(soup) -> Optional[str]:
+    """Read the rendered pay chip when JSON-LD is absent.
+
+    Deliberately scoped to the compensation element rather than regexing the
+    page: postings routinely quote funding rounds, revenue, and customer
+    figures in dollars, and a page-wide scan would happily report "$18.3M" as
+    an internship's pay.
+    """
+    for cls in _SALARY_EL_CLASSES:
+        el = soup.find(class_=cls)
+        if not el:
+            continue
+        text = " ".join((el.get_text(" ", strip=True) or "").split())
+        if "$" not in text:
+            continue
+        m = _SALARY_RANGE_RE.search(text)
+        if m:
+            lo, u1, hi, u2 = m.group(1), m.group(2), m.group(3), m.group(4)
+            unit = (u1 or u2 or "").lower()
+            suffix = f"/{unit}" if unit else ""
+            # LinkedIn renders a fixed rate as a degenerate range ("$25.00/hr -
+            # $25.00/hr"); collapse it rather than showing "$25–$25/hr".
+            return (f"${lo}" if lo == hi else f"${lo}–${hi}") + suffix
+        m = _SALARY_SINGLE_RE.search(text)
+        if m:
+            unit = (m.group(2) or "").lower()
+            return f"${m.group(1)}" + (f"/{unit}" if unit else "")
+        return text[:60]
+    return None
+
+
 MAX_LEN = 12000
 MAX_LEN_CRITERIA_FALLBACK = 6000
 
@@ -215,6 +268,12 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str], Option
                     break
             except Exception:
                 pass
+
+        # JSON-LD is the better source when present (structured min/max/unit),
+        # but it is frequently absent on these guest pages. Fall back to the
+        # rendered chip rather than losing the figure entirely.
+        if not salary:
+            salary = _salary_from_html(soup)
 
         if not is_easy_apply and "easy apply" in resp.text.lower():
             is_easy_apply = True
