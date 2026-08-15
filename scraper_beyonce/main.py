@@ -158,7 +158,7 @@ def process_job(job: dict) -> bool:
         log.warning("  Classification FAILED — not storing '%s' @ %s; the next run will retry it",
                     job.get("title"), job.get("company"))
         return False
-    job["tier"] = result.get("tier", "MAYBE")
+    job["tier"] = result.get("tier", "APPLY_CAVEAT")
     job["reason"] = result.get("reason", "")
     if not job.get("salary") and result.get("salary"):
         job["salary"] = result["salary"]
@@ -173,7 +173,7 @@ def process_job(job: dict) -> bool:
     # Push notification for APPLY and MAYBE — only if it was actually
     # persisted, so a DB hiccup doesn't cause the same job to be
     # re-classified and re-notified every run until the write succeeds.
-    if job["tier"] in ("APPLY", "MAYBE") and stored:
+    if job["tier"] in ("APPLY", "APPLY_CAVEAT") and stored:
         push_job(job)
         return True
     return False
@@ -288,14 +288,14 @@ def run():
             # titles without hitting Claude.
             if _is_senior_role(job["title"]):
                 log.info("  Pre-filter SKIP (executive/leadership title)")
-                job["tier"] = "SKIP"
+                job["tier"] = "INELIGIBLE"
                 job["reason"] = "Pre-filtered: executive/leadership keyword in title"
                 insert_job(job)
                 continue
 
             if _is_internship_or_student_title(job["title"]):
                 log.info("  Pre-filter SKIP (internship/student marker in title)")
-                job["tier"] = "SKIP"
+                job["tier"] = "INELIGIBLE"
                 job["reason"] = "Pre-filtered: internship/co-op/student-program marker in title"
                 insert_job(job)
                 continue

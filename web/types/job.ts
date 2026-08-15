@@ -1,4 +1,15 @@
-export type Tier = 'APPLY' | 'MAYBE' | 'SKIP'
+// All three personas migrated to this vocabulary together. The old
+// APPLY/MAYBE/SKIP scheme is gone: MAYBE was never looked at, so it functioned
+// as a silent delete, and SKIP hid judgment calls that should have been the
+// candidate's to make.
+//   APPLY        - clean fit
+//   APPLY_CAVEAT - worth applying, one specific reservation; `reason` IS that
+//                  caveat, under 12 words. Shown in the SAME list as APPLY.
+//   INELIGIBLE   - hard block only. The only tier that is ever hidden.
+export type Tier = 'APPLY' | 'APPLY_CAVEAT' | 'INELIGIBLE'
+
+/** Shown in the main list — never hidden or collapsed. */
+export const ACTIONABLE_TIERS: Tier[] = ['APPLY', 'APPLY_CAVEAT']
 export type Status = 'new' | 'saved' | 'applied' | 'dismissed'
 export type SuggestedResume = 'Mobile' | 'AI' | 'Frontend' | '1Password' | 'General' | 'N/A'
 
