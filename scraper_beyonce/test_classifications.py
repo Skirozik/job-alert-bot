@@ -54,7 +54,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "SKIP — internship title",
+        "INELIGIBLE — internship title",
         {
             "id": "test-2", "title": "Healthcare Administration Intern — Summer 2026",
             "company": "WellStar Health System", "location": "Atlanta, GA",
@@ -64,10 +64,10 @@ FIXTURES = [
                 "offers hands-on exposure to hospital operations."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — wrong location, no remote option",
+        "INELIGIBLE — wrong location, no remote option",
         {
             "id": "test-3", "title": "Patient Registration Specialist",
             "company": "Atrium Health", "location": "Charlotte, NC",
@@ -77,10 +77,10 @@ FIXTURES = [
                 "verification, and scheduling. $19/hr. Onsite only, no remote work."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — explicit pay below floor",
+        "INELIGIBLE — explicit pay below floor",
         {
             "id": "test-4", "title": "Front Desk Receptionist",
             "company": "Downtown Family Practice", "location": "Atlanta, GA",
@@ -90,10 +90,10 @@ FIXTURES = [
                 "Pay starts at $16.00/hour. Full-time, Monday-Friday."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — hands-on clinical duties despite admin-sounding title",
+        "INELIGIBLE — hands-on clinical duties despite admin-sounding title",
         {
             "id": "test-5", "title": "Clinical Care Coordinator",
             "company": "Northside Animal Hospital", "location": "Atlanta, GA",
@@ -104,10 +104,10 @@ FIXTURES = [
                 "procedures. $20/hr."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — credential gap, requires CPC coding certification",
+        "INELIGIBLE — credential gap, requires CPC coding certification",
         {
             "id": "test-6", "title": "Medical Coder II",
             "company": "Emory Healthcare", "location": "Atlanta, GA",
@@ -116,14 +116,14 @@ FIXTURES = [
                 "charts and assigns ICD-10/CPT codes for billing. $24/hr."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
         # NOTE: until the pre-filter was narrowed, this fixture passed for the
         # WRONG reason — "manager" was in _SENIOR_SIGNALS, so it never reached
         # Claude and the RN-credential rule it's meant to exercise was never
         # actually tested. It now goes to the classifier for real.
-        "SKIP — credential gap, requires active RN license",
+        "INELIGIBLE — credential gap, requires active RN license",
         {
             "id": "test-7", "title": "Case Manager",
             "company": "Grady Health System", "location": "Atlanta, GA",
@@ -132,10 +132,10 @@ FIXTURES = [
                 "Active RN license required. $34/hr."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "MAYBE — hotel front desk, pay-risk (no shift/pay stated)",
+        "APPLY_CAVEAT — hotel front desk, pay-risk (no shift/pay stated)",
         {
             "id": "test-8", "title": "Hotel Front Desk Agent",
             "company": "Marriott Atlanta Buckhead", "location": "Atlanta, GA",
@@ -145,16 +145,16 @@ FIXTURES = [
                 "Day shift, full-time."
             ),
         },
-        "MAYBE",
+        "APPLY_CAVEAT",
     ),
     (
         # The staffing agency and the unnamed end client are NOT what demotes
         # this one — rubric line 48 makes exactly that combination an APPLY.
-        # The only thing holding it at MAYBE is the straddling "$19-21/hr"
-        # range (rubric line 60: top clears the floor, so MAYBE, never SKIP).
+        # The only thing holding it at APPLY_CAVEAT is the straddling "$19-21/hr"
+        # range (rubric line 60: top clears the floor, so APPLY_CAVEAT, never INELIGIBLE).
         # test-9b is the controlled pair: same agency, same unnamed client,
         # flat above-floor rate, expected APPLY.
-        "MAYBE — straddling $19-21/hr range (staffing agency is not the cause)",
+        "APPLY_CAVEAT — straddling $19-21/hr range (staffing agency is not the cause)",
         {
             "id": "test-9", "title": "Administrative Assistant",
             "company": "Ultimate Staffing", "location": "Atlanta, GA",
@@ -164,7 +164,7 @@ FIXTURES = [
                 "scheduling, and general office support. $19-21/hr, temp-to-hire."
             ),
         },
-        "MAYBE",
+        "APPLY_CAVEAT",
     ),
     (
         "APPLY — staffing agency, legitimate function, no named end client, flat $23/hr",
@@ -181,7 +181,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "APPLY — Prior Auth at a medical practice (vs. SKIP if PBM)",
+        "APPLY — Prior Auth at a medical practice (vs. INELIGIBLE if PBM)",
         {
             "id": "test-10", "title": "Prior Authorization Specialist",
             "company": "Peachtree Orthopedic Clinic", "location": "Atlanta, GA",
@@ -245,7 +245,7 @@ FIXTURES = [
     ),
     # Guard: the trimmed pre-filter must STILL catch genuine leadership roles.
     (
-        "SKIP — genuine director-level role (pre-filter must still fire)",
+        "INELIGIBLE — genuine director-level role (pre-filter must still fire)",
         {
             "id": "test-14", "title": "Director of Patient Access Services",
             "company": "Emory Healthcare", "location": "Atlanta, GA",
@@ -257,14 +257,14 @@ FIXTURES = [
                 "experience. $120,000-$150,000/yr."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     # Management titles are no longer pre-filtered — the rubric now owns this
     # decision (it names Manager/Supervisor directly and treats Practice
     # Manager / Medical Office Manager as credential-gapped), so this verifies
-    # the SKIP still happens, just via the classifier instead.
+    # the INELIGIBLE still happens, just via the classifier instead.
     (
-        "SKIP — Medical Office Manager, now decided by the rubric not the pre-filter",
+        "INELIGIBLE — Medical Office Manager, now decided by the rubric not the pre-filter",
         {
             "id": "test-15", "title": "Medical Office Manager",
             "company": "Buckhead Family Medicine", "location": "Atlanta, GA",
@@ -275,18 +275,18 @@ FIXTURES = [
                 "5+ years of medical practice management experience. $30/hour."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
 ]
 
 
 def _reclassify(job: dict) -> tuple[str, str]:
     if _is_senior_role(job["title"]):
-        return "SKIP", "Pre-filtered: executive/leadership keyword in title"
+        return "INELIGIBLE", "Pre-filtered: executive/leadership keyword in title"
     if _is_internship_or_student_title(job["title"]):
-        return "SKIP", "Pre-filtered: internship/co-op/student-program marker in title"
+        return "INELIGIBLE", "Pre-filtered: internship/co-op/student-program marker in title"
     result = classify(job)
-    return result.get("tier", "MAYBE"), result.get("reason", "")
+    return result.get("tier", "APPLY_CAVEAT"), result.get("reason", "")
 
 
 def run():
