@@ -80,7 +80,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "SKIP — requires an ALREADY-HELD active TS/SCI clearance",
+        "INELIGIBLE — requires an ALREADY-HELD active TS/SCI clearance",
         {
             "id": "t4", "title": "Cyber Operations Intern",
             "company": "Northrop Grumman", "location": "Chantilly, VA",
@@ -91,7 +91,7 @@ FIXTURES = [
                 "Summer 2027, 12 weeks, paid."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
         "APPLY — clearance SPONSORED, not already held (the exception to the rule)",
@@ -108,7 +108,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "SKIP — software engineering role, wrong track entirely",
+        "INELIGIBLE — software engineering role, wrong track entirely",
         {
             "id": "t6", "title": "Software Engineer Intern - Summer 2027",
             "company": "Amazon Web Services", "location": "Arlington, VA",
@@ -120,10 +120,10 @@ FIXTURES = [
                 "submit production code."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — physical security guard role, the direction he's leaving",
+        "INELIGIBLE — physical security guard role, the direction he's leaving",
         {
             "id": "t7", "title": "Security Officer Intern",
             "company": "Allied Universal", "location": "Springfield, VA",
@@ -134,10 +134,10 @@ FIXTURES = [
                 "incident reports. No experience necessary; training provided."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — 'Current Interns Only' restriction, lives in the title",
+        "INELIGIBLE — 'Current Interns Only' restriction, lives in the title",
         {
             "id": "t8", "title": "Current Interns Only - Technology Analyst Program Summer 2027",
             "company": "Deloitte", "location": "Arlington, VA",
@@ -147,10 +147,10 @@ FIXTURES = [
                 "with service desk escalations, and document technical procedures."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — requires an already-held CCNA plus years of experience",
+        "INELIGIBLE — requires an already-held CCNA plus years of experience",
         {
             "id": "t9", "title": "Network Operations Intern",
             "company": "Verizon", "location": "Ashburn, VA",
@@ -161,10 +161,10 @@ FIXTURES = [
                 "and configure routers and switches."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        # Was SKIP under the DC-only location rule. He is now willing to
+        # Was INELIGIBLE under the DC-only location rule. He is now willing to
         # relocate anywhere in the US, so an out-of-state role is a normal
         # APPLY — location alone can no longer disqualify anything.
         "APPLY — out-of-state onsite, fine now that he relocates",
@@ -180,8 +180,8 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        # Originally written expecting MAYBE. The classifier returned APPLY and
-        # was right: the scripting rule exists to stop a SKIP, not to force a
+        # Originally written expecting APPLY_CAVEAT. The classifier returned APPLY and
+        # was right: the scripting rule exists to stop a INELIGIBLE, not to force a
         # downgrade, and the rubric's tie-break sends a clean Target-role match
         # in the DC metro with no hard disqualifier to APPLY. Expectation
         # corrected rather than the rubric.
@@ -200,7 +200,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        # Was MAYBE purely on commute distance. With relocation on the table
+        # Was APPLY_CAVEAT purely on commute distance. With relocation on the table
         # that consideration is gone, so this is judged on role fit alone.
         "APPLY — Baltimore, no longer downgraded for distance",
         {
@@ -216,11 +216,11 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        # Also originally expected MAYBE. The classifier said APPLY and exposed
+        # Also originally expected APPLY_CAVEAT. The classifier said APPLY and exposed
         # a genuine contradiction in the rubric: the APPLY section called
-        # "willingness to obtain" an APPLY while the MAYBE section called "or in
-        # progress" a MAYBE, and those overlap. Rubric now states one rule —
-        # any carve-out is APPLY, a hard "must currently hold" is SKIP, no
+        # "willingness to obtain" an APPLY while the APPLY_CAVEAT section called "or in
+        # progress" a APPLY_CAVEAT, and those overlap. Rubric now states one rule —
+        # any carve-out is APPLY, a hard "must currently hold" is INELIGIBLE, no
         # middle tier — so this cannot flip between runs.
         "APPLY — Security+ required but with an 'or in progress' carve-out",
         {
@@ -236,7 +236,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "SKIP — Security+ hard required with no carve-out (the other side of that rule)",
+        "INELIGIBLE — Security+ hard required with no carve-out (the other side of that rule)",
         {
             "id": "t11d", "title": "Information Assurance Intern",
             "company": "General Dynamics IT", "location": "Fairfax, VA",
@@ -248,10 +248,10 @@ FIXTURES = [
                 "documentation. Summer 2027, Fairfax VA."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — unpaid internship",
+        "INELIGIBLE — unpaid internship",
         {
             "id": "t12", "title": "IT Support Intern (Unpaid)",
             "company": "Community Nonprofit Alliance", "location": "Washington, DC",
@@ -261,7 +261,7 @@ FIXTURES = [
                 "This is an unpaid position; college credit can be arranged."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
         "APPLY — genuinely remote internship, treated same as DC onsite",
@@ -278,7 +278,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "SKIP — veteran-only program (OVIP-style restriction)",
+        "INELIGIBLE — veteran-only program (OVIP-style restriction)",
         {
             "id": "t14", "title": "IT Support Intern - Veterans Program",
             "company": "Oracle", "location": "Reston, VA",
@@ -289,11 +289,11 @@ FIXTURES = [
                 "support to internal teams."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     # --- Entry-level ongoing roles: the scope opened up on 2026-08-07 ---
     (
-        "SKIP — entry-level help desk, but ongoing employment not an internship",
+        "INELIGIBLE — entry-level help desk, but ongoing employment not an internship",
         {
             "id": "t16", "title": "IT Support Specialist (Entry-Level)",
             "company": "IDEMIA", "location": "Chantilly, VA",
@@ -305,10 +305,10 @@ FIXTURES = [
                 "US citizenship required."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — service desk technician, right work but a permanent job",
+        "INELIGIBLE — service desk technician, right work but a permanent job",
         {
             "id": "t17", "title": "Service Desk Technician",
             "company": "AMERICAN SYSTEMS", "location": "Arlington, VA",
@@ -319,10 +319,10 @@ FIXTURES = [
                 "Public Trust clearance; we will sponsor. A+ certification a plus."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — same lane but demands 5 years of experience",
+        "INELIGIBLE — same lane but demands 5 years of experience",
         {
             "id": "t18", "title": "Systems Administrator",
             "company": "MANTECH", "location": "Fort Meade, MD",
@@ -333,10 +333,10 @@ FIXTURES = [
                 "and backup infrastructure."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — help desk technician, ongoing role regardless of experience bar",
+        "INELIGIBLE — help desk technician, ongoing role regardless of experience bar",
         {
             "id": "t19", "title": "Help Desk Technician",
             "company": "Federal Reserve Board", "location": "Washington, DC",
@@ -347,10 +347,10 @@ FIXTURES = [
                 "troubleshooting, PC imaging, and user account administration."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — out-of-state role is fine on location, but it is a job not an internship",
+        "INELIGIBLE — out-of-state role is fine on location, but it is a job not an internship",
         {
             "id": "t20", "title": "IT Support Technician",
             "company": "Solar Turbines", "location": "San Diego, CA",
@@ -361,7 +361,7 @@ FIXTURES = [
                 "100% onsite in San Diego, CA. Relocation assistance is not provided."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
         # The case that made us drop the title gate: a genuine internship whose
@@ -383,7 +383,7 @@ FIXTURES = [
     ),
     (
         # The mirror case: title says Intern, description describes a permanent job.
-        "SKIP — titled 'Intern' but the description is ongoing employment",
+        "INELIGIBLE — titled 'Intern' but the description is ongoing employment",
         {
             "id": "t23", "title": "IT Support Intern",
             "company": "Meridian Managed Services", "location": "Reston, VA",
@@ -394,10 +394,10 @@ FIXTURES = [
                 "workstations. We are seeking a long-term addition to the team."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — outside the US, the one location rule that remains",
+        "INELIGIBLE — outside the US, the one location rule that remains",
         {
             "id": "t21", "title": "IT Service Desk Analyst",
             "company": "Globex International", "location": "Toronto, ON, Canada",
@@ -407,10 +407,10 @@ FIXTURES = [
                 "authorization to work in Canada; we do not sponsor visas."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
     (
-        "SKIP — new grad program, he graduates 2028",
+        "INELIGIBLE — new grad program, he graduates 2028",
         {
             "id": "t15", "title": "New Graduate IT Rotational Program",
             "company": "Accenture Federal", "location": "Arlington, VA",
@@ -420,7 +420,7 @@ FIXTURES = [
                 "graduating in 2026. Full-time, permanent placement upon completion."
             ),
         },
-        "SKIP",
+        "INELIGIBLE",
     ),
 ]
 
@@ -429,13 +429,13 @@ def _reclassify(job: dict) -> tuple[str, str]:
     """Mirror of main.py's pre-filter chain + classifier. Must be kept in
     lockstep with run()'s gates or the tests will pass while prod diverges."""
     if _is_senior_role(job["title"]):
-        return "SKIP", "Pre-filtered: seniority keyword in title"
+        return "INELIGIBLE", "Pre-filtered: seniority keyword in title"
     if _is_new_grad_role(job["title"]):
-        return "SKIP", "Pre-filtered: new grad program, he graduates May 2028"
+        return "INELIGIBLE", "Pre-filtered: new grad program, he graduates May 2028"
     if _is_experienced_level(job["title"]):
-        return "SKIP", "Pre-filtered: level suffix implies experience (II/III/IV)"
+        return "INELIGIBLE", "Pre-filtered: level suffix implies experience (II/III/IV)"
     result = classify(job)
-    return result.get("tier", "MAYBE"), result.get("reason", "")
+    return result.get("tier", "APPLY_CAVEAT"), result.get("reason", "")
 
 
 def run():
