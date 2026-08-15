@@ -39,6 +39,23 @@ _SOURCES = [
      "speedyapply/2026-AI-College-Jobs"),
     ("https://raw.githubusercontent.com/sndsh404/summer-2027-internships/main/README.md",
      "sndsh404/summer-2027-internships"),
+    # Added 2026-08-13. The Summer 2027 lists matter most: the configured
+    # SimplifyJobs feed above is the 2026 season, which is the wrong YEAR for a
+    # candidate targeting Summer 2027. Each URL below was fetched and run
+    # through _parse_readme before being added, not just HTTP-checked —
+    # SimplifyJobs uses HTML <table> markup rather than markdown pipe rows, so
+    # a pipe-row count reports zero for a file the parser handles fine (147
+    # jobs). Verify with the parser, not with a heuristic.
+    ("https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md",
+     "SimplifyJobs/Summer2027-Internships"),
+    # The Summer 2027 lists matter most: the configured
+    # SimplifyJobs feed above was the 2026 season, which is the wrong year for a
+    # candidate targeting Summer 2027. Each URL below was fetched and row-counted
+    # before being added.
+    ("https://raw.githubusercontent.com/speedyapply/2027-SWE-College-Jobs/main/README.md",
+     "speedyapply/2027-SWE-College-Jobs"),
+    ("https://raw.githubusercontent.com/speedyapply/2027-AI-College-Jobs/main/README.md",
+     "speedyapply/2027-AI-College-Jobs"),
 ]
 
 # Only pull recently-posted rows. These lists carry the entire season's
