@@ -15,15 +15,18 @@ function isInternship(job: Job): boolean {
 // Tier and Status are independent axes — a job can be any combination of
 // the two (e.g. MAYBE + Saved), so they're separate, freely-composable
 // filters rather than one mutually-exclusive "view".
-type TierFilter = 'all' | 'apply' | 'maybe' | 'skip'
+type TierFilter = 'actionable' | 'apply' | 'caveat' | 'ineligible'
 type StatusFilter = 'active' | 'all' | 'applied' | 'saved' | 'dismissed'
 type RoleFilter = 'all' | 'internships' | 'entry-level'
 
+// APPLY and APPLY_CAVEAT share one list — that is the point of the scheme.
+// The old MAYBE tier was never looked at, so splitting them again would
+// recreate exactly the problem this replaced.
 function matchesTier(j: Job, t: TierFilter): boolean {
-  if (t === 'all') return j.tier !== 'SKIP' // SKIP stays an explicit opt-in, not folded into "all"
+  if (t === 'actionable') return j.tier === 'APPLY' || j.tier === 'APPLY_CAVEAT'
   if (t === 'apply') return j.tier === 'APPLY'
-  if (t === 'maybe') return j.tier === 'MAYBE'
-  return j.tier === 'SKIP'
+  if (t === 'caveat') return j.tier === 'APPLY_CAVEAT'
+  return j.tier === 'INELIGIBLE'
 }
 
 function matchesStatus(j: Job, s: StatusFilter): boolean {
@@ -43,10 +46,10 @@ const NEUTRAL_ACTIVE = 'bg-gray-800 border-gray-600 text-gray-200'
 const INACTIVE_PILL = 'bg-gray-900 border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300'
 
 const TIER_OPTS: { key: TierFilter; label: string; activeClass: string }[] = [
-  { key: 'all', label: 'All', activeClass: NEUTRAL_ACTIVE },
-  { key: 'apply', label: 'Apply', activeClass: 'bg-green-600/20 border-green-500/40 text-green-300' },
-  { key: 'maybe', label: 'Maybe', activeClass: 'bg-yellow-600/20 border-yellow-500/40 text-yellow-300' },
-  { key: 'skip', label: 'Skip', activeClass: 'bg-gray-700 border-gray-600 text-white' },
+  { key: 'actionable', label: 'My list', activeClass: NEUTRAL_ACTIVE },
+  { key: 'apply', label: 'Clean', activeClass: 'bg-green-600/20 border-green-500/40 text-green-300' },
+  { key: 'caveat', label: 'Caveat', activeClass: 'bg-amber-600/20 border-amber-500/40 text-amber-300' },
+  { key: 'ineligible', label: 'Ineligible', activeClass: 'bg-gray-700 border-gray-600 text-white' },
 ]
 
 const STATUS_OPTS: { key: StatusFilter; label: string; activeClass: string }[] = [
@@ -77,10 +80,13 @@ export function JobList({
 }) {
   const router = useRouter()
   const [jobs, setJobs] = useState<Grouped[]>(initialJobs)
-  const [tierFilter, setTierFilter] = useState<TierFilter>('all')
+  const [tierFilter, setTierFilter] = useState<TierFilter>('actionable')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
   const [showFilterMenu, setShowFilterMenu] = useState(false)
+  // INELIGIBLE is the ONLY tier that is ever hidden, and only behind this
+  // explicit toggle with a visible count — never silently dropped.
+  const [showIneligible, setShowIneligible] = useState(false)
   const filterRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown on outside click
@@ -136,18 +142,26 @@ export function JobList({
 
   // Fully composable: every predicate is independent, so no combination can
   // ever silently ignore one of the active filters.
-  const displayed = jobs.filter(j =>
+  const matching = jobs.filter(j =>
     matchesTier(j, tierFilter) &&
     matchesStatus(j, statusFilter) &&
     matchesRole(j, roleFilter)
   )
+  // When the user is on their own list, ineligible rows collapse behind a
+  // toggle. Selecting the Ineligible filter explicitly shows them regardless.
+  const collapsing = tierFilter !== 'ineligible'
+  const hiddenIneligible = collapsing ? matching.filter(j => j.tier === 'INELIGIBLE') : []
+  const displayed = collapsing && !showIneligible
+    ? matching.filter(j => j.tier !== 'INELIGIBLE')
+    : matching
 
   // Header summary is a stable "pipeline health" readout — unconditional
   // totals, not affected by the current filter selection.
   const isActive = (j: Job) => { const s = j.status ?? 'new'; return s !== 'applied' && s !== 'dismissed' }
   const applyCount = jobs.filter(j => j.tier === 'APPLY' && isActive(j)).length
-  const maybeCount = jobs.filter(j => j.tier === 'MAYBE' && isActive(j)).length
-  const skipCount  = jobs.filter(j => j.tier === 'SKIP').length
+  const caveatCount = jobs.filter(j => j.tier === 'APPLY_CAVEAT' && isActive(j)).length
+  
+  const ineligibleCount = jobs.filter(j => j.tier === 'INELIGIBLE').length
 
   // Pill badge counts are faceted: each shows what you'd see if you clicked
   // it, given your *other* current selections — a static total would lie
@@ -155,10 +169,10 @@ export function JobList({
   // would still show 25 even though almost none of those are skip-tier).
   const tierBase = jobs.filter(j => matchesStatus(j, statusFilter) && matchesRole(j, roleFilter))
   const tierCounts: Record<TierFilter, number> = {
-    all: tierBase.filter(j => matchesTier(j, 'all')).length,
+    actionable: tierBase.filter(j => matchesTier(j, 'actionable')).length,
     apply: tierBase.filter(j => matchesTier(j, 'apply')).length,
-    maybe: tierBase.filter(j => matchesTier(j, 'maybe')).length,
-    skip: tierBase.filter(j => matchesTier(j, 'skip')).length,
+    caveat: tierBase.filter(j => matchesTier(j, 'caveat')).length,
+    ineligible: tierBase.filter(j => matchesTier(j, 'ineligible')).length,
   }
 
   const statusBase = jobs.filter(j => matchesTier(j, tierFilter) && matchesRole(j, roleFilter))
@@ -182,11 +196,15 @@ export function JobList({
             )}
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            <span className="text-green-400 font-medium">{applyCount} APPLY</span>
-            {' · '}
-            <span className="text-yellow-400 font-medium">{maybeCount} MAYBE</span>
-            {' · '}
-            <span className="text-gray-500">{skipCount} SKIP</span>
+              <span className="text-green-400 font-medium">{applyCount + caveatCount} to review</span>
+              {caveatCount > 0 && (
+                <>
+                  {' · '}
+                  <span className="text-amber-300 font-medium">{caveatCount} with a caveat</span>
+                </>
+              )}
+              {' · '}
+              <span className="text-gray-600">{ineligibleCount} ineligible</span>
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -272,6 +290,16 @@ export function JobList({
 
       {/* List */}
       <div className="space-y-3">
+        {hiddenIneligible.length > 0 && (
+          <button
+            onClick={() => setShowIneligible(v => !v)}
+            className="w-full text-left text-xs px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-500 hover:text-gray-300 hover:border-gray-700 transition-colors"
+          >
+            {showIneligible
+              ? `Hide ${hiddenIneligible.length} ineligible`
+              : `Show ${hiddenIneligible.length} ineligible`}
+          </button>
+        )}
         {displayed.map(job => (
           <JobCard key={job.id} job={job} onStatusChange={handleStatusChange} />
         ))}

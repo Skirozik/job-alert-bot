@@ -99,8 +99,20 @@ def _is_new_grad_role(title: str) -> bool:
 # classifier. Underscore-as-separator is a real convention in ATS-generated
 # titles — "Intern_Summer 2027", "Data Co-Op_Fall" — and every one of them was
 # being dropped silently.
+# "summer analyst", "summer associate" and "trainee" are internship programs
+# that never say "intern". Measured over 30 days: ~10-15 tech-titled postings a
+# month were pre-filtered on this vocabulary gap alone, including "Summer
+# Analyst - Core Platforms" (Rockefeller Capital), "Summer Associate,
+# Enterprise AI & Insights (8-10 Week Program)" (Legends Global) and "Student
+# Trainee (AI Data Engineer)".
+#
+# "campus" and "early career" were considered and deliberately NOT added: in
+# the same 30 days they matched 71 postings, overwhelmingly full-time new-grad
+# roles ("Software Engineer, Early Career"), which the rubric excludes anyway —
+# so they would add classifier calls without adding opportunities.
 _INTERN_TITLE_RE = re.compile(
     r"\bintern(?:ship)?s?(?![a-z0-9])|\bco[\s-]?ops?(?![a-z0-9])|\bapprentice(?:ship)?s?(?![a-z0-9])"
+    r"|\bsummer\s+analyst\b|\bsummer\s+associate\b|\btrainee\b"
 )
 
 # Paid student-worker roles are functionally internships but rarely contain the
@@ -222,7 +234,7 @@ def process_job(job: dict) -> bool:
         log.warning("  Classification FAILED — not storing '%s' @ %s; the next run will retry it",
                     job.get("title"), job.get("company"))
         return False
-    job["tier"] = result.get("tier", "MAYBE")
+    job["tier"] = result.get("tier", "APPLY_CAVEAT")
     job["reason"] = result.get("reason", "")
     job["suggested_resume"] = result.get("suggested_resume", "General")
     if not job.get("salary") and result.get("salary"):
@@ -241,7 +253,7 @@ def process_job(job: dict) -> bool:
     # Push notification for APPLY and MAYBE — only if it was actually
     # persisted, so a DB hiccup doesn't cause the same job to be
     # re-classified and re-notified every run until the write succeeds.
-    if job["tier"] in ("APPLY", "MAYBE") and stored:
+    if job["tier"] in ("APPLY", "APPLY_CAVEAT") and stored:
         push_job(job)
         return True
     return False
@@ -390,7 +402,7 @@ def run():
             if not job["id"].startswith("gh:"):
                 if _is_senior_role(job["title"]):
                     log.info("  Pre-filter SKIP (senior title)")
-                    job["tier"] = "SKIP"
+                    job["tier"] = "INELIGIBLE"
                     job["reason"] = "Pre-filtered: seniority keyword in title"
                     job["suggested_resume"] = "General"
                     insert_job(job)
@@ -398,7 +410,7 @@ def run():
 
                 if _is_new_grad_role(job["title"]):
                     log.info("  Pre-filter SKIP (new grad / full-time role)")
-                    job["tier"] = "SKIP"
+                    job["tier"] = "INELIGIBLE"
                     job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
                     job["suggested_resume"] = "General"
                     insert_job(job)
@@ -406,7 +418,7 @@ def run():
 
                 if _is_non_internship_title(job["title"]):
                     log.info("  Pre-filter SKIP (no internship marker in title)")
-                    job["tier"] = "SKIP"
+                    job["tier"] = "INELIGIBLE"
                     job["reason"] = "Pre-filtered: no internship marker in title"
                     job["suggested_resume"] = "General"
                     insert_job(job)

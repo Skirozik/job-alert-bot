@@ -129,13 +129,13 @@ def _failed(detail: str) -> dict:
     BEFORE reading tier — the tier here is a placeholder, not a judgment."""
     return {
         "failed": True,
-        "tier": "MAYBE",
+        "tier": "APPLY_CAVEAT",
         "reason": f"Classifier error — not stored, will retry next run ({detail[:120]})",
         "suggested_resume": "General",
     }
 MAX_TOKENS = 400
 
-_VALID_TIERS = ("APPLY", "MAYBE", "SKIP")
+_VALID_TIERS = ("APPLY", "APPLY_CAVEAT", "INELIGIBLE")
 
 _CLASSIFY_TOOL = {
     "name": "classify_job",
@@ -146,11 +146,15 @@ _CLASSIFY_TOOL = {
             "tier": {
                 "type": "string",
                 "enum": list(_VALID_TIERS),
-                "description": "Fit tier for this posting.",
+                "description": (
+                    "Fit tier. APPLY = clean fit, no caveat worth mentioning. APPLY_CAVEAT = worth applying, but with exactly one specific reservation the candidate should know about before spending time on it; the reason field must state that caveat in under 12 words. INELIGIBLE = a HARD block only, meaning the candidate literally cannot be hired: graduation date outside the posting's stated window, a security clearance he does not already hold, MS/PhD required, 2+ years professional experience as a hard requirement, not actually an internship (new grad or full-time), a school-specific program he is not eligible for, unpaid full-time, or work authorization he lacks (he is a US citizen, so sponsorship is never a blocker). Anything that is a judgment call rather than a hard rule is APPLY_CAVEAT, never INELIGIBLE."
+                ),
             },
             "reason": {
                 "type": "string",
-                "description": "One sentence explaining the match or mismatch.",
+                "description": (
+                    "For APPLY: one short sentence on the match. For APPLY_CAVEAT: the caveat itself, under 12 words, naming the specific reservation (e.g. 'strong C++ + Unreal, no game projects' or 'prefers 3.5 GPA'). For INELIGIBLE: one sentence naming which hard block applies."
+                ),
             },
             "suggested_resume": {
                 "type": "string",
@@ -236,8 +240,8 @@ Description: {job.get("description") or "(not available — classify on title/co
             result = dict(tool_use.input)
 
             if result.get("tier") not in _VALID_TIERS:
-                log.warning("Unexpected tier '%s' for job %s — defaulting to MAYBE", result.get("tier"), job.get("id"))
-                result["tier"] = "MAYBE"
+                log.warning("Unexpected tier '%s' for job %s — defaulting to APPLY_CAVEAT", result.get("tier"), job.get("id"))
+                result["tier"] = "APPLY_CAVEAT"
 
             result = _apply_full_time_override(job, result)
             result = _apply_school_specific_override(job, result)
@@ -267,14 +271,14 @@ def _apply_full_time_override(job: dict, result: dict) -> dict:
     the model scored stack fit. Never fires on postings that also mention
     internship/co-op (e.g. "may convert to full-time after graduation" is a
     normal, desirable internship perk, not a full-time posting)."""
-    if result.get("tier") not in ("APPLY", "MAYBE"):
+    if result.get("tier") not in ("APPLY", "APPLY_CAVEAT"):
         return result
 
     desc = job.get("description") or ""
     if _FULL_TIME_PHRASE_RE.search(desc) and not _INTERNSHIP_WORD_RE.search(desc):
         log.info("  Full-time override: job %s described as full-time with no internship language",
                   job.get("id"))
-        result["tier"] = "SKIP"
+        result["tier"] = "INELIGIBLE"
         result["reason"] = (
             "Overridden: description explicitly states this is a full-time/permanent "
             "position, with no internship/co-op language anywhere in the posting."
@@ -292,7 +296,7 @@ def _apply_school_specific_override(job: dict, result: dict) -> dict:
     fact, so this is a deterministic catch rather than a rubric instruction.
     Runs before _never_skip_github_sourced so a gh:-sourced posting still
     gets the same never-auto-SKIP protection every other override respects."""
-    if result.get("tier") not in ("APPLY", "MAYBE"):
+    if result.get("tier") not in ("APPLY", "APPLY_CAVEAT"):
         return result
 
     desc = job.get("description") or ""
@@ -310,7 +314,7 @@ def _apply_school_specific_override(job: dict, result: dict) -> dict:
 
     log.info("  School-specific override: job %s restricted to %s (candidate attends %s)",
               job.get("id"), school, CANDIDATE_SCHOOL)
-    result["tier"] = "SKIP"
+    result["tier"] = "INELIGIBLE"
     result["hard_ineligible"] = True
     result["reason"] = (
         f"Overridden: this co-op is restricted to students currently enrolled at "
@@ -325,13 +329,13 @@ def _apply_advanced_degree_override(job: dict, result: dict) -> dict:
     alternative mentioned anywhere in the posting. See module-level comment
     above _GRAD_ONLY_PHRASE_RE for why this exists as a deterministic catch
     rather than a rubric instruction."""
-    if result.get("tier") not in ("APPLY", "MAYBE"):
+    if result.get("tier") not in ("APPLY", "APPLY_CAVEAT"):
         return result
 
     desc = job.get("description") or ""
     if _GRAD_ONLY_PHRASE_RE.search(desc) and not _UNDERGRAD_WORD_RE.search(desc):
         log.info("  Advanced-degree override: job %s requires grad-only enrollment", job.get("id"))
-        result["tier"] = "SKIP"
+        result["tier"] = "INELIGIBLE"
         result["hard_ineligible"] = True
         result["reason"] = (
             "Overridden: description requires current enrollment in a graduate-level "
@@ -372,10 +376,10 @@ def _never_skip_github_sourced(job: dict, result: dict) -> dict:
     firing correctly and this function was undoing them."""
     if not job.get("id", "").startswith("gh:"):
         return result
-    if result.get("tier") != "SKIP":
+    if result.get("tier") != "INELIGIBLE":
         return result
     if result.get("hard_ineligible"):
         log.info("  gh: job %s stays SKIP — hard ineligibility, not a judgment call", job.get("id"))
         return result
-    result["tier"] = "MAYBE"
+    result["tier"] = "APPLY_CAVEAT"
     return result

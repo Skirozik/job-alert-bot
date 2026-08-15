@@ -6,8 +6,17 @@ import type { Job, Status } from '@/types/job'
 
 const TIER_BADGE: Record<string, string> = {
   APPLY: 'bg-green-500/20 text-green-400 border border-green-500/30',
-  MAYBE: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
-  SKIP: 'bg-gray-700/50 text-gray-500 border border-gray-700',
+  APPLY_CAVEAT: 'bg-green-500/20 text-green-400 border border-green-500/30',
+  INELIGIBLE: 'bg-gray-700/50 text-gray-500 border border-gray-700',
+}
+
+// APPLY_CAVEAT sits in the same list as APPLY and carries the same green
+// tier badge — the distinction is this separate amber marker, not a
+// downgrade. Visually distinguished, never de-emphasised.
+const TIER_LABEL: Record<string, string> = {
+  APPLY: 'APPLY',
+  APPLY_CAVEAT: 'APPLY',
+  INELIGIBLE: 'INELIGIBLE',
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -57,7 +66,7 @@ export function JobCard({
     setPending(false)
   }
 
-  const isSkip = job.tier === 'SKIP'
+  const isSkip = job.tier === 'INELIGIBLE'
   const currentStatus = job.status ?? 'new'
   // ats_watch.py prefixes ids with "ats:" for jobs caught via the direct
   // company-ATS fast-path (vs. LinkedIn or the "gh:" GitHub-tracker source)
@@ -101,8 +110,16 @@ export function JobCard({
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-md ${TIER_BADGE[job.tier]}`}>
-              {job.tier}
+              {TIER_LABEL[job.tier] ?? job.tier}
             </span>
+            {job.tier === 'APPLY_CAVEAT' && (
+              <span
+                className="text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                title={job.reason}
+              >
+                caveat
+              </span>
+            )}
             <span className={`text-xs px-2 py-0.5 rounded-md ${STATUS_BADGE[currentStatus]}`}>
               {currentStatus}
             </span>
