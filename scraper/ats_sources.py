@@ -10,10 +10,16 @@ ATS vendors themselves document as commonly 6-48+ hours).
 Greenhouse, Lever, and Ashby all return a full job description in the same
 listing call, so those three populate `description` immediately — no
 follow-up detail fetch needed (cheaper than the LinkedIn or GitHub-tracker
-paths, which both need a second request per job). SmartRecruiters' listing
-endpoint does not include a description; those jobs get classified on
-title/company/location only, same as any other job the description fetch
-failed for elsewhere in the pipeline.
+paths, which both need a second request per job). SmartRecruiters' and
+Workday's listing endpoints do not include a description; those jobs get
+classified on title/company/location only, same as any other job the
+description fetch failed for elsewhere in the pipeline.
+
+Workday is the odd one out mechanically: its list is a POST to a per-tenant
+CXS endpoint and is paginated 20 at a time, so it needs several requests per
+company where the other four need exactly one. Its config entry also carries
+a data-centre host ("wd1"/"wd5"/...) the others have no equivalent of — see
+fetch_workday_listings' docstring for the token format.
 
 Every fetcher is best-effort: a failure for one company (bad token, ATS
 outage, network error) is logged and returns an empty list rather than
@@ -23,7 +29,8 @@ raising, so one broken entry in ats_config.py never blocks the other 49.
 import hashlib
 import html
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -161,11 +168,155 @@ def fetch_smartrecruiters_listings(company: str, token: str) -> list[dict]:
         return []
 
 
+# Workday rejects any limit above 20 with HTTP 400 (verified against
+# crowdstrike/wd5: limit=20 -> 200, limit=50/100/200 -> 400), so the page
+# size is fixed rather than tunable.
+_WORKDAY_PAGE_SIZE = 20
+
+# Out-of-range offsets do NOT return an empty page — Workday silently wraps
+# back to the first page (verified: offset=500 and offset=100000 against a
+# 448-job board both returned page 0 byte-for-byte). A "loop until the page
+# comes back empty" termination check would therefore spin forever, so
+# pagination is bounded by `total` and this hard cap is the backstop.
+_WORKDAY_MAX_PAGES = 200
+
+_WORKDAY_DAYS_AGO = re.compile(r"(\d+)\+?\s+days?\s+ago", re.I)
+
+
+def _workday_posted_at(posted_on: str | None) -> str | None:
+    """Convert Workday's relative postedOn string to an ISO timestamp.
+
+    Workday reports recency as display text ("Posted Yesterday", "Posted 3
+    Days Ago", "Posted 30+ Days Ago") rather than a date, and omits the
+    field entirely on some tenants. Every other fetcher puts an ISO-8601
+    string in posted_at, so normalise here instead of leaking prose into
+    the column.
+    """
+    if not posted_on:
+        return None
+    text = posted_on.strip().lower()
+    days: int | None = None
+    if "today" in text:
+        days = 0
+    elif "yesterday" in text:
+        days = 1
+    else:
+        m = _WORKDAY_DAYS_AGO.search(text)
+        if m:
+            days = int(m.group(1))
+    if days is None:
+        return None
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def fetch_workday_listings(company: str, token: str) -> list[dict]:
+    """Fetch a Workday-hosted board via its public CXS API.
+
+    Token format (3 colon-separated parts, no scheme, no slashes):
+
+        "<tenant>:<host>:<site>"
+
+    taken straight off the board's public URL —
+    https://<tenant>.<host>.myworkdayjobs.com/<site> — e.g. the board at
+    https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers is
+    "crowdstrike:wd5:crowdstrikecareers".
+
+      tenant  first DNS label ("crowdstrike", "unitytech", "goodrx")
+      host    Workday data-centre label, WITHOUT ".myworkdayjobs.com"
+              ("wd1", "wd3", "wd5", "wd12", ...) — this is the piece the
+              other four ATSes have no equivalent of, since every tenant
+              lives on whichever cell Workday assigned it
+      site    external career-site name, case-sensitive, as it appears in
+              the path ("crowdstrikecareers", "Etsy_Careers", "Careers")
+
+    Unlike the other four, the job list is a POST to
+    /wday/cxs/<tenant>/<site>/jobs and is paginated by offset; this walks
+    every page so the caller gets the full board, not just the first 20.
+
+    Like SmartRecruiters, the listing response carries no description —
+    these jobs come back with description=None and are classified on
+    title/company/location.
+    """
+    parts = token.split(":")
+    if len(parts) != 3 or not all(p.strip() for p in parts):
+        log.error("Workday token for %s must be 'tenant:host:site', got %r — skipping", company, token)
+        return []
+    tenant, host, site = (p.strip() for p in parts)
+
+    base = f"https://{tenant}.{host}.myworkdayjobs.com"
+    endpoint = f"{base}/wday/cxs/{tenant}/{site}/jobs"
+    headers = {**HEADERS, "Accept": "application/json", "Content-Type": "application/json"}
+
+    result: list[dict] = []
+    seen_paths: set[str] = set()
+    try:
+        offset = 0
+        total: int | None = None
+        for _ in range(_WORKDAY_MAX_PAGES):
+            resp = requests.post(
+                endpoint,
+                json={"appliedFacets": {}, "limit": _WORKDAY_PAGE_SIZE,
+                      "offset": offset, "searchText": ""},
+                headers=headers, timeout=TIMEOUT,
+            )
+            if not resp.ok:
+                # Keep whatever earlier pages produced — a page-3 blip
+                # shouldn't discard 40 good jobs.
+                log.warning("Workday fetch failed for %s (token=%s) at offset %d: HTTP %s",
+                            company, token, offset, resp.status_code)
+                break
+
+            payload = resp.json()
+            postings = payload.get("jobPostings", [])
+            if not postings:
+                break
+
+            # `total` is only populated on the first page — every later
+            # page reports total=0 (verified against crowdstrike/wd5:
+            # offset=0 -> 448, offset=20/40/60 -> 0). Latch the first
+            # page's value; trusting the per-page one truncates every
+            # board to two pages.
+            if total is None:
+                page_total = payload.get("total")
+                total = page_total if isinstance(page_total, int) and page_total > 0 else None
+
+            new_on_page = 0
+            for p in postings:
+                path = p.get("externalPath", "")
+                if not path or path in seen_paths:
+                    continue  # wrap-around guard, see _WORKDAY_MAX_PAGES
+                seen_paths.add(path)
+                new_on_page += 1
+                job = _make_job(
+                    company, p.get("title", ""), p.get("locationsText", ""),
+                    f"{base}/{site}{path}", None, _workday_posted_at(p.get("postedOn")),
+                )
+                if job:
+                    result.append(job)
+
+            # Every posting was one we'd already seen: Workday has wrapped
+            # us back to an earlier page, so the board is exhausted.
+            if new_on_page == 0:
+                break
+
+            offset += _WORKDAY_PAGE_SIZE
+            if len(postings) < _WORKDAY_PAGE_SIZE or (total is not None and offset >= total):
+                break
+        else:
+            log.warning("Workday pagination for %s (token=%s) hit the %d-page cap",
+                        company, token, _WORKDAY_MAX_PAGES)
+        return result
+    except Exception as exc:
+        log.error("Workday fetch error for %s (token=%s): %s", company, token, exc)
+        return result
+
+
 _FETCHERS = {
     "greenhouse": fetch_greenhouse_listings,
     "lever": fetch_lever_listings,
     "ashby": fetch_ashby_listings,
     "smartrecruiters": fetch_smartrecruiters_listings,
+    "workday": fetch_workday_listings,
 }
 
 
