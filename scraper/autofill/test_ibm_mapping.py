@@ -224,6 +224,21 @@ check("placeholder labels detected", is_placeholder_label("Select..."))
 check("'-' is a placeholder", is_placeholder_label(" - "))
 check("a real label is not a placeholder", not is_placeholder_label("Georgia State University"))
 
+print("\n-- placeholder labels: a dropdown showing its placeholder is EMPTY --")
+# Avature renders "Select an option". The old fixed set had "select" and
+# "select..." but not that, so every dynamic dropdown read as already-answered,
+# was skipped without appearing in either report list, and the form rejected
+# the step for four required fields the tool silently declined to fill.
+for text in ["Select an option", "Select...", "Select", "-- Select --",
+             "Please select a value", "Please select an option", "Choose an option",
+             "Choose...", "", "  ", "-", "--", "None", "N/A", "n/a"]:
+    check(f"placeholder: {text!r}", is_placeholder_label(text))
+for text in ["United States", "Georgia State University", "Computer Science",
+             "Bachelor's Degree", "Job Board", "Male", "Black", "March",
+             "Yes", "No", "Selected Employer", "Choose Financial Group"]:
+    check(f"real value: {text!r}", not is_placeholder_label(text),
+          "a real option must never read as a placeholder")
+
 print("\n-- numeric ids need attribute selectors, not '#' --")
 from autofill.platforms.ibm import _loc
 

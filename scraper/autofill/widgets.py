@@ -43,12 +43,31 @@ from autofill.browser import human_pause
 
 log = logging.getLogger(__name__)
 
-# Placeholder option labels that mean "nothing chosen". Compared lowercased
-# after whitespace collapsing.
-_EMPTY_OPTION_LABELS = {
-    "", "-", "--", "---", "select", "select...", "select one",
-    "please select", "please select...", "choose", "choose...", "none",
-}
+# Labels that mean "nothing chosen yet".
+#
+# A PATTERN, not a fixed set. The set version missed Avature's actual wording,
+# "Select an option", and the cost of that miss was the entire feature: a
+# dropdown showing its placeholder read as already-answered, so every dynamic
+# field was skipped, never entered the report at all, and the form rejected the
+# step for four required fields the tool had silently declined to fill.
+#
+# Matches "Select an option", "Select...", "-- Select --", "Please choose a
+# value", "None", bare dashes. Does NOT match a real option that merely begins
+# with those letters — \b after `select` means "Selected Employer" is safe.
+# Matches the WHOLE string, not just its start. A prefix match would swallow
+# real options: "Choose Financial Group" is a real company and "Selected
+# Employer" a real answer, and treating either as "nothing chosen" would make
+# the tool overwrite a correct value or re-fill forever.
+_PLACEHOLDER_RE = re.compile(
+    r"^[-–—\s]*(?:please\s+)?(?:select|choose|pick)"
+    r"(?:\s+(?:an?|one|your|the))?"
+    r"(?:\s+(?:option|value|item|choice|one))?"
+    r"[-–—\s.]*$"
+    r"|^[-–—\s]*$"
+    r"|^none$"
+    r"|^n/?a$",
+    re.I,
+)
 
 
 def norm(text) -> str:
@@ -60,7 +79,8 @@ def norm(text) -> str:
 
 
 def is_placeholder_label(text) -> bool:
-    return norm(text) in _EMPTY_OPTION_LABELS
+    t = norm(text)
+    return not t or bool(_PLACEHOLDER_RE.search(t))
 
 
 # ── Plain <select> ────────────────────────────────────────────────────────
@@ -210,7 +230,7 @@ _CHOICE_READER_JS = """
 """
 
 
-def read_dropdown_choice(page: Page, field_id: str) -> tuple:
+def read_dropdown_choice(page: Page, field_id: str, trusted_only: bool = False) -> tuple:
     """Returns (label, source) — what the dynamic dropdown is currently
     displaying, and which DOM source proved it. ('', '') when nothing is
     chosen.
@@ -226,7 +246,14 @@ def read_dropdown_choice(page: Page, field_id: str) -> tuple:
         log.debug("read_dropdown_choice(%s) failed: %s", field_id, exc)
         return ("", "")
 
-    for name in ("select", "chosen", "combobox", "container"):
+    # trusted_only is for the "is this field already answered" check, where a
+    # false positive means the field is silently never filled. The last two
+    # sources cannot answer that question: `combobox` echoes whatever was
+    # TYPED, so a failed fill looks like a successful one, and `container` is
+    # raw innerText that can carry the question, the error text, or anything
+    # else the widget renders.
+    names = ("select", "chosen") if trusted_only else ("select", "chosen", "combobox", "container")
+    for name in names:
         value = sources.get(name) or ""
         if value and not is_placeholder_label(value):
             return (value, name)
