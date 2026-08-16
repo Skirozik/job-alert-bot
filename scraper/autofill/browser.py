@@ -164,6 +164,26 @@ def human_pause(min_s: float = 0.4, max_s: float = 1.4) -> None:
     time.sleep(random.uniform(min_s, max_s))
 
 
+def paste_text(locator: Locator, text: str) -> None:
+    """Set a field's value in one shot instead of typing it character by
+    character.
+
+    This is the deliberate opposite of human_type, and the trade-off is real:
+    fill() dispatches an input event but no keystrokes, which is a stronger
+    automation signal than realistic typing. That is why human_type exists and
+    why it stays the default.
+
+    Used on IBM/Avature by explicit choice. That portal has shown no bot
+    detection across a long series of live runs — no CAPTCHA, no challenge, no
+    interstitial — while typing a three-line location preference plus a
+    signature at ~75ms/char was costing seconds per step for no benefit.
+    Greenhouse keeps human_type, where reCAPTCHA Enterprise is confirmed
+    present on the form (see platforms/greenhouse.py).
+    """
+    locator.click()
+    locator.fill(text)
+
+
 def human_type(locator: Locator, text: str) -> None:
     """Click into a field and type it out character-by-character with
     randomized delay, instead of setting the value instantly."""
