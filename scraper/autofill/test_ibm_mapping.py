@@ -491,6 +491,8 @@ _SKILL_QUESTIONS = [
     # by the Python pattern — which is why it is matched first.
     ("Statistical programming in Python, R, SAS, Scala, or similar?",
      "ibm.skill_levels.statistical_programming"),
+    ("Requirements analysis and system architecture?",
+     "ibm.skill_levels.requirements_analysis"),
 ]
 for tail, expect_key in _SKILL_QUESTIONS:
     q = f"What best describes your level of experience in {tail} *"
