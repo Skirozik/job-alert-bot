@@ -36,12 +36,12 @@ export default async function HomePage() {
   // Only the low-priority SKIP backlog is capped by recency — everything
   // else must load in full regardless of how many jobs pile up over time:
   //   - status != 'new' (applied/saved/dismissed): jobs you've acted on
-  //   - tier APPLY/MAYBE + status = 'new': jobs still awaiting your decision
-  //   - tier SKIP + status = 'new': already bot-rejected, fine to trim by age
+  //   - tier APPLY/APPLY_CAVEAT + status = 'new': jobs awaiting your decision
+  //   - tier INELIGIBLE + status = 'new': hard-blocked, fine to trim by age
   const [tracked, activeReview, skipRecent] = await Promise.all([
     fetchJobs(url, key, 'select=*&status=neq.new&order=found_at.desc', id),
-    fetchJobs(url, key, 'select=*&status=eq.new&tier=in.(APPLY,MAYBE)&order=found_at.desc', id),
-    fetchJobs(url, key, 'select=*&status=eq.new&tier=eq.SKIP&order=found_at.desc&limit=500', id),
+    fetchJobs(url, key, 'select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', id),
+    fetchJobs(url, key, 'select=*&status=eq.new&tier=eq.INELIGIBLE&order=found_at.desc&limit=500', id),
   ])
 
   const seen = new Set<string>()

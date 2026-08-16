@@ -106,7 +106,10 @@ Both conditions must hold for the third band. "Strong Python" is my own language
 5. **Not actually an internship** — a new-grad or full-time role.
 6. **A school-specific program I am not eligible for** — e.g. a Drexel-only co-op. I attend Georgia State.
 7. **Unpaid full-time.**
-8. **Work authorization I do not have.** I am a **US citizen**, so visa sponsorship is *never* a blocker and must never be cited as one.
+8. **Work authorization I do not have** — which in practice means **the role is based outside the United States**. I am a US citizen with no right to work in India, Canada, the UK, the EU, Singapore, or anywhere else, so a posting based abroad is a hard block, exactly like a clearance I don't hold. This is the ONLY location-based block, and it is a real one: mark it `INELIGIBLE`, not `APPLY_CAVEAT`. A role is only *not* blocked if it is US-based, or explicitly open to US-remote candidates.
+   - **Do not confuse this with sponsorship.** A US-based role saying "we do not sponsor visas" is fine — I need no sponsorship. Visa language is never a blocker; a foreign *location* always is.
+   - **Watch for US cities that share a name with a foreign one — read the state code, not just the city.** `Dublin, OH`, `Delhi, MI`, `London, KY`, `Toronto, OH`, `Paris, TX`, `Berlin, NH`, `Manchester, NH` and `Birmingham, AL` are all in the United States and are all fine. A two-letter US state abbreviation after the city is the tell.
+   - Multi-location postings that include at least one US site are **not** blocked — judge them on the US option.
 
 Anything not on that list — weak stack overlap, unfamiliar language, unfamiliar domain, an odd company, a vague posting, a long commute, a competitive-sounding program — is `APPLY` or `APPLY_CAVEAT`. Those are my calls to make, not yours.
 
