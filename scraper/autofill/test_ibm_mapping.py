@@ -468,6 +468,38 @@ for unrelated in ["Are you currently legally authorized to work in the United St
     check(f"{unrelated[:40]!r} is not a skill question", _ls(unrelated) is None,
           "the skill patterns must not swallow unrelated questions")
 
+print("\n-- the 10542 group is matched by label ONLY, never by sub-index --")
+# The failure this prevents was not a missed field but a WRONG one. On jobId
+# 128526, 10542-3 is the "top 3 location preferences" textarea, but _FIELD_MAP
+# hardcoded it as the start date and is consulted first — so "01/27 and 05/27"
+# was typed into the preferences box while the real start date stayed empty.
+check("no 10542-N id is hardcoded in _FIELD_MAP",
+      not [k for k in _FIELD_MAP if k.startswith("10542-")],
+      "these sub-indices move between requisitions; an id map puts data in the wrong box")
+for label, want in [
+    ("If answered Yes, follow up question asking candidates to list their top 3 "
+     "preferences based on locations posted in the requisition *", "Top 3 location preferences"),
+    ("What date are you available to start full time, regular employment (Month/Year)? *",
+     "Available start date"),
+    ("If the location of the job, as cited in the job description is different from "
+     "your current residence, are you willing to relocate? *", "Willing to relocate"),
+    ("What best describes your level of experience in Data Analytics (e.g., regressions, "
+     "clustering, etc.)? *", "Skill — data analytics"),
+    ("What best describes your level of experience in Data Science frameworks such as "
+     "Pandas, etc.? *", "Skill — data science frameworks"),
+    ("What best describes your level of experience in Data warehousing and ETL "
+     "(extract, transform, load)? *", "Skill — data warehousing / ETL"),
+]:
+    got = _ls(label)
+    check(f"{want!r} matched by its question", got is not None and got.label == want,
+          f"got {got.label if got else None}")
+check("the start-date and top-3 patterns do not cross-match",
+      _ls("What date are you available to start full time, regular employment (Month/Year)?").label
+      != _ls("list their top 3 preferences based on locations posted in the requisition").label)
+check("a field whose DOM tag is <select> is not filled as text",
+      'rows[0].get("tag") or ""' in _ibm_src and "fill_plain_select(loc" in _ibm_src,
+      "the same question is a textarea on one requisition and a <select> on another")
+
 print("\n-- a skill answer may list alternative wordings for different scales --")
 # IBM asks the same skill question on two different option scales depending on
 # the requisition: "Expert" on one, and on another a full sentence beginning
