@@ -32,7 +32,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import get_client
-from autofill.browser import launch_browser, has_visible_captcha_challenge, human_pause
+from autofill.browser import close_browser, launch_browser, has_visible_captcha_challenge, human_pause
 from autofill.simplify_assist import is_simplify_active, trigger_autofill, wait_for_fill_to_settle
 from autofill.advance import click_next_and_verify, find_next_button
 
@@ -112,8 +112,7 @@ def run(job_id: str):
             log.info("Marked as applied in the dashboard.")
 
     finally:
-        context.close()
-        pw.stop()
+        close_browser(pw, context)
 
 
 if __name__ == "__main__":

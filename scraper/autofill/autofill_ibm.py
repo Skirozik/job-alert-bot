@@ -40,7 +40,10 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import AUTOFILL_BROWSER_PROFILE_DIR
-from autofill.browser import launch_browser, has_visible_captcha_challenge, human_pause
+from autofill.browser import (
+    close_browser, launch_browser, has_visible_captcha_challenge,
+    human_pause, profile_in_use,
+)
 from autofill.profile_loader import load_profile, ProfileError, resolve_resume_path
 from autofill.advance import click_next_and_verify, find_next_button
 from autofill.platforms import ibm
@@ -258,6 +261,18 @@ def _resolve_target(job_id: Optional[str], url: Optional[str]):
     return (_APPLY_URL.format(job_id=job_id), f"ibm-{job_id}")
 
 
+def _warn_if_profile_busy() -> None:
+    """Two Chromes on one user-data-dir is unsupported — the second runs against
+    a locked cookie store and loses whatever it writes, so the sign-in appears
+    to work and is gone by the next run. Cheap to detect, baffling if not."""
+    if profile_in_use():
+        log.warning(
+            "Another Chrome is already using the autofill profile. Close that "
+            "window first — two of them share one cookie store and the second "
+            "one's sign-in will not be saved.")
+        input("Press Enter once it's closed (or Ctrl-C to abort)... ")
+
+
 def login(url: Optional[str] = None) -> None:
     """Opens the automation browser at IBM and waits, so you can sign in once.
 
@@ -267,6 +282,7 @@ def login(url: Optional[str] = None) -> None:
     should not impose. Nothing is filled and nothing is clicked here.
     """
     target = url or "https://careers.ibm.com/"
+    _warn_if_profile_busy()
     pw, context, page = launch_browser()
     try:
         page.goto(target, wait_until="domcontentloaded", timeout=30000)
@@ -276,8 +292,7 @@ def login(url: Optional[str] = None) -> None:
         input("\nPress Enter once you're signed in... ")
         log.info("Now at: %s", page.url)
     finally:
-        context.close()
-        pw.stop()
+        close_browser(pw, context)
 
 
 def run(job_id: Optional[str] = None, resume_variant: str = "General",
@@ -319,6 +334,7 @@ def run(job_id: Optional[str] = None, resume_variant: str = "General",
     log.info("Job: %s [ibm]", job["apply_url"])
     log.info("Resume: %s", resume_variant)
 
+    _warn_if_profile_busy()
     pw, context, page = launch_browser()
     try:
         page.goto(job["apply_url"], wait_until="domcontentloaded", timeout=30000)
@@ -376,8 +392,7 @@ def run(job_id: Optional[str] = None, resume_variant: str = "General",
         log.info("Nothing was submitted. Review the form and submit it yourself.")
         input("\nPress Enter when you're done to close the browser... ")
     finally:
-        context.close()
-        pw.stop()
+        close_browser(pw, context)
 
 
 _USAGE = (
