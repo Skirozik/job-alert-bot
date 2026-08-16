@@ -81,10 +81,12 @@ export function JobList({
 
   const patch = useCallback((p: Partial<ViewState>) => setSt(prev => ({ ...prev, ...p })), [])
 
-  // Mirror state -> URL. A key is omitted only when it equals ITS OWN default.
-  // Previously any value literally equal to the string 'all' was dropped,
-  // which silently deleted view=all — the reason "All postings" never
-  // resolved and always fell back to the default view.
+  // Mirror state -> URL with history.replaceState, NOT router.replace().
+  // router.replace() triggers a Next server round-trip on every click; with
+  // 2262 rows mounted that queued behind the render and the address bar lagged
+  // 7.2s, so copying the URL straight after a click gave the previous view.
+  // Nothing here needs the server — the data is already client-side and the
+  // URL is purely a bookmark — so this writes it synchronously instead.
   useEffect(() => {
     const sp = new URLSearchParams()
     ;(Object.keys(DEFAULTS) as (keyof ViewState)[]).forEach(k => {
@@ -92,11 +94,11 @@ export function JobList({
       if (v != null && v !== '' && v !== DEFAULTS[k]) sp.set(k, String(v))
     })
     const qs = sp.toString()
-    const next = qs ? `${pathname}?${qs}` : pathname
-    if (next !== `${window.location.pathname}${window.location.search}`) {
-      router.replace(next, { scroll: false })
+    const next = qs ? pathname + '?' + qs : pathname
+    if (next !== window.location.pathname + window.location.search) {
+      window.history.replaceState(null, '', next)
     }
-  }, [st, pathname, router])
+  }, [st, pathname])
 
   // Back/forward: re-seed local state from whatever the browser restored.
   useEffect(() => {
@@ -209,7 +211,7 @@ export function JobList({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-surface)' }}>
+        <div data-scroll-root className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-surface)' }}>
           <JobTable
             rows={rows}
             cols={cols}

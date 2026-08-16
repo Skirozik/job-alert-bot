@@ -104,15 +104,36 @@ export function splitLocations(loc: string | null): string[] {
   // Shape 3: entries concatenated with no separator. Two seams occur:
   //   a US state code butted against the next city  ("Austin, TXFort Mill, SC")
   //   a lowercase char butted against a capital      ("London, UKParis, France")
-  // The state-code rule has to come first, because "TXFort" has no lowercase
-  // before the capital and the second rule alone never fires on it — which is
-  // why "Milwaukee, WIGreen Bay, WI" was rendering as one location.
+  // The state-code rule must come first: "TXFort" has no lowercase before the
+  // capital, so the second rule alone never fires on it.
+  //
+  // The second rule requires a LOWERCASE AFTER the capital. Without that it
+  // split "Flexible - Any SpaceX Site" into "...Any Space" + "X Site", and
+  // "JPN TOKY 1-3-1 FLR12 BldgJA" into "...Bldg" + "JA" - a lone capital
+  // mid-token is not the start of a new city.
+  //
+  // The marker is NUL rather than "|", because real values contain literal
+  // pipes ("US | California | San Francisco") and splitting on those turned one
+  // hierarchical location into three.
   t = t
-    .replace(/([A-Z]{2})([A-Z][a-z])/g, '$1|$2')
-    .replace(/([a-z)])([A-Z])/g, '$1|$2')
+    .replace(/([A-Z]{2})([A-Z][a-z])/g, '$1\u0000$2')
+    .replace(/([a-z)])([A-Z][a-z])/g, '$1\u0000$2')
 
-  return t.split(/\s*\|\s*|\s*;\s*/).map(x => x.trim()).filter(Boolean)
+  const parts = t.split(/\u0000|\s*;\s*/).map(x => x.trim()).filter(Boolean)
+
+  // Re-join camelCase city names that the lowercase rule split apart - McLean,
+  // DeKalb, LaGrange, St. Louis, O'Fallon. The seam inside those is
+  // indistinguishable from a concatenation seam, so they are repaired
+  // afterwards rather than guarded against beforehand.
+  const out: string[] = []
+  for (const p of parts) {
+    if (out.length && CAMEL_CITY_PREFIX.test(out[out.length - 1])) out[out.length - 1] += p
+    else out.push(p)
+  }
+  return out
 }
+
+const CAMEL_CITY_PREFIX = /^(Mc|Mac|De|Di|Du|La|Le|Van|Von|St\.?|Ste\.?|O'|D')$/i
 
 /** True when the stored value is only a count — the individual locations were
  *  never captured, so neither the table nor the drawer can list them. */
