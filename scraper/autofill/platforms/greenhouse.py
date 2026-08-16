@@ -64,6 +64,16 @@ def _fill_combobox(page, frame, input_locator, search_text: str) -> bool:
     human_pause(0.2, 0.5)
     page.keyboard.type(search_text, delay=random.uniform(40, 120))
     human_pause(0.6, 1.2)
+    # Exact first. name= with exact=False is a SUBSTRING match, so searching
+    # "United States" also matches "United States Minor Outlying Islands" and
+    # .first then picks by DOM order — the same wrong-neighbour failure the IBM
+    # field map documents for Avature's dropdowns. Prefer the exact option and
+    # only fall back to a substring when nothing matches exactly.
+    exact = frame.get_by_role("option", name=search_text, exact=True)
+    if exact.count() > 0:
+        exact.first.click()
+        return True
+
     option = frame.get_by_role("option", name=search_text, exact=False).first
     if option.count() > 0:
         option.click()
