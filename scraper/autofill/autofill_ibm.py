@@ -395,7 +395,8 @@ def login(url: Optional[str] = None) -> None:
 
 def run(job_id: Optional[str] = None, resume_variant: str = "General",
         dry_run: bool = False, advance: bool = True,
-        url: Optional[str] = None, show_options: bool = False) -> None:
+        url: Optional[str] = None, show_options: bool = False,
+        stop_at: Optional[str] = None) -> None:
     apply_url, label = _resolve_target(job_id, url)
     if apply_url is None:
         return
@@ -492,6 +493,15 @@ def run(job_id: Optional[str] = None, resume_variant: str = "General",
                 log.info("Possibly still required (advisory — the form is the judge): %s",
                          ", ".join(report["likely_required"]))
 
+            # --stop-at 60 fills this step and then stays on it. Distinct from
+            # --no-advance, which halts at the FIRST step that fills anything —
+            # on most requisitions that is step 40%, not the screening step
+            # anyone actually wants to inspect.
+            if stop_at and progress.rstrip("%") == stop_at.rstrip("%"):
+                log.info("--stop-at %s: filled this step and staying on it. The browser "
+                         "is yours — nothing further will be clicked.", stop_at)
+                break
+
             if not advance:
                 # Stop at the first step that actually FILLED something, not
                 # merely the first step. IBM's step 1 is the skippable Talent
@@ -530,8 +540,11 @@ _USAGE = (
     "\n"
     "Options:\n"
     "  --dry-run          print what would be filled; type nothing\n"
-    "  --no-advance       stop at the first step that fills something, so you\n"
-    "                     can check it before the wizard moves on\n"
+    "  --show-options     dump every dropdown's options; fill nothing\n"
+    "  --stop-at PCT      fill the step at that progress %, then stay on it\n"
+    "                     (e.g. --stop-at 60), so you can inspect the page\n"
+    "  --no-advance       stop at the FIRST step that fills something, which\n"
+    "                     is usually 40% — use --stop-at to pick a step\n"
     "  --resume VARIANT   General (default), Mobile, AI, Frontend\n"
 )
 
@@ -559,6 +572,7 @@ if __name__ == "__main__":
 
     variant = take_value("--resume", "--resume needs a variant (General, Mobile, AI, Frontend)") or "General"
     target_url = take_value("--url", "--url needs the full application URL")
+    stop_at_pct = take_value("--stop-at", "--stop-at needs a progress percent, e.g. --stop-at 60")
 
     flags = {a for a in args if a.startswith("--")}
     unknown = flags - {"--dry-run", "--no-advance", "--show-options"}
@@ -581,4 +595,5 @@ if __name__ == "__main__":
         advance="--no-advance" not in flags,
         url=target_url,
         show_options="--show-options" in flags,
+        stop_at=stop_at_pct,
     )
