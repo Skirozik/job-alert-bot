@@ -272,6 +272,15 @@ _LABEL_MAP = [
      Field("dynamic", "ibm.skill_levels.data_science_frameworks", "Skill — data science frameworks")),
     (re.compile(r"Data warehousing|extract,\s*transform,\s*load|\bETL\b", re.I),
      Field("dynamic", "ibm.skill_levels.data_warehousing", "Skill — data warehousing / ETL")),
+    # Statistical programming FIRST: its label also contains "programming in
+    # Python", so a less specific Python pattern would swallow it.
+    (re.compile(r"Statistical programming", re.I),
+     Field("dynamic", "ibm.skill_levels.statistical_programming",
+           "Skill — statistical programming")),
+    (re.compile(r"level of experience in Programming in Python", re.I),
+     Field("dynamic", "ibm.skill_levels.programming_python", "Skill — Python")),
+    (re.compile(r"level of experience in Programming in SQL", re.I),
+     Field("dynamic", "ibm.skill_levels.programming_sql", "Skill — SQL")),
 ]
 
 
