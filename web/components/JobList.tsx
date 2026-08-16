@@ -199,7 +199,7 @@ export function JobList({
             )}
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-              <span className="text-green-400 font-medium">{applyCount + caveatCount} to review</span>
+              <span className="text-green-400 font-medium">{applyCount + caveatCount} to apply</span>
               {caveatCount > 0 && (
                 <>
                   {' · '}
