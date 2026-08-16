@@ -196,7 +196,7 @@ def insert_job(job: dict) -> bool:
         "description": job.get("description"),
         "logo_url": job.get("logo_url"),
         "norm_key": make_norm_key(job.get("company", ""), job.get("title", "")),
-        "tier": job.get("tier", "MAYBE"),
+        "tier": job.get("tier", "APPLY_CAVEAT"),
         "reason": job.get("reason", ""),
         "suggested_resume": job.get("suggested_resume", "General"),
         "posted_at": job.get("posted_at"),
