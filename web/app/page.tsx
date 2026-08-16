@@ -81,10 +81,8 @@ export default async function HomePage() {
   const grouped = groupNearDuplicates(jobs)
 
   return (
-    <main className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-3xl mx-auto px-4 py-10">
-        <JobList initialJobs={grouped} personaLabel={persona.label} />
-      </div>
-    </main>
+    // The table is the layout — full bleed. The old max-w-3xl centred column
+    // existed for a card list and would defeat the point of a dense table.
+    <JobList initialJobs={grouped} personaLabel={persona.label} personaSub={persona.username} />
   )
 }

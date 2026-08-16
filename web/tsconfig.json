@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // No target was set, so tsc defaulted to ES5 and rejected both the /u regex
+    // flag and code-point iteration. Next compiles for modern browsers anyway, so
+    // the default was constraining only the type-checker.
+    "target": "ES2018",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
