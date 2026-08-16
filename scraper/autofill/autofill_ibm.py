@@ -100,13 +100,39 @@ def _read_progress(page) -> str:
         return ""
 
 
+def _is_login_page(page) -> bool:
+    """IBM's sign-in page, by its own field ids.
+
+    Needed as an explicit NEGATIVE signal because the login page carries a
+    "Continue" button of its own, which the generic next-button check happily
+    accepted as proof of being on the application. The run then reported
+    `IBMid (username)` and `Remember me (remember)` as unfilled application
+    questions — technically true, entirely useless.
+    """
+    try:
+        return bool(page.evaluate(
+            """() => {
+                if (document.getElementById('username') &&
+                    /ibmid|log ?in|sign ?in/i.test(document.body.innerText || '')) return true;
+                return /\\/(login|signin|authsvc|idaas)/i.test(location.pathname);
+            }"""
+        ))
+    except Exception:
+        return False
+
+
 def _looks_like_application_form(page) -> bool:
-    """Are we actually on the wizard, or on a login wall?"""
+    """Are we actually on the wizard, or on a login wall?
+
+    Requires a POSITIVE application signal. A Next/Continue button is NOT one —
+    the login page has one too, which is exactly how a login wall previously
+    passed for the form.
+    """
+    if _is_login_page(page):
+        return False
     if _read_progress(page):
         return True
     try:
-        if find_next_button(page) is not None:
-            return True
         hits = page.evaluate(
             "(ids) => ids.filter(i => document.getElementById(i)).length",
             list(ibm._FIELD_MAP.keys()),
@@ -386,8 +412,18 @@ def run(job_id: Optional[str] = None, resume_variant: str = "General",
                          ", ".join(report["likely_required"]))
 
             if not advance:
-                log.info("--no-advance: stopping after this step so you can inspect it.")
-                break
+                # Stop at the first step that actually FILLED something, not
+                # merely the first step. IBM's step 1 is the skippable Talent
+                # Network page whose default is already correct, so stopping
+                # there showed an empty report and never reached the screening
+                # questions this flag exists to let you inspect.
+                if report["filled"]:
+                    log.info("--no-advance: this step filled %d field(s) — stopping here so "
+                             "you can check them before anything advances.",
+                             len(report["filled"]))
+                    break
+                log.info("--no-advance: nothing to fill on this step; continuing to the next "
+                         "rather than stopping on an empty one.")
 
             if find_next_button(page) is None:
                 log.info("No Next/Continue button — nothing left to advance through. "
@@ -413,7 +449,8 @@ _USAGE = (
     "\n"
     "Options:\n"
     "  --dry-run          print what would be filled; type nothing\n"
-    "  --no-advance       fill the current step only, don't click Continue\n"
+    "  --no-advance       stop at the first step that fills something, so you\n"
+    "                     can check it before the wizard moves on\n"
     "  --resume VARIANT   General (default), Mobile, AI, Frontend\n"
 )
 
