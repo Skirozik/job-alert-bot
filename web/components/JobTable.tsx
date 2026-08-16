@@ -1,6 +1,7 @@
 'use client'
 
-import Image from 'next/image'
+import { useState, useEffect, useRef } from 'react'
+import { CompanyLogo } from './CompanyLogo'
 import type { Job, Status } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
 import {
@@ -86,6 +87,37 @@ export function JobTable({
     actions: '120px',
   }
   const grid = [W.company, W.role, W.location, W.source, W.salary, W.resume, W.found, W.actions].join(' ')
+
+  /* Windowing. "All postings" mounted all 2262 rows: 76,545 DOM nodes, a
+     99,592px document and 3.25s to render, well past the ~15,000 nodes where
+     Chrome degrades. Rows are a fixed 45px (44 + 1px divider), which makes the
+     visible slice pure arithmetic — no measurement pass, no library.
+     Everything above and below is replaced by a single spacer div, so scroll
+     height and scrollbar position stay exact. */
+  const ROW_PX = 45
+  const OVERSCAN = 8
+  const scrollRef = useRef<HTMLElement | null>(null)
+  const [range, setRange] = useState({ start: 0, end: 60 })
+
+  useEffect(() => {
+    // The scroll container is the ancestor that actually overflows.
+    const el = (scrollRef.current?.closest('[data-scroll-root]') as HTMLElement) ?? null
+    const recompute = () => {
+      const top = el ? el.scrollTop : 0
+      const h = el ? el.clientHeight : 800
+      const start = Math.max(0, Math.floor(top / ROW_PX) - OVERSCAN)
+      const end = Math.min(rows.length, Math.ceil((top + h) / ROW_PX) + OVERSCAN)
+      setRange(prev => (prev.start === start && prev.end === end ? prev : { start, end }))
+    }
+    recompute()
+    el?.addEventListener('scroll', recompute, { passive: true })
+    window.addEventListener('resize', recompute)
+    return () => { el?.removeEventListener('scroll', recompute); window.removeEventListener('resize', recompute) }
+  }, [rows.length])
+
+  const visible = rows.slice(range.start, range.end)
+  const padTop = range.start * ROW_PX
+  const padBottom = Math.max(0, (rows.length - range.end) * ROW_PX)
   const cell: React.CSSProperties = { padding: '0 var(--s3)', minWidth: 0 }
 
   if (!rows.length) {
@@ -97,7 +129,7 @@ export function JobTable({
   }
 
   return (
-    <div role="table" aria-label="Jobs">
+    <div role="table" aria-label="Jobs" ref={scrollRef as any}>
       {/* Header. 28px so it costs as little vertical space as possible. */}
       <div
         role="row"
@@ -118,7 +150,8 @@ export function JobTable({
         <span />
       </div>
 
-      {rows.map(job => {
+      {padTop > 0 && <div style={{ height: padTop }} aria-hidden />}
+      {visible.map(job => {
         const locs = splitLocations(job.location)
         const status = job.status ?? 'new'
         const easy = job.is_easy_apply
@@ -149,17 +182,7 @@ export function JobTable({
           >
             {/* Company */}
             <div style={cell} className="flex items-center gap-2">
-              {job.logo_url ? (
-                <Image src={job.logo_url} alt="" width={20} height={20}
-                       className="rounded object-contain bg-white shrink-0"
-                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-              ) : (
-                <span className="flex items-center justify-center shrink-0 select-none"
-                      style={{ width: 20, height: 20, borderRadius: 4, background: 'var(--bg-active)',
-                               color: 'var(--fg-subtle)', fontSize: 'var(--text-meta)', fontWeight: 600 }}>
-                  {job.company?.[0]?.toUpperCase() ?? '?'}
-                </span>
-              )}
+              <CompanyLogo src={job.logo_url} company={job.company} />
               <span className="truncate" style={{ color: fg }} title={job.company}>{job.company}</span>
               {status === 'new' && (
                 <span aria-label="New" title="New" className="shrink-0"
@@ -250,6 +273,7 @@ export function JobTable({
           </div>
         )
       })}
+      {padBottom > 0 && <div style={{ height: padBottom }} aria-hidden />}
     </div>
   )
 }
