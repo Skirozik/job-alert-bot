@@ -1,3 +1,99 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens.
+
+   Every colour in the app resolves through one of these. Components must not
+   contain hard-coded hex values — the point is that switching to a light
+   theme later is a swap of this block, not a rewrite of the components.
+
+   ONE accent (--accent). It is permitted in exactly three places: the active
+   nav item, focus rings, and the primary action. Everything else is neutral.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces, darkest to lightest */
+  --bg:            #0a0a0b;  /* page */
+  --bg-rail:       #0e0e10;  /* sidebar rail */
+  --bg-surface:    #101013;  /* table body */
+  --bg-raised:     #16161a;  /* drawer, dropdowns */
+  --bg-hover:      #17171c;  /* row hover lift */
+  --bg-active:     #1c1c22;  /* selected row / active nav */
+  --bg-input:      #121216;
+
+  /* Hairlines. No shadows anywhere except the drawer. */
+  --border:        #1f1f26;
+  --border-strong: #2a2a33;
+
+  /* Foreground */
+  --fg:            #e8e8ea;  /* primary text */
+  --fg-muted:      #9a9aa4;  /* secondary text, counts */
+  --fg-subtle:     #6a6a74;  /* timestamps, placeholders */
+  --fg-dim:        #7e7e88;  /* INELIGIBLE rows — muted colour, NOT opacity,
+                                so the text stays legible when read directly */
+
+  /* The single accent */
+  --accent:        #4f8cff;
+  --accent-bg:     rgba(79, 140, 255, 0.12);
+  --accent-border: rgba(79, 140, 255, 0.35);
+
+  /* Tier signal — the 3px left edge bar only */
+  --tier-clean:    #3fb950;
+  --tier-caveat:   #d29922;
+  --tier-inelig:   #3a3a44;
+
+  /* Status semantics (badges/dots only, never structural) */
+  --status-new:    #4f8cff;
+  --status-applied:#5a9bd8;
+  --status-saved:  #a371f7;
+  --status-dismiss:#6a6a74;
+  --danger:        #f85149;
+
+  /* Type — exactly two sizes in the data area, plus one heading size */
+  --text-data:     13px;
+  --text-meta:     11px;
+  --text-head:     15px;
+
+  /* 4px spacing scale */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 20px; --s6: 24px; --s8: 32px;
+
+  /* Row geometry. ROW_H is asserted by components/__tests__/rowHeight.test.ts
+     — it is the number most likely to regress when someone adds a field. */
+  --row-h:         44px;
+  --rail-w:        240px;
+  --drawer-w:      420px;
+
+  --radius:        6px;
+  --dur:           120ms;   /* transition cap; hover + drawer only */
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-data);
+}
+
+/* Focus is one of the three sanctioned accent uses. */
+:where(a, button, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: var(--radius);
+}
+
+/* Table rows own their hover; a subtle background lift, no transform/scale. */
+.row-hit { transition: background-color var(--dur) ease; }
+.row-hit:hover { background: var(--bg-hover); }
+.row-hit[data-selected='true'] { background: var(--bg-active); }
+
+/* Row actions: hidden until hover, always visible on the focused/selected row,
+   and always reachable by keyboard (focus-within keeps them painted). */
+.row-actions { opacity: 0; transition: opacity var(--dur) ease; }
+.row-hit:hover .row-actions,
+.row-hit:focus-within .row-actions,
+.row-hit[data-selected='true'] .row-actions { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .row-hit, .row-actions, .drawer { transition: none; }
+}
