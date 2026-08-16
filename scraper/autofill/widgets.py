@@ -434,13 +434,29 @@ _DIRECT_SELECT_JS = """
     return head && head !== full ? [full, head] : [full];
   };
 
-  const hits = [];
-  for (const o of el.options) {
-    if (variants(o).indexOf(want) !== -1) hits.push(o);
+  // ANY means the candidate explicitly delegated the choice for this field —
+  // take the first real option. Used where a dropdown's rendered list is
+  // broken (IBM's CI/CD widget paints nothing) yet the field is required, so
+  // the alternative is an unsubmittable form. Still not the tool deciding
+  // anything on its own: only a literal "ANY" in the profile reaches here.
+  let match = null;
+  if (want === 'any') {
+    for (const o of el.options) {
+      const t = norm(o.textContent);
+      if (!t || /^(-+|select|choose|none|n\\/?a)\\b/.test(t) || t.indexOf('select an option') === 0) continue;
+      match = o;
+      break;
+    }
+    if (!match) return 'no-option';
+  } else {
+    const hits = [];
+    for (const o of el.options) {
+      if (variants(o).indexOf(want) !== -1) hits.push(o);
+    }
+    if (hits.length === 0) return 'no-option';
+    if (hits.length > 1) return 'ambiguous';
+    match = hits[0];
   }
-  if (hits.length === 0) return 'no-option';
-  if (hits.length > 1) return 'ambiguous';
-  const match = hits[0];
 
   el.value = match.value;
   const jq = window.jQuery || window.$;
@@ -457,6 +473,7 @@ _DIRECT_SELECT_JS = """
   if (rendered) {
     const shown = norm(rendered.getAttribute('title') || rendered.textContent);
     const head = shown.split('.')[0].trim();
+    if (want === 'any') return shown ? 'ok:' + shown : 'not-applied';
     if (shown === want || head === want) return 'ok';
     return 'not-applied';
   }
@@ -523,6 +540,13 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     outcome = _try_direct_select(page, field_id, text)
     if outcome == "ok":
         log.info("Dropdown %s = %r (selected directly, no typing)", field_id, text)
+        return True
+    if isinstance(outcome, str) and outcome.startswith("ok:"):
+        # Delegated choice — say loudly WHICH option it landed on, so an
+        # answer the candidate did not personally pick is never invisible.
+        log.warning("Dropdown %s: profile says ANY, so it selected %r. "
+                    "Change ibm.skill_levels if that is not what you want.",
+                    field_id, outcome[3:])
         return True
     if outcome == "ambiguous":
         # Two options answering to the same name. A coin flip on a real
