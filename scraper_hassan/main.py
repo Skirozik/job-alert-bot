@@ -106,7 +106,7 @@ def _is_senior_role(title: str) -> bool:
 
 
 def _is_new_grad_role(title: str) -> bool:
-    # He graduates May 2028. New-grad programs hire people finishing their
+    # His graduation is years out. New-grad programs hire people finishing their
     # degree now, so they are never a fit regardless of how well the stack
     # matches.
     return bool(_NEW_GRAD_RE.search(title.lower()))
@@ -313,7 +313,7 @@ def run():
             if _is_new_grad_role(job["title"]):
                 log.info("  Pre-filter SKIP (new grad program)")
                 job["tier"] = "INELIGIBLE"
-                job["reason"] = "Pre-filtered: new grad program, he graduates May 2028"
+                job["reason"] = "Pre-filtered: new grad program, graduation year does not match"
                 insert_job(job)
                 continue
 
