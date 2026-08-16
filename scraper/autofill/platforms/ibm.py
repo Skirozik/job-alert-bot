@@ -835,11 +835,27 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
 
     if spec.kind == "dynamic":
         loc = _loc(page, key)
-        ok = fill_avature_dropdown(page, loc, str(value), key)
-        if not ok:
-            return (False, f"dropdown did not accept '{value}' — check it yourself")
-        return (True, "unverified — only the search box confirmed it"
-                if read_dropdown_choice(page, key)[1] == "combobox" else "")
+        # A profile value may be a LIST of acceptable wordings, tried in order.
+        # IBM asks the same skill question with different option scales on
+        # different requisitions — "Expert" on one, "I have experience
+        # performing this work behavior across routine or predictable
+        # situations with minimal supervision or guidance." on another — so one
+        # fixed string cannot answer both. Each candidate still has to match an
+        # option exactly; this widens what counts as the stored answer, it does
+        # not loosen the matching.
+        candidates = value if isinstance(value, (list, tuple)) else [value]
+        candidates = [str(v) for v in candidates if v is not None and str(v).strip()]
+        if not candidates:
+            return (False, "no value in the profile for this field")
+
+        for candidate in candidates:
+            if fill_avature_dropdown(page, loc, candidate, key):
+                note = ("unverified — only the search box confirmed it"
+                        if read_dropdown_choice(page, key)[1] == "combobox" else "")
+                return (True, note)
+
+        shown = candidates[0] if len(candidates) == 1 else f"any of {len(candidates)} wordings"
+        return (False, f"dropdown did not accept {shown} — check it yourself")
 
     if spec.kind in ("text", "textarea"):
         loc = _loc(page, key)
