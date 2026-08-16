@@ -139,12 +139,20 @@ def _join_locations(profile: dict) -> str:
 
 
 def _full_name(profile: dict) -> str:
-    """First + last, the way a person signs their name. Defined here, above
-    _LABEL_MAP, because that table references it at import time."""
+    """Legal first + middle + last — the name a person signs.
+
+    LEGAL first name, not preferred. This fills the "Your name" box that sits
+    under IBM's EEO consents, which is a signature: it should read "Ifiok
+    Zachary Inyang", not the shortened form used socially. The middle name is
+    included for the same reason.
+
+    Defined above _LABEL_MAP because that table references it at import time.
+    """
     p = profile.get("personal", {}) or {}
-    first = p.get("preferred_first_name") or p.get("legal_first_name") or ""
-    last = p.get("last_name") or ""
-    return f"{str(first).strip()} {str(last).strip()}".strip()
+    parts = [p.get("legal_first_name") or p.get("preferred_first_name"),
+             p.get("middle_name"),
+             p.get("last_name")]
+    return " ".join(str(x).strip() for x in parts if x and str(x).strip())
 
 
 # Key convention: for radios the key is the group NAME (that is what "is this
