@@ -52,16 +52,65 @@ _SCHOOL_NAME_RE = (
     r"|(?:University|College)\s+of\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})"
 )
 
+# A looser school name, for use ONLY where the surrounding text already proves
+# a school is being named — "<School> Co-op:" or "Co-Op | <School>". It accepts
+# forms _SCHOOL_NAME_RE cannot: "Georgia Tech", "MIT", "Georgia Institute of
+# Technology". Too permissive to use on free description text, which is why it
+# is confined to those two anchored patterns.
+_SCHOOL_NAME_LOOSE_RE = (
+    r"(?:[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,3}\s+"
+    r"(?:University|College|Tech|Institute(?:\s+of\s+Technology)?)"
+    r"|(?:University|College)\s+of\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2}"
+    r"|[A-Z]{2,5}(?=\s*$|\s*[|,–—-]))"
+)
+
+# The co-op token, case-insensitive on BOTH halves.
+#
+# The old [Cc]o[\s-]?op was case sensitive on "op", so it did not match "Co-Op"
+# — and every Analytic Partners posting spells it exactly that way. Five
+# school-restricted co-ops sat at tier=APPLY purely because of the capital O.
+_COOP_TOKEN = r"[Cc]o[\s-]?[Oo]p"
+
 # "Comcast's Drexel Co-op Program" — anchored on the possessive apostrophe so
 # it never mis-captures a preceding capitalized phrase that has no possessive
 # (e.g. "...Overview The Susquehanna Co-op Program..." has no "'s" at all).
 _SCHOOL_COOP_PROGRAM_RE = re.compile(
     r"\b(?:[A-Z][A-Za-z&.,-]*)['’]s\s+((?:[A-Z][A-Za-z]+\s+)??[A-Z][A-Za-z]+)\s+"
-    r"[Cc]o[\s-]?op\s+[Pp]rogram\b"
+    + _COOP_TOKEN + r"\s+[Pp]rogram\b"
 )
 # "Technology Co-op with Drexel University" / "...AI Co-op with Drexel University in Bala Cynwyd..."
 _SCHOOL_COOP_WITH_RE = re.compile(
-    r"\b[Cc]o[\s-]?op\s+(?:[Pp]rogram\s+)?with\s+(" + _SCHOOL_NAME_RE + r")\b"
+    r"\b" + _COOP_TOKEN + r"\s+(?:[Pp]rogram\s+)?with\s+(" + _SCHOOL_NAME_RE + r")\b"
+)
+# "Drexel University Co-op: Software Engineering/Full stack development" —
+# school first, role after. Seen live on SRI and AVEVA postings.
+_SCHOOL_COOP_PREFIX_RE = re.compile(
+    r"\b(" + _SCHOOL_NAME_LOOSE_RE + r")\s+" + _COOP_TOKEN + r"\s*[:\-–—]"
+)
+# "Software Engineer Co-Op | Northeastern University" — delimiter separated.
+# Seen live on five Analytic Partners postings.
+_SCHOOL_COOP_DELIM_RE = re.compile(
+    r"\b" + _COOP_TOKEN + r"\s*[|/–—]\s*(" + _SCHOOL_NAME_LOOSE_RE + r")"
+)
+# "Drexel Co-op US" / "Intern- Drexel Co-op" — a school named WITHOUT the word
+# University or College after it.
+#
+# Restricted to a known list rather than "any capitalised word before co-op".
+# The permissive version matched "IBM co-op program" in an IBM posting's own
+# description and ruled the candidate ineligible for a job they had already
+# applied to — a false positive that silently removes real jobs, which is worse
+# than the leak this override exists to close. Any company running a co-op
+# programme would have tripped it.
+#
+# These are the schools whose same-school-only co-op programmes actually appear
+# in this pipeline. Add to the list when a new one shows up; do not loosen the
+# pattern.
+_COOP_SCHOOL_WORDS = (
+    "Drexel|Northeastern|Waterloo|Kettering|Purdue|Cincinnati|Wentworth"
+    "|RIT|Rochester Institute|Georgia Tech|Virginia Tech|Cal Poly"
+)
+_SCHOOL_BARE_COOP_RE = re.compile(
+    r"\b(" + _COOP_SCHOOL_WORDS + r")\s+" + _COOP_TOKEN + r"\b"
 )
 # "Currently pursuing a bachelor's degree from Drexel University, with a..."
 _SCHOOL_ELIGIBILITY_RE = re.compile(
@@ -300,11 +349,25 @@ def _apply_school_specific_override(job: dict, result: dict) -> dict:
     if result.get("tier") not in ("APPLY", "APPLY_CAVEAT"):
         return result
 
-    desc = job.get("description") or ""
+    # TITLE FIRST, then the description. Candidate_Profile_and_Filters.md says
+    # outright that "the restriction is frequently in the TITLE rather than the
+    # body", and it was right: Susquehanna's "Equity Options AI Co-op with
+    # Drexel University" never mentions Drexel, University or College anywhere
+    # in its 2,483-character description. Reading only the description left
+    # those at tier=APPLY for a candidate categorically ineligible for them.
+    #
+    # Only THIS override reads the title. The full-time and advanced-degree
+    # overrides deliberately do not — their phrases had zero title hits across
+    # a thousand titles, and folding the title into the full-time one would
+    # invert its behaviour via _INTERNSHIP_WORD_RE.
+    haystack = f"{job.get('title') or ''}\n{job.get('description') or ''}"
     match = (
-        _SCHOOL_COOP_PROGRAM_RE.search(desc)
-        or _SCHOOL_COOP_WITH_RE.search(desc)
-        or _SCHOOL_ELIGIBILITY_RE.search(desc)
+        _SCHOOL_COOP_PROGRAM_RE.search(haystack)
+        or _SCHOOL_COOP_WITH_RE.search(haystack)
+        or _SCHOOL_COOP_PREFIX_RE.search(haystack)
+        or _SCHOOL_COOP_DELIM_RE.search(haystack)
+        or _SCHOOL_ELIGIBILITY_RE.search(haystack)
+        or _SCHOOL_BARE_COOP_RE.search(haystack)
     )
     if not match:
         return result
