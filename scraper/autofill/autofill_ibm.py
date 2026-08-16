@@ -270,6 +270,40 @@ def _print_report(report: dict) -> None:
         log.info("Nothing unmapped on this step.")
 
 
+def _show_options_report(page, profile: dict) -> None:
+    """Dump every option of every dropdown on this step. Fills nothing.
+
+    Built to settle one question: IBM's CI/CD dropdown renders an empty list
+    while being marked required, and there are two very different explanations.
+    If its underlying <select> holds options, the widget is failing to paint
+    them and the direct-select path can set the value without the UI. If the
+    <select> is empty too, the field is unanswerable and that is IBM's bug, not
+    something a profile value can fix.
+    """
+    from autofill.widgets import list_select_options
+
+    raw = ibm._snapshot(page)
+    shown = 0
+    for key, kind, rows in ibm._logical_fields(raw, profile):
+        if rows[0]["tag"] != "select":
+            continue
+        opts = list_select_options(page, key)
+        spec = ibm._FIELD_MAP.get(key) or ibm._label_spec(rows[0].get("label") or "")
+        name = spec.label if spec else (rows[0].get("label") or "")
+        log.info("--- %s (%s): %d option(s) in the underlying <select> ---",
+                 name[:70] or key, key, len(opts))
+        for value, text in opts[:40]:
+            log.info("      %-14s %s", value, text[:100])
+        if len(opts) > 40:
+            log.info("      ... and %d more", len(opts) - 40)
+        if not opts:
+            log.warning("      EMPTY — nothing to select. Either the options load only on "
+                        "search, or the field is genuinely unanswerable.")
+        shown += 1
+    if not shown:
+        log.info("No dropdowns on this step.")
+
+
 def _dry_run_report(page, job: dict, profile: dict) -> None:
     """Prints what WOULD be filled without touching a single field. This is how
     _FIELD_MAP gets validated against a live posting at zero risk of writing a
@@ -354,7 +388,7 @@ def login(url: Optional[str] = None) -> None:
 
 def run(job_id: Optional[str] = None, resume_variant: str = "General",
         dry_run: bool = False, advance: bool = True,
-        url: Optional[str] = None) -> None:
+        url: Optional[str] = None, show_options: bool = False) -> None:
     apply_url, label = _resolve_target(job_id, url)
     if apply_url is None:
         return
@@ -416,6 +450,15 @@ def run(job_id: Optional[str] = None, resume_variant: str = "General",
                          "Everything below this point is yours: review it and click "
                          "Submit Application yourself. This tool never does.")
                 break
+
+            if show_options:
+                _show_options_report(page, profile)
+                if not advance or ibm.read_validation_errors(page):
+                    break
+                if find_next_button(page) is None or not _advance_step(
+                        page, job, profile, progress, step_url):
+                    break
+                continue
 
             if dry_run:
                 _dry_run_report(page, job, profile)
@@ -501,7 +544,7 @@ if __name__ == "__main__":
     target_url = take_value("--url", "--url needs the full application URL")
 
     flags = {a for a in args if a.startswith("--")}
-    unknown = flags - {"--dry-run", "--no-advance"}
+    unknown = flags - {"--dry-run", "--no-advance", "--show-options"}
     if unknown:
         print(f"Unknown option(s): {', '.join(sorted(unknown))}\n\n{_USAGE}")
         sys.exit(1)
@@ -520,4 +563,5 @@ if __name__ == "__main__":
         dry_run="--dry-run" in flags,
         advance="--no-advance" not in flags,
         url=target_url,
+        show_options="--show-options" in flags,
     )
