@@ -452,6 +452,17 @@ check("'No' matches only the no option",
 check("two options answering to 'Yes' stay ambiguous, so the caller refuses",
       len(_hit("Yes", ["Yes, option one", "Yes, option two"])) == 2,
       "a tie must never resolve to the first option")
+check("a leading sentence matches with OR without its trailing period",
+      norm("I have performed this work behavior independently across a wide range of situations.")
+      in _option_variants("I have performed this work behavior independently across a wide "
+                          "range of situations. I have assisted others in carrying out this "
+                          "work behavior."),
+      "a value copied off the screen keeps the period; requiring it be stripped is a footgun")
+check("...and without it too",
+      norm("I have performed this work behavior independently across a wide range of situations")
+      in _option_variants("I have performed this work behavior independently across a wide "
+                          "range of situations. I have assisted others in carrying out this "
+                          "work behavior."))
 check("the comma variant does not reopen the United States trap",
       _hit("United States", ["United States", "United States Minor Outlying Islands"])
       == ["United States"],

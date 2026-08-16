@@ -98,7 +98,11 @@ def _option_variants(label) -> set:
     variants = {n}
     head = n.split(".")[0].strip()
     if head and head != n:
+        # Both with and without the trailing full stop. A profile value copied
+        # off the screen naturally keeps the period, and without this that
+        # exact copy failed to match the sentence it was copied from.
         variants.add(head)
+        variants.add(head + ".")
     # Also the leading COMMA segment, so a profile value of "Yes" answers an
     # option worded "Yes, I am willing to relocate." IBM phrases the same
     # yes/no question as a bare Yes/No on one requisition and as a full
