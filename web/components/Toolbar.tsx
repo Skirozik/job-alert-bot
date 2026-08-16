@@ -97,7 +97,7 @@ export function Toolbar({
     <div
       className="flex items-center gap-2 shrink-0"
       style={{
-        height: 48, padding: '0 var(--s4)',
+        height: 40, padding: '0 var(--s4)',
         borderBottom: '1px solid var(--border)', background: 'var(--bg)',
       }}
     >
