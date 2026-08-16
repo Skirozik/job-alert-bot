@@ -88,8 +88,21 @@ check("35979_month is NOT a repeat row", _is_repeat_row("35979_month") is None)
 check("37299-7-N is NOT a repeat row (non-numeric row)", _is_repeat_row("37299-7-N") is None)
 
 print("\n-- optional EEO fields are skipped; gender is NOT one of them --")
-for fid in ["12705", "12706", "12707", "12708", "12709", "12710", "12711"]:
+for fid in ["12705", "12706", "12707", "12708", "12709", "12710"]:
     check(f"{fid} is optional-EEO", _is_eeo_id(fid))
+# 12711 sits inside that numeric range but is NOT a demographic question — it
+# is the "Your name" signature box under the consents, confirmed from the live
+# DOM as <input type="text" id="12711" aria-labelledby="12711-label"> with
+# label text "Your name". The measured field map recorded 12704-12711 as EEO,
+# and being caught by the skip pattern is why the box never filled: it was
+# dropped from the snapshot before any label matching could run.
+check("12711 is NOT skipped as EEO", not _is_eeo_id("12711"),
+      "it is the signature box, not a demographic question")
+check("12711 is mapped by id", "12711" in _FIELD_MAP)
+check("12711 fills the full legal name",
+      _FIELD_MAP["12711"].resolver(
+          {"personal": {"legal_first_name": "Ifiok", "middle_name": "Zachary",
+                        "last_name": "Inyang"}}) == "Ifiok Zachary Inyang")
 check("13602_gender is optional-EEO", _is_eeo_id("13602_gender"))
 check("13602 is optional-EEO", _is_eeo_id("13602"))
 check("12712 is NOT EEO", not _is_eeo_id("12712"))
