@@ -193,9 +193,24 @@ _CHOICE_READER_JS = """
 
   const box = el.closest('div, li, fieldset, td, tr') || el.parentElement;
 
-  // 2. A rendered "chosen label" element inside the widget's container.
+  // 2a. Select2's rendered control, by its deterministic id. This is THE
+  //     source on IBM — confirmed from the live DOM — so it is checked before
+  //     the heuristic sweep below. An unfilled Select2 renders a
+  //     .select2-selection__placeholder child ("Select an option"); its
+  //     presence means nothing is chosen, which is far more reliable than
+  //     pattern-matching the placeholder's text.
   let chosen = '';
-  if (box) {
+  const s2 = document.getElementById('select2-' + fid + '-container');
+  if (s2) {
+    if (s2.querySelector('.select2-selection__placeholder')) {
+      chosen = '';
+    } else {
+      chosen = norm(s2.getAttribute('title') || s2.textContent);
+    }
+  }
+
+  // 2b. Fallback sweep, for any dynamic widget that is not Select2.
+  if (!chosen && box) {
     const sel = '[class*="chosen"], [class*="selection"], [class*="selected"],'
               + '[class*="rendered"], [class*="display"], a[role="combobox"],'
               + 'span[role="combobox"], [class*="single"]';
@@ -262,37 +277,82 @@ def read_dropdown_choice(page: Page, field_id: str, trusted_only: bool = False) 
 
 # Finds the thing a human would actually click for a dynamic dropdown.
 #
-# The element carrying the field id is the underlying <select>, which the
-# widget hides — clicking it does nothing at all, silently. The visible control
-# is a sibling or wrapper the widget renders. Returns a unique selector for it,
-# or "" if the select itself is visible and can be clicked directly.
+# THE WIDGET IS SELECT2. Confirmed from a live click failure, which named it
+# outright:
+#     <select id="10478" aria-hidden="true"
+#             class="... select2-hidden-accessible">
+#     <span id="select2-10478-container" role="textbox" aria-readonly="true"
+#           class="select2-selection__rendered WizardFieldInput">
+# So the control is at the deterministic id `select2-<fieldId>-container`, and
+# finding it is a lookup rather than the four-way guess this used to be.
+#
+# The select is NOT display:none — Select2 leaves it in the layout at roughly
+# 1x1px as an accessibility shim. A naive width>0 && height>0 test therefore
+# calls it visible and clicks it, which is what happened: Playwright reported
+# "element is visible, enabled and stable", clicked, and the select2 span
+# "intercepts pointer events" for thirty seconds of retries. Require a real
+# size, not merely a nonzero one.
 _TRIGGER_JS = """
 (fid) => {
   const el = document.getElementById(fid);
   if (!el) return '';
-  const onScreen = n => {
+
+  // Select2's rendered control, by its deterministic id.
+  const s2 = document.getElementById('select2-' + fid + '-container');
+  if (s2) {
+    s2.setAttribute('data-autofill-trigger', fid);
+    return `[data-autofill-trigger="${fid}"]`;
+  }
+
+  const clickable = n => {
     if (!n) return false;
-    const s = getComputedStyle(n);
-    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    const st = getComputedStyle(n);
+    if (st.display === 'none' || st.visibility === 'hidden') return false;
     const r = n.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
+    // A 1x1 accessibility shim is not a control a human can click.
+    return r.width > 8 && r.height > 8;
   };
-  if (onScreen(el)) return '';           // ordinary select — click it directly
+  if (clickable(el)) return '';          // ordinary select — click it directly
 
   let box = el.parentElement;
   for (let hop = 0; box && hop < 4; hop++, box = box.parentElement) {
     const cands = box.querySelectorAll(
-      '[role="combobox"], [class*="select"], [class*="chosen"], [class*="dropdown"],' +
-      'button, input[type="text"], a[href="#"], span[tabindex], div[tabindex]');
+      '[role="combobox"], [role="textbox"], [class*="select"], [class*="chosen"],' +
+      '[class*="dropdown"], button, input[type="text"], a[href="#"],' +
+      'span[tabindex], div[tabindex]');
     for (const c of cands) {
-      if (c === el || !onScreen(c)) continue;
-      // Tag it so Playwright can address it unambiguously — class names on
-      // these widgets are neither unique nor stable.
+      if (c === el || !clickable(c)) continue;
       c.setAttribute('data-autofill-trigger', fid);
       return `[data-autofill-trigger="${fid}"]`;
     }
   }
   return '';
+}
+"""
+
+# IBM renders a sticky header that covers whatever the browser scrolls to the
+# top of the viewport, so Playwright's own scroll-into-view lands the target
+# underneath it and the click is intercepted — "<div class='header__wrapper'>
+# ... intercepts pointer events", retried until timeout. Centring the element
+# puts it clear of both the header and any sticky footer.
+_SCROLL_CENTRE_JS = """
+(sel) => {
+  const n = document.querySelector(sel);
+  if (n) n.scrollIntoView({block: 'center', inline: 'nearest'});
+}
+"""
+
+# Select2 opens on mousedown, not click. Used only when a real click cannot get
+# through — a genuine event sequence on the exact element, not a force-click
+# that would ignore whatever is actually covering it.
+_MOUSEDOWN_JS = """
+(sel) => {
+  const n = document.querySelector(sel);
+  if (!n) return false;
+  for (const type of ['mousedown', 'mouseup', 'click']) {
+    n.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, view: window}));
+  }
+  return true;
 }
 """
 
@@ -305,7 +365,8 @@ def _wait_for_options(page: Page, timeout_ms: int = 5000) -> bool:
     try:
         page.wait_for_function(
             """() => document.querySelectorAll(
-                 '[role="option"], li.ui-menu-item, .ui-autocomplete li, [class*="option"]'
+                 '.select2-results__option, [role="option"], li.ui-menu-item,'
+                 + '.ui-autocomplete li, [class*="option"]'
                ).length > 0""",
             timeout=timeout_ms,
         )
@@ -343,14 +404,36 @@ def fill_avature_dropdown(page: Page, locator: Locator, text: str, field_id: str
         trigger_sel = page.evaluate(_TRIGGER_JS, field_id)
     except Exception:
         trigger_sel = ""
-    target = page.locator(trigger_sel) if trigger_sel else locator
-    if trigger_sel:
-        log.debug("Dropdown %s: clicking rendered widget %s", field_id, trigger_sel)
 
+    if trigger_sel:
+        # Centre it first — Playwright's own scroll parks the element under
+        # IBM's sticky header, where every click is intercepted.
+        try:
+            page.evaluate(_SCROLL_CENTRE_JS, trigger_sel)
+            human_pause(0.2, 0.4)
+        except Exception:
+            pass
+
+    target = page.locator(trigger_sel) if trigger_sel else locator
+    opened = False
     try:
-        target.click(timeout=5000)
+        target.click(timeout=4000)
+        opened = True
     except Exception as exc:
-        log.warning("Dropdown %s: could not click its control (%s)", field_id, exc)
+        log.debug("Dropdown %s: real click blocked (%s) — dispatching mousedown",
+                  field_id, str(exc).splitlines()[0][:90])
+
+    if not opened and trigger_sel:
+        # Select2 opens on mousedown. Dispatching the real event sequence on
+        # the exact element beats a force-click, which would punch through
+        # whatever is covering it without knowing what that is.
+        try:
+            opened = bool(page.evaluate(_MOUSEDOWN_JS, trigger_sel))
+        except Exception:
+            opened = False
+
+    if not opened:
+        log.warning("Dropdown %s: could not open its control.", field_id)
         return False
     human_pause(0.2, 0.5)
     page.keyboard.type(text, delay=random.uniform(40, 120))
