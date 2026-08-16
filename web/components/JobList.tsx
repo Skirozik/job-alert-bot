@@ -199,7 +199,11 @@ export function JobList({
             )}
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-              <span className="text-green-400 font-medium">{applyCount + caveatCount} to apply</span>
+              {/* Clean only. The three header numbers PARTITION the loaded set —
+                  they must not nest, or the reader has to subtract to find out
+                  how many are actually clean. The combined figure already has a
+                  home in the "My list" pill. */}
+              <span className="text-green-400 font-medium">{applyCount} to apply</span>
               {caveatCount > 0 && (
                 <>
                   {' · '}
