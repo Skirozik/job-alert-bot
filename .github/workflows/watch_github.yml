@@ -1,0 +1,56 @@
+name: GitHub Tracker Fast-Path Watcher
+
+# Polls the tracked internship-list repos (SimplifyJobs, speedyapply, et al) on
+# a tight loop. main.py already fetches the same sources once per 20-minute
+# scrape, so this is not a coverage fix — it is a LATENCY fix. These lists are
+# community-maintained and a popular posting can attract hundreds of applicants
+# within an hour of being added, so the gap between "row appears in the README"
+# and "push lands on the phone" is the thing worth shrinking.
+#
+# WHY THIS FILE EXISTS: modal_app.py scheduled watch_github() every 2 minutes.
+# Only scrape() was migrated when the pipeline moved to GitHub Actions, so this
+# path has been running at main.py's 20-minute cadence ever since Modal hit its
+# spend limit. Unlike the ATS watcher — which stopped entirely, because main.py
+# never imported it — this one degraded quietly rather than dying, which is why
+# it went unnoticed: "gh:" rows kept arriving, just later than they should have.
+
+on:
+  schedule:
+    # GitHub's floor is 5 minutes; Modal's 2-minute cadence isn't reproducible.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: watch-github-ifiok
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    # github_watch.py does a cheap change-check before parsing, so the common
+    # case is a few seconds. The cap is here to stop a wedged run stacking up
+    # against a 5-minute schedule.
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Poll GitHub internship trackers
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python github_watch.py

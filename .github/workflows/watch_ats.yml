@@ -1,0 +1,63 @@
+name: ATS Fast-Path Watcher
+
+# Polls ~104 companies' own ATS boards directly (Greenhouse, Lever, Ashby,
+# SmartRecruiters, Workday), catching a posting the moment it goes live on the
+# company's own careers page rather than waiting for LinkedIn syndication —
+# which ATS vendors' own docs put at 6-48+ hours on the default sync path.
+#
+# WHY THIS FILE EXISTS: modal_app.py scheduled three jobs — scrape() every 20
+# minutes, watch_github() every 2, and watch_ats() every 3. When the pipeline
+# moved to GitHub Actions only scrape() was migrated, so both fast paths
+# silently stopped when Modal hit its spend limit. Confirmed from the data: the
+# most recent "ats:"-prefixed row was 2026-08-04, eleven days before this
+# workflow was written, against 13,237 such rows historically. The 104 boards in
+# ats_config.py were being polled by nothing at all.
+
+on:
+  schedule:
+    # GitHub's minimum granularity is 5 minutes and scheduled runs are
+    # frequently delayed under load, so Modal's 3-minute cadence is not
+    # reproducible here. 15 minutes still beats LinkedIn syndication by hours,
+    # which is the entire point of this path.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# Shares db.start_run()/finish_run() with the main scraper and the GitHub
+# watcher, so none of the three can double-process the same freshly-added job.
+# This guard is the second layer: it stops two runs of THIS workflow overlapping
+# when a slow poll outlives its schedule slot.
+concurrency:
+  group: watch-ats-ifiok
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    # 104 boards, several of them large (NVIDIA ~2,000 postings, Capital One
+    # ~1,800, Salesforce ~1,500), and Workday pages 20 at a time. A full sweep
+    # measured ~30,700 postings. 25 minutes leaves real headroom while still
+    # capping a hung run well inside the next slot.
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Poll company ATS boards
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python ats_watch.py

@@ -8,18 +8,22 @@ log = logging.getLogger(__name__)
 
 NTFY_BASE = "https://ntfy.sh"
 
-_TIER_EMOJI = {"APPLY": "🟢", "MAYBE": "🟡"}
-_TIER_TAGS = {"APPLY": "green_circle", "MAYBE": "yellow_circle"}
-_TIER_PRIORITY = {"APPLY": "high", "MAYBE": "default"}
+_TIER_EMOJI = {"APPLY": "🟢", "APPLY_CAVEAT": "🟢"}
+_TIER_TAGS = {"APPLY": "green_circle", "APPLY_CAVEAT": "warning"}
+# APPLY_CAVEAT is high priority too. It is on the same list as APPLY and is
+# meant to reach him the same way — the caveat is context, not a downgrade.
+# Before this it fell through to "default", which ntfy delivers silently:
+# the push was recorded as sent and never alerted the phone.
+_TIER_PRIORITY = {"APPLY": "high", "APPLY_CAVEAT": "high"}
 
 
 def push_job(job: dict) -> None:
-    """Send a push notification for a single APPLY or MAYBE job."""
+    """Send a push notification for a single APPLY or APPLY_CAVEAT job."""
     if not NTFY_TOPIC:
         log.warning("NTFY_TOPIC not set — skipping push for job %s", job.get("id"))
         return
 
-    tier = job.get("tier", "MAYBE")
+    tier = job.get("tier", "APPLY_CAVEAT")
     emoji = _TIER_EMOJI.get(tier, "🟡")
     title = f"{emoji} {job.get('company', 'Unknown')} — {job.get('title', 'Unknown')}"
 
