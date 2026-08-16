@@ -25,8 +25,15 @@ const GROUPS: { label: string; items: { key: ViewKey; label: string }[] }[] = [
   ]},
 ]
 
+/** 48863 -> "48.9k". Keeps the rail's number column narrow. */
+function compact(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return `${Math.round(n / 1000)}k`
+}
+
 export function Sidebar({
-  view, counts, onSelect, personaLabel, personaSub, onSignOut,
+  view, counts, onSelect, personaLabel, personaSub, onSignOut, ineligibleTotal,
 }: {
   view: ViewKey
   counts: Record<ViewKey, number>
@@ -34,6 +41,14 @@ export function Sidebar({
   personaLabel?: string
   personaSub?: string
   onSignOut: () => void
+  /**
+   * True number of ineligible rows. The page loads only the 500 most recent,
+   * so without this the rail printed that 500 as though it were the total —
+   * and Ineligible is exactly where a wrongly-rejected job sits. Search
+   * filters only what was loaded, so an older mistake returns nothing and
+   * reads as "never scraped" rather than "not loaded".
+   */
+  ineligibleTotal?: number | null
 }) {
   const initial = (personaLabel || '?').charAt(0).toUpperCase()
 
@@ -66,11 +81,23 @@ export function Sidebar({
             </div>
             {group.items.map(item => {
               const on = view === item.key
+              // Only Ineligible is a partial view. Show "505 / 48.9k" so the
+              // number never claims to be the whole bucket.
+              const truncated =
+                item.key === 'ineligible' &&
+                typeof ineligibleTotal === 'number' &&
+                ineligibleTotal > counts[item.key]
               return (
                 <button
                   key={item.key}
                   onClick={() => onSelect(item.key)}
                   aria-current={on ? 'page' : undefined}
+                  title={
+                    truncated
+                      ? `Showing the ${counts[item.key]} most recent of ${ineligibleTotal!.toLocaleString()} ineligible postings. ` +
+                        `Search only covers what is loaded, so older rejections will not appear here.`
+                      : undefined
+                  }
                   className="w-full flex items-center justify-between text-left"
                   style={{
                     height: '32px',
@@ -84,8 +111,14 @@ export function Sidebar({
                   }}
                 >
                   <span className="truncate">{item.label}</span>
-                  <span style={{ color: 'var(--fg-subtle)', fontVariantNumeric: 'tabular-nums' }}>
+                  <span
+                    className="shrink-0"
+                    style={{ color: 'var(--fg-subtle)', fontVariantNumeric: 'tabular-nums' }}
+                  >
                     {counts[item.key]}
+                    {truncated && (
+                      <span style={{ opacity: 0.65 }}> / {compact(ineligibleTotal!)}</span>
+                    )}
                   </span>
                 </button>
               )
