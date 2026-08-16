@@ -253,7 +253,11 @@ print("\n-- no control characters in any source (the \\b -> 0x08 trap) --")
 # the form did not render.
 import pathlib as _pl
 _ctrl = {b"\x08": r"\b backspace", b"\x0c": r"\f formfeed",
-         b"\x07": r"\a bell", b"\x0b": r"\v vertical tab"}
+         b"\x07": r"\a bell", b"\x0b": r"\v vertical tab",
+         # A raw NUL makes the module unimportable outright, which at least
+         # fails loudly — but it arrives the same way, via an escape written
+         # through a generator script instead of a direct edit.
+         bytes([0]): r"\0 NUL"}
 _dirty = []
 for _f in sorted(_pl.Path(__file__).parent.rglob("*.py")):
     _raw = _f.read_bytes()
