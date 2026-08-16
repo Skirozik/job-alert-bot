@@ -27,6 +27,7 @@ burning eight steps against a login page.
 """
 
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -88,11 +89,16 @@ def _read_progress(page) -> str:
             """() => {
                 const bar = document.querySelector(
                   '[role="progressbar"], [class*="progress"], [id*="progress"]');
-                if (!bar) return '';
-                const v = bar.getAttribute('aria-valuenow');
-                if (v) return v + '%';
-                const m = (bar.innerText || '').match(/(\\d{1,3})\\s*%/);
-                return m ? m[1] + '%' : '';
+                if (bar) {
+                  const v = bar.getAttribute('aria-valuenow');
+                  if (v) return v + '%';
+                  const m = (bar.innerText || '').match(/(\\d{1,3})\\s*%/);
+                  if (m) return m[1] + '%';
+                }
+                // IBM renders the literal text "20% Complete" — findable even
+                // when the bar itself carries none of the selectors above.
+                const t = (document.body.innerText || '').match(/(\\d{1,3})\\s*%\\s*Complete/i);
+                return t ? t[1] + '%' : '';
             }"""
         )
         return text or ""
@@ -121,15 +127,30 @@ def _is_login_page(page) -> bool:
         return False
 
 
+_APP_PATH_RE = re.compile(r"/(JobApplication|ApplicationMethods|JobApplicationSummary)", re.I)
+
+
 def _looks_like_application_form(page) -> bool:
     """Are we actually on the wizard, or on a login wall?
 
-    Requires a POSITIVE application signal. A Next/Continue button is NOT one —
-    the login page has one too, which is exactly how a login wall previously
-    passed for the form.
+    THE URL IS THE SIGNAL. An unauthenticated request to JobApplication is
+    REDIRECTED to IBM's sign-in host, so still being on an application path is
+    itself the proof — and it holds on every step, including step 1.
+
+    The two content checks below are fallbacks only. Neither works on step 1:
+    the Talent Network page carries none of _FIELD_MAP's ids (those are all
+    step 40%/60% fields), so a content-only test reported "you are not logged
+    in" while the form sat visibly on screen. A Next/Continue button is not
+    evidence either — the login page has one, which is how a login wall passed
+    for the form before.
     """
     if _is_login_page(page):
         return False
+    try:
+        if _APP_PATH_RE.search(page.url or ""):
+            return True
+    except Exception:
+        pass
     if _read_progress(page):
         return True
     try:

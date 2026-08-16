@@ -390,6 +390,29 @@ check("a non-http --url is rejected", _resolve_target(None, "javascript:alert(1)
 check("a bare word is rejected", _resolve_target("notanumber", None)[0] is None)
 check("no argument at all is rejected", _resolve_target(None, None)[0] is None)
 
+print("\n-- am I on the application form? --")
+from autofill.autofill_ibm import _looks_like_application_form
+
+
+class _UrlOnlyPage:
+    """No DOM. Forces the URL check to stand on its own — which it must, since
+    step 1 (Talent Network) carries none of _FIELD_MAP's ids and a content-only
+    test wrongly reported 'you are not logged in' with the form on screen."""
+    def __init__(self, url): self.url = url
+    def evaluate(self, *a, **k): raise Exception("no DOM available")
+
+
+for label, url, expect in [
+    ("JobApplication step 1", "https://careers.ibm.com/en_US/careers/JobApplication?jobId=129227", True),
+    ("ApplicationMethods",    "https://careers.ibm.com/en_US/careers/ApplicationMethods?jobId=129227", True),
+    ("JobApplicationSummary", "https://careers.ibm.com/en_US/careers/JobApplicationSummary?jobId=1", True),
+    ("login redirect",        "https://login.ibm.com/authsvc/mtfim/sps/authsvc", False),
+    ("JobDetail (not the app)", "https://careers.ibm.com/en_US/careers/JobDetail?jobId=129227", False),
+]:
+    check(f"{label} -> {expect}", _looks_like_application_form(_UrlOnlyPage(url)) is expect,
+          "an unauthenticated request is REDIRECTED off the application path, so "
+          "staying on it is the proof — no DOM content required")
+
 print("\n-- terminal page detected by URL, not button text --")
 from autofill.autofill_ibm import _is_terminal_page
 
