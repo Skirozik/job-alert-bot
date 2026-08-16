@@ -485,7 +485,6 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
 
     try:
         page.evaluate(_SCROLL_CENTRE_JS, container)
-        human_pause(0.15, 0.3)
     except Exception:
         pass
 
@@ -507,23 +506,27 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     except Exception:
         log.warning("Dropdown %s: clicked, but Select2 never opened.", field_id)
         return False
-    human_pause(0.2, 0.4)
 
     # Type into Select2's own search box when it has one. Some instances are
     # configured without it (minimumResultsForSearch), in which case the list
     # is already complete and filtering is unnecessary.
+    #
+    # Typed fast on purpose. browser.human_type's slow, randomised cadence is
+    # for form fields an ATS actually watches; this is a client-side filter box
+    # inside a widget, and pacing it at ~75ms/char cost nearly two seconds on
+    # "Georgia State University" alone, per dropdown.
     search = page.locator(".select2-search__field")
     if search.count() > 0 and search.first.is_visible():
         try:
-            search.first.type(text, delay=random.uniform(40, 110))
-            human_pause(0.5, 0.9)
+            search.first.type(text, delay=random.uniform(12, 30))
         except Exception as exc:
             log.debug("Dropdown %s: could not type into the search box: %s", field_id, exc)
 
-    try:
-        page.wait_for_selector(".select2-results__option", timeout=3000)
-    except Exception:
-        log.warning("Dropdown %s: no options rendered for %r.", field_id, text)
+    # Wait for REAL options rather than a fixed pause — the AJAX-backed fields
+    # answer in their own time, and a sleep is either too short (reads
+    # "Searching…") or wastefully long.
+    if not _wait_for_results(page):
+        log.warning("Dropdown %s: options never finished loading for %r.", field_id, text)
         _close_select2(page)
         return False
 
@@ -563,9 +566,48 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
         _close_select2(page)
         return False
 
-    human_pause(0.3, 0.6)
-    after, _ = read_dropdown_choice(page, field_id)
-    return norm(after) == want
+    # Poll for the container to update rather than sleeping a fixed interval —
+    # Select2 re-renders in a few milliseconds, so this usually returns on the
+    # first check instead of burning half a second per dropdown.
+    for _ in range(20):
+        after, _src = read_dropdown_choice(page, field_id)
+        if norm(after) == want:
+            return True
+        page.wait_for_timeout(50)
+    log.warning("Dropdown %s: clicked %r but the widget still reads %r.",
+                field_id, text, after)
+    return False
+
+
+# Are the results REAL, or is Select2 still fetching them?
+#
+# The AutoCompleteField dropdowns (country, university, degree) load their
+# options over AJAX, and Select2 renders a "Searching…" placeholder as a result
+# row while the request is in flight. Reading the list at that moment sees one
+# option called "Searching…" and nothing else — which is exactly what the run
+# reported: `no option matching 'United States'. Saw: Searching…`. The options
+# were fine; they simply had not arrived yet.
+_RESULTS_READY_JS = """
+() => {
+  const opts = document.querySelectorAll('.select2-results__option');
+  if (!opts.length) return false;
+  for (const o of opts) {
+    if (o.classList.contains('loading-results')) return false;
+    const t = (o.textContent || '').trim().toLowerCase().replace(/[.…]+$/, '');
+    if (t === 'searching' || t === 'loading' || t === 'please wait') return false;
+  }
+  return true;
+}
+"""
+
+
+def _wait_for_results(page: Page, timeout_ms: int = 6000) -> bool:
+    """Waits for real options, not the loading placeholder."""
+    try:
+        page.wait_for_function(_RESULTS_READY_JS, timeout=timeout_ms)
+        return True
+    except Exception:
+        return False
 
 
 def _close_select2(page: Page) -> None:
