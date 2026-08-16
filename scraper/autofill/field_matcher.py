@@ -37,6 +37,22 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
+def _yes_no(raw, predicate=None):
+    """Maps a stored boolean to "Yes"/"No", but maps ABSENT to None.
+
+    `"Yes" if raw else "No"` cannot tell a stored False from a missing key, so a
+    profile with no work_authorization section silently answered "No" to
+    "do you require sponsorship" — a definite answer to a question the profile
+    never addressed. match_field treats any non-empty value as stored data and
+    types it in, so this was authoring, in the one module whose whole contract
+    is that it never does that. Absent now returns None, which match_field
+    reports as unmapped for the human.
+    """
+    if raw is None or raw == "":
+        return None
+    return "Yes" if (predicate(raw) if predicate else bool(raw)) else "No"
+
+
 def _flatten_profile(profile: dict) -> dict:
     """Flat field-key -> value map for matching. Keys here are what both the
     keyword rules and the Claude fallback route to."""
@@ -59,7 +75,7 @@ def _flatten_profile(profile: dict) -> dict:
         "address_state": addr.get("state"),
         "address_zip": addr.get("zip"),
         "address_country": addr.get("country"),
-        "resides_in_us": "Yes" if addr.get("country") == "United States" else "No",
+        "resides_in_us": _yes_no(addr.get("country"), lambda c: c == "United States"),
         "linkedin_url": p.get("linkedin_url"),
         "github_url": p.get("github_url"),
         "portfolio_url": p.get("portfolio_url"),
@@ -68,11 +84,11 @@ def _flatten_profile(profile: dict) -> dict:
         "major": edu.get("major"),
         "graduation_month": edu.get("graduation_month"),
         "graduation_year": edu.get("graduation_year"),
-        "us_citizen": "Yes" if auth.get("us_citizen") else "No",
-        "requires_sponsorship": "No" if not auth.get("requires_sponsorship") else "Yes",
+        "us_citizen": _yes_no(auth.get("us_citizen")),
+        "requires_sponsorship": _yes_no(auth.get("requires_sponsorship")),
         "desired_salary": log_.get("desired_salary"),
         "available_start_date": log_.get("available_start_date"),
-        "willing_to_relocate": "Yes" if log_.get("willing_to_relocate") else "No",
+        "willing_to_relocate": _yes_no(log_.get("willing_to_relocate")),
         "gender": eeo.get("gender"),
         "race_ethnicity": eeo.get("race_ethnicity"),
         "veteran_status": eeo.get("veteran_status"),

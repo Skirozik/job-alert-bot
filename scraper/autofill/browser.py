@@ -40,18 +40,46 @@ def launch_browser(allow_extensions: bool = False):
     AUTOFILL_BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
     pw = sync_playwright().start()
+
+    # Playwright launches Chrome with --enable-automation, which sets
+    # navigator.webdriver = true and shows the "controlled by automated test
+    # software" infobar. Google's account sign-in reads exactly that and
+    # refuses the OAuth flow with "Couldn't sign you in - this browser or app
+    # may not be secure", which makes it impossible to establish the logged-in
+    # session every filler here depends on. Dropping the flag and the
+    # AutomationControlled blink feature is what lets a human sign in to their
+    # own account in this window.
+    #
+    # This only affects the SIGN-IN handshake. Nothing downstream pretends to
+    # be a human: the tool still stops before every Submit, still refuses to
+    # answer questions the profile has no data for, and still hands off on any
+    # visible CAPTCHA.
+    ignore_default = ["--enable-automation"]
+    if allow_extensions:
+        # Load a real installed extension in this profile — e.g. Simplify, for
+        # the Simplify-assisted fill path. Off by default: the native fillers
+        # don't want another extension writing into the same fields.
+        ignore_default += [
+            "--disable-extensions",
+            "--disable-component-extensions-with-background-pages",
+        ]
+
     launch_kwargs = dict(
         user_data_dir=str(AUTOFILL_BROWSER_PROFILE_DIR),
         channel="chrome",
         headless=False,
         viewport={"width": 1280, "height": 900},
+        ignore_default_args=ignore_default,
+        args=["--disable-blink-features=AutomationControlled"],
     )
-    if allow_extensions:
-        launch_kwargs["ignore_default_args"] = [
-            "--disable-extensions",
-            "--disable-component-extensions-with-background-pages",
-        ]
     context = pw.chromium.launch_persistent_context(**launch_kwargs)
+
+    # navigator.webdriver is still exposed on some builds even without the
+    # flag; delete it before any page script can read it.
+    context.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+    )
+
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page
 

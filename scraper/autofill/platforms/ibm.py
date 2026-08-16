@@ -67,12 +67,69 @@ _SOURCE_OPTIONS = {
 
 
 class Field(NamedTuple):
-    kind: str                 # yesno|radio_label|check|select|dynamic|text|textarea|file
+    kind: str                 # yesno|radio_label|radio_map|check|select|dynamic|text|textarea|file
     key: Optional[str]        # dotted profile path, e.g. "ibm.work_authorized"
     label: str                # human-readable, for report lines
     required: bool = False
     resolver: Optional[Callable] = None   # for derived values
     option_label: Optional[str] = None    # radio_label: regex for the option to pick
+    options: Optional[dict] = None        # radio_map: normalized profile value -> option id
+
+
+# Gender's option ids, measured live. This is a value MAP, not authoring: the
+# profile says "Female" or "Decline to identify" and this translates that into
+# the option id IBM uses. Nothing is chosen on the candidate's behalf — an
+# absent profile value means the field is left for the human, exactly like
+# every other EEO question.
+#
+# Each entry is (option_id, label_pattern). The pattern is ASSERTED against the
+# option's rendered label before the click, and a mismatch refuses to click and
+# reports instead. Without it this branch would be clicking a hardcoded id on
+# faith — and IBM_FIELD_MAP.md records only that gender's options are _92/_93/_94,
+# never which is which. Its sibling yesno branch already refuses to trust 37/38
+# without the same proof; a self-identification field deserves at least that.
+#
+# \bmale\b does not match "female" — the "e" before "male" is a word character,
+# so there is no word boundary.
+_GENDER_OPTIONS = {
+    "male": ("92", r"\bmale\b"),
+    "m": ("92", r"\bmale\b"),
+    "female": ("93", r"\bfemale\b"),
+    "f": ("93", r"\bfemale\b"),
+    "decline": ("94", r"decline|not wish|prefer not|do not wish"),
+    "decline to identify": ("94", r"decline|not wish|prefer not|do not wish"),
+    "decline to self identify": ("94", r"decline|not wish|prefer not|do not wish"),
+    "prefer not to say": ("94", r"decline|not wish|prefer not|do not wish"),
+    "prefer not to answer": ("94", r"decline|not wish|prefer not|do not wish"),
+    "do not wish to disclose": ("94", r"decline|not wish|prefer not|do not wish"),
+}
+
+# Disability self-identification (12709). Same contract as gender: a value MAP
+# with a label assertion, never a first-option click.
+_DISABILITY_OPTIONS = {
+    "yes": ("126", r"\byes\b|have a disability"),
+    "no": ("127", r"\bno\b|do not have|don't have"),
+    "decline": ("128", r"decline|not wish|prefer not"),
+    "prefer not to say": ("128", r"decline|not wish|prefer not"),
+    "prefer not to answer": ("128", r"decline|not wish|prefer not"),
+    "do not wish to answer": ("128", r"decline|not wish|prefer not"),
+}
+
+
+def _match_option(options: dict, value):
+    """Resolve a stored profile value to (option_id, label_pattern).
+
+    Exact key first, then a longest-prefix match so "No, I do not have a
+    disability and have not had one in the past" still resolves to "no" —
+    without letting "no" win over a more specific key.
+    """
+    v = norm(value)
+    if v in options:
+        return options[v]
+    for key in sorted(options, key=len, reverse=True):
+        if v.startswith(key):
+            return options[key]
+    return None
 
 
 def _join_locations(profile: dict) -> str:
@@ -94,6 +151,7 @@ _FIELD_MAP = {
     "10499": Field("dynamic", "ibm.university_country", "University country"),
     "10500": Field("dynamic", "ibm.university", "University"),
     "18199": Field("dynamic", "ibm.degree", "Degree"),
+    "46593": Field("dynamic", "ibm.specialization", "Study / specialization"),
     "10519": Field("text", "ibm.location_1", "Location — first choice"),
     "10520": Field("text", "ibm.location_2", "Location — second choice"),
     "10521": Field("text", "ibm.location_3", "Location — third choice"),
@@ -122,16 +180,79 @@ _FIELD_MAP = {
     # 32764 == Yes, and the visibility gate in the snapshot keeps it out with no
     # special-casing needed. Listing it here would be an invitation to fill a
     # consent question that the form itself is not asking.
+
+    # ── Gender: the one EEO field that is NOT optional ───────────────────
+    # IBM refuses to advance past step 60 without it ("Gender: This field is
+    # required"), even though the element reports required=false. An earlier
+    # version of this module skipped the whole 12704-12711 range, which made
+    # every step-60 advance impossible.
+    #
+    # It is routed from a stored profile value like any other field. If
+    # eeo_demographics.gender is blank the field is reported and left for the
+    # human — this never picks one.
+    "12704": Field("radio_map", "eeo_demographics.gender", "Gender", True,
+                   options=_GENDER_OPTIONS),
 }
 
-# The EEO / self-identification block. Skipped SILENTLY — not reported as
-# unmapped either, because a line in the "needs your input" list implies the
-# tool wanted to fill it and could not. It is the human's, entirely.
-_EEO_RE = re.compile(r"^(1270[4-9]|1271[01])(_|$)|^13602(_|$)")
+# The rest of the EEO / self-identification block. These are OPTIONAL on IBM's
+# form, and are skipped unless the profile carries an explicit value — see
+# _eeo_has_value. Skipped silently rather than listed as unmapped, because a
+# line in the "needs your input" list implies the tool wanted to fill it and
+# could not, which is the wrong signal for a question that is the human's to
+# answer or decline.
+#
+# 12704 (gender) is deliberately NOT in this range — it is a mapped field above.
+_EEO_RE = re.compile(r"^(1270[5-9]|1271[01])(_|$)|^13602(_|$)")
 
 
 def _is_eeo_id(field_id: str) -> bool:
+    """Optional EEO fields only. Gender (12704) is excluded — it blocks the
+    wizard, so it is a normal mapped field."""
     return bool(_EEO_RE.match(field_id or ""))
+
+
+# The optional EEO fields, and where each reads its value from if the profile
+# happens to carry one. Absent or blank -> the field is left untouched.
+#
+# 12709 is a radio_map, NOT a radio_label. It was briefly a radio_label with
+# option_label=r".", which matches any non-empty label and therefore clicked the
+# FIRST option regardless of what the profile said — on IBM's ordering that is
+# "Yes, I have a disability". The report line was built from the profile value,
+# so it printed the right answer while the form held the wrong one. Routing a
+# self-identification answer means mapping the stored value to a specific
+# option and proving the label agrees, never picking one and calling it routed.
+_EEO_OPTIONAL = {
+    "12706": ("eeo_demographics.race_ethnicity", "dynamic", "Race", None),
+    "12710": ("eeo_demographics.veteran_status", "dynamic", "Veteran status", None),
+    "12709": ("eeo_demographics.disability_status", "radio_map", "Disability",
+              _DISABILITY_OPTIONS),
+}
+
+
+def _eeo_has_value(profile: dict, field_id: str):
+    """Returns (dotted_key, kind, label, value) if the profile carries an answer
+    for this optional EEO field, else None. Routing only — a blank profile
+    value means the tool does not touch it."""
+    entry = _EEO_OPTIONAL.get(field_id)
+    if not entry:
+        return None
+    dotted, kind, label, options = entry
+    value = _lookup(profile, dotted)
+    if value is None or not str(value).strip():
+        return None
+    return (dotted, kind, label, value, options)
+
+
+def _eeo_spec(field_id: str):
+    """The Field for an optional EEO id, or None. Kept next to _EEO_OPTIONAL so
+    _is_answered and the todo loop build the SAME spec — they diverged once,
+    and _is_answered fell through to the plain-select branch for the dynamic
+    ones, which re-filled them on every pass."""
+    entry = _EEO_OPTIONAL.get(field_id)
+    if not entry:
+        return None
+    dotted, kind, label, options = entry
+    return Field(kind, dotted, label, options=options)
 
 
 def _is_sample_id(field_id: str) -> bool:
@@ -159,6 +280,21 @@ def _is_repeat_row(field_id: str):
 
 def _radio_option_id(group: str, answer: bool) -> str:
     return f"{group}_{_YES_OPTION if answer else _NO_OPTION}"
+
+
+def _loc(page, field_id: str):
+    """Locator for a field by id.
+
+    MUST be an attribute selector, never f"#{field_id}". Every id on this
+    portal is numeric (10480, 12704_93, 35979_month), and a CSS identifier
+    cannot begin with a digit — `#10480` is a parse error, and Playwright
+    raises SyntaxError from querySelectorAll rather than returning no match.
+
+    This was the whole feature failing silently: every fill raised, the blanket
+    try/except around the visibility probe swallowed it, and the run printed an
+    almost-empty report as though the form had nothing to fill.
+    """
+    return page.locator(f'[id="{field_id}"]')
 
 
 def _lookup(profile: dict, dotted: str):
@@ -317,9 +453,14 @@ def _snapshot(page) -> list:
         return []
 
 
-def _logical_fields(raw: list) -> list:
+def _logical_fields(raw: list, profile: Optional[dict] = None) -> list:
     """Collapses radio groups into one logical field keyed by group name, drops
-    EEO fields, and returns (key, kind_hint, rows) tuples."""
+    the optional EEO fields, and returns (key, kind_hint, rows) tuples.
+
+    An optional EEO field is kept ONLY when the profile carries an explicit
+    answer for it (_eeo_has_value). Gender is never dropped here — it is a
+    normal mapped field, because IBM blocks the wizard without it.
+    """
     groups, singles = {}, []
     for el in raw:
         if el["type"] == "radio":
@@ -327,16 +468,19 @@ def _logical_fields(raw: list) -> list:
         else:
             singles.append(el)
 
+    def keep(key):
+        if not _is_eeo_id(key):
+            return True
+        return profile is not None and _eeo_has_value(profile, key) is not None
+
     out = []
     for name, rows in groups.items():
-        if _is_eeo_id(name):
-            continue
-        out.append((name, "radio", rows))
+        if keep(name):
+            out.append((name, "radio", rows))
     for el in singles:
         key = el["id"] or el["name"]
-        if _is_eeo_id(key):
-            continue
-        out.append((key, None, [el]))
+        if keep(key):
+            out.append((key, None, [el]))
     return out
 
 
@@ -344,11 +488,17 @@ def _is_answered(page, key: str, kind: Optional[str], rows: list) -> bool:
     """Whether this field already holds a value. This is what makes Avature's
     prefilled identity/education/employment free — already-answered fields
     never enter the to-do list, so they are never overwritten."""
-    spec = _FIELD_MAP.get(key)
+    # _FIELD_MAP first, then the optional-EEO specs. Consulting only _FIELD_MAP
+    # meant a dynamic EEO dropdown (12706 race, 12710 veteran) had no kind here
+    # and fell through to the plain-select branch below — which reads the
+    # underlying <select>, exactly what a dynamic widget leaves empty. It
+    # therefore read as unanswered forever, was re-filled on every pass, and
+    # burned all six passes before a spurious "still unanswered" warning.
+    spec = _FIELD_MAP.get(key) or _eeo_spec(key)
     kind = (spec.kind if spec else None) or kind
     el = rows[0]
 
-    if kind in ("yesno", "radio_label") or el["type"] == "radio":
+    if kind in ("yesno", "radio_label", "radio_map") or el["type"] == "radio":
         return any(r["checked"] for r in rows)
     if kind == "check" or el["type"] == "checkbox":
         return el["checked"]
@@ -408,19 +558,53 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
         if not _radio_labels_agree(page, key):
             return (False, "Yes/No option ids did not match their labels — not clicking. "
                            "Answer this one yourself.")
-        loc = page.locator(f"#{_radio_option_id(key, value)}")
+        loc = _loc(page, _radio_option_id(key, value))
         if loc.count() == 0:
             return (False, "option element not found")
+        loc.check()
+        return (loc.is_checked(), "")
+
+    if spec.kind == "radio_map":
+        # Translate a stored profile value into IBM's option id, then PROVE the
+        # option's rendered label agrees before clicking. Never guesses: an
+        # unrecognized value, or a label that contradicts the id, is reported so
+        # the human answers it themselves.
+        matched = _match_option(spec.options or {}, value)
+        if matched is None:
+            accepted = ", ".join(sorted({k for k in (spec.options or {})}))
+            return (False, f"profile value {value!r} is not one this field accepts "
+                           f"(expected one of: {accepted}) — answer it yourself")
+        opt, label_pattern = matched
+
+        row = next((r for r in rows if r["id"] == f"{key}_{opt}"), None)
+        if row is None:
+            return (False, f"option element {key}_{opt} not present on this form")
+
+        rendered = row["label"] or ""
+        if not re.search(label_pattern, rendered, re.I):
+            return (False, f"option {key}_{opt} renders as {rendered!r}, which does not "
+                           f"match {value!r} — the portal's option ids differ from what "
+                           f"was measured. Not clicking; answer this yourself.")
+
+        loc = _loc(page, f"{key}_{opt}")
+        if loc.count() == 0:
+            return (False, f"option element {key}_{opt} not found")
         loc.check()
         return (loc.is_checked(), "")
 
     if spec.kind == "radio_label":
         if not value:
             return (False, "profile value is false — not agreeing on your behalf")
-        pattern = re.compile(spec.option_label or r".", re.I)
+        if not spec.option_label:
+            # No fallback on purpose. This used to default to r"." — matching any
+            # non-empty label, i.e. clicking the first option in DOM order and
+            # calling it routed.
+            return (False, f"no option_label configured for group {key} — refusing "
+                           f"to pick an option")
+        pattern = re.compile(spec.option_label, re.I)
         for row in rows:
             if pattern.search(row["label"] or ""):
-                loc = page.locator(f"#{row['id']}")
+                loc = _loc(page, row['id'])
                 loc.check()
                 return (loc.is_checked(), "")
         return (False, f"no option matching /{spec.option_label}/ in group {key}")
@@ -430,17 +614,17 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
             return (False, "profile value is not true/false")
         if not value:
             return (False, "profile value is false — leaving this attestation unticked")
-        loc = page.locator(f"#{key}")
+        loc = _loc(page, key)
         loc.check()
         return (loc.is_checked(), "")
 
     if spec.kind == "select":
-        loc = page.locator(f"#{key}")
+        loc = _loc(page, key)
         ok = fill_plain_select(loc, str(value))
         return (ok, "" if ok else f"no option matching '{value}'")
 
     if spec.kind == "dynamic":
-        loc = page.locator(f"#{key}")
+        loc = _loc(page, key)
         ok = fill_avature_dropdown(page, loc, str(value), key)
         if not ok:
             return (False, f"dropdown did not accept '{value}' — check it yourself")
@@ -448,12 +632,12 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
                 if read_dropdown_choice(page, key)[1] == "combobox" else "")
 
     if spec.kind in ("text", "textarea"):
-        loc = page.locator(f"#{key}")
+        loc = _loc(page, key)
         human_type(loc, str(value))
         return (bool(loc.input_value().strip()), "")
 
     if spec.kind == "file":
-        loc = page.locator(f"#{key}")
+        loc = _loc(page, key)
         loc.set_input_files(str(value))
         human_pause(1.0, 2.0)
         count = page.evaluate(
@@ -471,10 +655,12 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
     """Fills everything mappable on the CURRENT step. Does not navigate.
 
     Returns {"filled": [...], "unmapped": [...], "submit_button_text": None,
-             "blocking": [...]} where `blocking` lists REQUIRED fields still
-    unanswered — the orchestrator refuses to advance while it is non-empty.
+             "likely_required": [...]}. `likely_required` is ADVISORY — see the
+    comment where it is built. What actually gates advancement is the form's
+    own validation errors, read by read_validation_errors() after Continue.
     """
-    report = {"filled": [], "unmapped": [], "submit_button_text": None, "blocking": []}
+    report = {"filled": [], "unmapped": [], "submit_button_text": None,
+              "likely_required": []}
     seen_unmapped = set()
     known_found = 0
 
@@ -484,7 +670,7 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
             break
 
         todo = []
-        for key, kind, rows in _logical_fields(raw):
+        for key, kind, rows in _logical_fields(raw, profile):
             if key in _FIELD_MAP:
                 known_found += 1 if pass_no == 1 else 0
             if not _is_answered(page, key, kind, rows):
@@ -498,12 +684,27 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
         for key, kind, rows in todo:
             spec = _FIELD_MAP.get(key)
 
+            # An optional EEO field only reaches here when the profile carries
+            # an explicit answer (_logical_fields dropped the rest). Same spec
+            # builder _is_answered uses, so the two cannot drift apart.
+            if spec is None and _eeo_has_value(profile, key) is not None:
+                spec = _eeo_spec(key)
+
             # Re-check visibility: a cascade triggered earlier in THIS pass can
-            # hide a field that was visible when the snapshot was taken.
+            # hide a field that was visible when the snapshot was taken. That is
+            # a legitimate skip. An EXCEPTION here is not — it used to be
+            # swallowed by the same `continue`, which is what let the invalid
+            # numeric-id selectors delete every field from both report lists and
+            # made total failure look like an empty form.
             try:
-                if rows[0]["type"] != "radio" and not page.locator(f"#{key}").is_visible():
+                if rows[0]["type"] != "radio" and not _loc(page, key).is_visible():
                     continue
-            except Exception:
+            except Exception as exc:
+                if key not in seen_unmapped:
+                    seen_unmapped.add(key)
+                    label = spec.label if spec else (rows[0]["label"] or key)
+                    report["unmapped"].append(
+                        f"{label} ({key}) — could not be examined: {exc}")
                 continue
 
             if spec is not None:
@@ -564,11 +765,11 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
                 field_key, value = matched
                 try:
                     if el["tag"] == "select":
-                        ok = fill_plain_select(page.locator(f"#{key}"), str(value))
+                        ok = fill_plain_select(_loc(page, key), str(value))
                     elif (el["role"] or "") == "combobox":
-                        ok = fill_avature_dropdown(page, page.locator(f"#{key}"), str(value), key)
+                        ok = fill_avature_dropdown(page, _loc(page, key), str(value), key)
                     else:
-                        human_type(page.locator(f"#{key}"), str(value))
+                        human_type(_loc(page, key), str(value))
                         ok = True
                 except Exception as exc:
                     ok = False
@@ -591,22 +792,102 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
         log.warning("Hit the %d-pass cap with fields still unanswered.", _MAX_PASSES)
 
     _check_repeat_groups(page, report)
-    _verify_filled(page, report)
+    _verify_filled(page, report, profile)
 
-    # Anything still unanswered AND required blocks advancement.
-    for key, kind, rows in _logical_fields(_snapshot(page)):
+    # Fields we BELIEVE are required and are still unanswered. Advisory only.
+    #
+    # This cannot be trusted on its own and is not the gate. Gender reports
+    # element.required === false yet blocks the wizard, so any prediction built
+    # on the DOM attribute under-reports by construction. The authoritative
+    # check is read_validation_errors() after a rejected Continue — this list
+    # just lets the orchestrator warn before spending a click.
+    for key, kind, rows in _logical_fields(_snapshot(page), profile):
         if _is_answered(page, key, kind, rows):
             continue
         spec = _FIELD_MAP.get(key)
         required = spec.required if spec else rows[0]["required"]
         if required:
             label = spec.label if spec else (rows[0]["label"] or key)
-            report["blocking"].append(f"{label} ({key})")
+            report["likely_required"].append(f"{label} ({key})")
 
     if known_found:
         log.info("%d of %d known IBM field ids were present on this step.",
                  known_found, len(_FIELD_MAP))
     return report
+
+
+def read_validation_errors(page) -> list:
+    """Reads the errors IBM renders after a rejected Continue.
+
+    This is the AUTHORITATIVE required-ness check, and it exists because
+    predicting required-ness does not work on this form. Gender (12704)
+    reports element.required === false in the DOM and carries no asterisk, yet
+    the wizard refuses to advance without it. Any is-this-required logic built
+    on the HTML attribute is wrong by construction.
+
+    Avature's error markup is machine-readable and names the field:
+        .alert--error.WizardFieldError   "There are some errors, please correct them."
+        .errorMessage.WizardFieldError   "(!) This field is required"  (per field)
+        .screenReaderVisibility          "Gender: This field is required"  <- names it
+
+    Returns a list of {"field": str, "message": str, "id": str|None}. Parsing
+    what the form actually complained about makes it structurally impossible to
+    silently pass a step that was not really complete.
+    """
+    try:
+        return page.evaluate(
+            """() => {
+                const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
+                const out = [];
+                const seen = new Set();
+
+                // The screen-reader nodes are the useful ones: they name the field.
+                for (const n of document.querySelectorAll('.screenReaderVisibility')) {
+                    const t = norm(n.innerText || n.textContent);
+                    if (!t || !/required|invalid|error|must|please/i.test(t)) continue;
+                    if (seen.has(t)) continue;
+                    seen.add(t);
+                    const m = t.match(/^(.*?):\\s*(.*)$/);
+                    out.push({
+                        field: m ? m[1] : t,
+                        message: m ? m[2] : t,
+                        id: null,
+                    });
+                }
+
+                // Per-field messages: walk up to find which control they belong to.
+                for (const n of document.querySelectorAll('.errorMessage.WizardFieldError')) {
+                    const t = norm(n.innerText || n.textContent);
+                    if (!t) continue;
+                    const box = n.closest('div, td, li, fieldset');
+                    let id = null, field = '';
+                    if (box) {
+                        const ctl = box.querySelector('input, select, textarea');
+                        if (ctl) id = ctl.id || ctl.name || null;
+                        const lab = box.querySelector('label, legend');
+                        if (lab) field = norm(lab.innerText).replace(/\\*/g, '').trim();
+                    }
+                    const keyed = (field || id || '') + '|' + t;
+                    if (seen.has(keyed)) continue;
+                    seen.add(keyed);
+                    out.push({field: field || id || '(unnamed field)', message: t, id: id});
+                }
+                return out;
+            }"""
+        )
+    except Exception as exc:
+        log.debug("Could not read validation errors: %s", exc)
+        return []
+
+
+def has_validation_errors(page) -> bool:
+    try:
+        return bool(page.evaluate(
+            """() => !!document.querySelector(
+                 '.alert--error.WizardFieldError, .form--has-errors, .errorMessage.WizardFieldError')"""
+        ))
+    except Exception:
+        return False
 
 
 def _check_repeat_groups(page, report: dict) -> None:
@@ -636,18 +917,21 @@ def _check_repeat_groups(page, report: dict) -> None:
         except Exception:
             continue
         if empty:
-            report["blocking"].append(
+            report["unmapped"].append(
                 f"{what} ({group}) is empty — fill it in yourself. This tool does "
                 f"not write repeat-group rows.")
 
 
-def _verify_filled(page, report: dict) -> None:
+def _verify_filled(page, report: dict, profile: Optional[dict] = None) -> None:
     """Re-reads every field claimed as filled and demotes any that reads back
     empty. Permanent, not test-only: a silent no-op fill is THE expected
     failure mode on this portal, and this is what converts it into a loud one
     on every run rather than something discovered after submitting."""
+    # WITH the profile. Without it _logical_fields drops every EEO id, so the
+    # fields most in need of a read-back — the self-identification ones — were
+    # the only ones skipping it entirely.
     raw = _snapshot(page)
-    by_key = {k: (kind, rows) for k, kind, rows in _logical_fields(raw)}
+    by_key = {k: (kind, rows) for k, kind, rows in _logical_fields(raw, profile)}
 
     kept = []
     for line in report["filled"]:
