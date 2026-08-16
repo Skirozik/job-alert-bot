@@ -281,6 +281,9 @@ _LABEL_MAP = [
      Field("dynamic", "ibm.skill_levels.programming_python", "Skill — Python")),
     (re.compile(r"level of experience in Programming in SQL", re.I),
      Field("dynamic", "ibm.skill_levels.programming_sql", "Skill — SQL")),
+    (re.compile(r"Requirements analysis|system architecture", re.I),
+     Field("dynamic", "ibm.skill_levels.requirements_analysis",
+           "Skill — requirements analysis / architecture")),
 ]
 
 
