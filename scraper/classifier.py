@@ -246,6 +246,7 @@ Description: {job.get("description") or "(not available — classify on title/co
             result = _apply_full_time_override(job, result)
             result = _apply_school_specific_override(job, result)
             result = _apply_advanced_degree_override(job, result)
+            result = _apply_non_us_override(job, result)
             result = _apply_salary_fallback(job, result)
             result = _never_skip_github_sourced(job, result)
 
@@ -356,6 +357,69 @@ def _apply_salary_fallback(job: dict, result: dict) -> dict:
     salary = extract_salary(job.get("description") or "")
     if salary:
         result["salary"] = salary
+    return result
+
+
+# Non-US locations are a FACTUAL test, not a judgment call, and the model does
+# not reliably apply them. Measured 2026-08-16: after the rubric was updated to
+# name non-US roles as a hard block, 60 of 70 stored foreign-location jobs still
+# came back actionable on a re-run — and the reasons showed why. For "Sales and
+# Trading Intern @ Jane Street, London UK" the model reasoned about the role
+# being a trading job and never evaluated the location at all. Synthetic
+# boundary cases passed while real postings failed, because real postings give
+# it more interesting things to talk about.
+#
+# So this is deterministic, in the same spirit as the school-specific and
+# advanced-degree overrides above: the candidate is a US citizen with no right
+# to work abroad, which makes a foreign posting exactly as hard a block as a
+# clearance he does not hold.
+#
+# The test is deliberately asymmetric — ANY US signal wins. A US state code, or
+# the words United States/USA/Remote-US, means not blocked, which correctly
+# handles both the false-friend cities (Dublin OH, Delhi MI, London KY, Paris
+# TX, Berlin NH) and multi-site postings like "New York, NY / London, UK".
+_US_STATE_RE = re.compile(
+    r"\b(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|"
+    r"NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC|PR)\b"
+)
+_US_WORD_RE = re.compile(r"united states|\bU\.?S\.?A?\b|remote[\s,-]*(?:us|usa|united states)", re.I)
+_FOREIGN_RE = re.compile(
+    r"\b(?:india|canada|united kingdom|england|scotland|wales|ireland|germany|france|spain|italy|"
+    r"portugal|netherlands|belgium|poland|czech|hungary|romania|sweden|norway|denmark|finland|"
+    r"switzerland|austria|greece|turkey|israel|egypt|nigeria|kenya|south africa|uae|qatar|"
+    r"saudi|singapore|malaysia|thailand|vietnam|philippines|indonesia|japan|korea|china|"
+    r"hong kong|taiwan|australia|new zealand|brazil|argentina|chile|colombia|peru|mexico)\b"
+    r"|\b(?:london|manchester|edinburgh|dublin|cambridge|oxford|bristol|leeds|glasgow|"
+    r"toronto|vancouver|montreal|ottawa|calgary|waterloo|"
+    r"bengaluru|bangalore|hyderabad|mumbai|delhi|pune|chennai|noida|gurgaon|indore|kolkata|"
+    r"berlin|munich|hamburg|frankfurt|paris|lyon|madrid|barcelona|lisbon|amsterdam|"
+    r"rotterdam|brussels|zurich|geneva|vienna|prague|warsaw|budapest|bucharest|stockholm|"
+    r"oslo|copenhagen|helsinki|dubai|tel aviv|shanghai|beijing|shenzhen|tokyo|osaka|seoul|"
+    r"sydney|melbourne|auckland|sao paulo|bogota)\b",
+    re.I,
+)
+
+
+def _apply_non_us_override(job: dict, result: dict) -> dict:
+    """Force INELIGIBLE when the posting's location is outside the US and no US
+    option is offered. ANY US signal exempts the posting."""
+    if result.get("tier") not in ("APPLY", "APPLY_CAVEAT"):
+        return result
+    loc = job.get("location") or ""
+    if not loc:
+        return result
+    if _US_STATE_RE.search(loc) or _US_WORD_RE.search(loc):
+        return result
+    m = _FOREIGN_RE.search(loc)
+    if not m:
+        return result
+    log.info("  Non-US override: job %s located in %r", job.get("id"), loc[:40])
+    result["tier"] = "INELIGIBLE"
+    result["hard_ineligible"] = True
+    result["reason"] = (
+        f"Overridden: this role is based in {m.group(0).title()} with no US or US-remote "
+        f"option stated; candidate is a US citizen without the right to work there."
+    )
     return result
 
 
