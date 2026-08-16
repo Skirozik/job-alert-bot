@@ -79,8 +79,14 @@ def fill_plain_select(locator: Locator, text: str) -> bool:
     # loudly when no option matches, and is a smaller automation signal than
     # assigning .value from JS — the same reasoning browser.py's human_type
     # docstring gives for not using .fill().
+    #
+    # timeout is short on purpose. select_option WAITS for a matching option to
+    # appear, defaulting to 30s — but a plain select is by definition one whose
+    # options are already in the DOM at load, so a miss here is a real miss, not
+    # a slow load. Without this, every unmatched value cost 30 dead seconds
+    # before the two instant fallbacks below even ran, times up to six passes.
     try:
-        locator.select_option(label=text)
+        locator.select_option(label=text, timeout=2000)
         if _selected_label(locator) == want:
             return True
     except Exception as exc:
