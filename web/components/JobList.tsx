@@ -29,11 +29,13 @@ const EMPTY: Record<ViewKey, string> = {
 }
 
 export function JobList({
-  initialJobs, personaLabel, personaSub,
+  initialJobs, personaLabel, personaSub, ineligibleTotal,
 }: {
   initialJobs: Grouped[]
   personaLabel?: string
   personaSub?: string
+  /** True number of ineligible rows; the loaded set is capped at 500. */
+  ineligibleTotal?: number | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -190,6 +192,7 @@ export function JobList({
         onSelect={v => patch({ view: v, job: null })}
         personaLabel={personaLabel}
         personaSub={personaSub}
+        ineligibleTotal={ineligibleTotal}
         onSignOut={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); router.refresh() }}
       />
 

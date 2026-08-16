@@ -32,6 +32,38 @@ async function fetchPaged(url: string, key: string, query: string, personaId: st
   }
 }
 
+/**
+ * Exact row count for a filter, without downloading the rows.
+ *
+ * The ineligible query is deliberately capped at 500 (see HomePage), which is
+ * right — nobody needs 48k rejected postings in the browser. But the sidebar
+ * rendered that 500 as if it were the total, and Ineligible is precisely where
+ * a wrongly-rejected job would be sitting. Searching that view filters only
+ * what was loaded, so a job rejected three weeks ago returns nothing and looks
+ * like it was never scraped. Knowing the real total is what lets the UI say
+ * "500 of 48,863" instead of quietly implying 500 is all there is.
+ */
+async function fetchCount(url: string, key: string, filter: string, personaId: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${url}/rest/v1/jobs?select=id&limit=1&${filter}`, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Prefer: 'count=exact',
+      },
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    // "0-0/48863" — the total is after the slash. "*" means the server declined
+    // to count, which is a valid response and must not render as a number.
+    const total = (res.headers.get('content-range') || '').split('/')[1]
+    return total && total !== '*' ? Number(total) : null
+  } catch (err) {
+    console.error(`[jobs] count failed for persona "${personaId}":`, err)
+    return null
+  }
+}
+
 async function fetchJobs(url: string, key: string, query: string, personaId: string): Promise<Job[]> {
   const res = await fetch(`${url}/rest/v1/jobs?${query}`, {
     headers: {
@@ -63,10 +95,12 @@ export default async function HomePage() {
   //   - status != 'new' (applied/saved/dismissed): jobs you've acted on
   //   - tier APPLY/APPLY_CAVEAT + status = 'new': jobs awaiting your decision
   //   - tier INELIGIBLE + status = 'new': hard-blocked, fine to trim by age
-  const [tracked, activeReview, skipRecent] = await Promise.all([
+  const [tracked, activeReview, skipRecent, ineligibleTotal] = await Promise.all([
     fetchPaged(url, key, 'select=*&status=neq.new&order=found_at.desc', id),
     fetchPaged(url, key, 'select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', id),
     fetchJobs(url, key, 'select=*&status=eq.new&tier=eq.INELIGIBLE&order=found_at.desc&limit=500', id),
+    // The true size of the bucket the line above caps at 500.
+    fetchCount(url, key, 'status=eq.new&tier=eq.INELIGIBLE', id),
   ])
 
   const seen = new Set<string>()
@@ -83,6 +117,11 @@ export default async function HomePage() {
   return (
     // The table is the layout — full bleed. The old max-w-3xl centred column
     // existed for a card list and would defeat the point of a dense table.
-    <JobList initialJobs={grouped} personaLabel={persona.label} personaSub={persona.username} />
+    <JobList
+      initialJobs={grouped}
+      personaLabel={persona.label}
+      personaSub={persona.username}
+      ineligibleTotal={ineligibleTotal}
+    />
   )
 }
