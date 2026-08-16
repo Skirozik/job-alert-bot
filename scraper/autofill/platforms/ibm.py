@@ -432,11 +432,30 @@ _SNAPSHOT_JS = """
   };
 
   const visible = el => {
+    if (!el) return false;
     if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
     const s = getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden') return false;
     const r = el.getBoundingClientRect();
     return r.width > 0 || r.height > 0;
+  };
+
+  // A custom dropdown HIDES its underlying <select> and renders its own
+  // control in place of it. The select still carries the field id, so the id
+  // is present and the element is invisible — and dropping it on visibility
+  // alone is why "How did you hear about this opportunity?" was never filled.
+  // It appeared in neither the filled nor the unmapped list because it never
+  // entered the to-do list at all: the tool simply never saw the field.
+  //
+  // So an invisible <select> counts as visible when its container is on
+  // screen. That container is the widget the user actually sees.
+  const widgetVisible = el => {
+    if (el.tagName !== 'SELECT') return false;
+    let box = el.parentElement;
+    for (let hop = 0; box && hop < 3; hop++, box = box.parentElement) {
+      if (visible(box)) return true;
+    }
+    return false;
   };
 
   const out = [];
@@ -454,8 +473,9 @@ _SNAPSHOT_JS = """
 
     if (el.disabled) continue;
     // Invisible fields are skipped, which is also what keeps the hidden
-    // dependent 32766 out without naming it.
-    if (!visible(el)) continue;
+    // dependent 32766 out without naming it — EXCEPT a <select> whose widget
+    // is on screen, which is a real visible field wearing a hidden element.
+    if (!visible(el) && !widgetVisible(el)) continue;
 
     const label = labelFor(el);
     let optionCount = 0, selectedText = '';
