@@ -482,6 +482,15 @@ _SKILL_QUESTIONS = [
     ("Containers (e.g., Kubernetes, Docker, etc.)?", "ibm.skill_levels.containers"),
     ("Data structures and algorithms?", "ibm.skill_levels.data_structures"),
     ("Cloud environments such as AWS, Azure, IBM Cloud, etc.?", "ibm.skill_levels.cloud"),
+    ("Data Analytics (e.g., regressions, clustering, etc.)?", "ibm.skill_levels.data_analytics"),
+    ("Data Science frameworks such as Pandas, etc.?", "ibm.skill_levels.data_science_frameworks"),
+    ("Data warehousing and ETL (extract, transform, load)?", "ibm.skill_levels.data_warehousing"),
+    ("Programming in Python?", "ibm.skill_levels.programming_python"),
+    ("Programming in SQL?", "ibm.skill_levels.programming_sql"),
+    # This label CONTAINS "programming in Python", so it must not be swallowed
+    # by the Python pattern — which is why it is matched first.
+    ("Statistical programming in Python, R, SAS, Scala, or similar?",
+     "ibm.skill_levels.statistical_programming"),
 ]
 for tail, expect_key in _SKILL_QUESTIONS:
     q = f"What best describes your level of experience in {tail} *"
