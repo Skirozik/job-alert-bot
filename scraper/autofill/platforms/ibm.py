@@ -43,7 +43,12 @@ from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from autofill.browser import human_pause, human_type
+# paste_text rather than human_type throughout this module: IBM/Avature has
+# shown no bot detection across a long series of live runs, and typing three
+# location preferences, a preferences textarea and a signature at ~75ms/char
+# cost seconds per step for nothing. Greenhouse keeps human_type — reCAPTCHA
+# Enterprise is confirmed on that form.
+from autofill.browser import human_pause, paste_text
 from autofill.field_matcher import match_field
 from autofill.profile_loader import resolve_resume_path
 from autofill.widgets import (
@@ -830,7 +835,7 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
 
     if spec.kind in ("text", "textarea"):
         loc = _loc(page, key)
-        human_type(loc, str(value))
+        paste_text(loc, str(value))
         return (bool(loc.input_value().strip()), "")
 
     if spec.kind == "file":
@@ -986,7 +991,7 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
                     elif (el["role"] or "") == "combobox":
                         ok = fill_avature_dropdown(page, _loc(page, key), str(value), key)
                     else:
-                        human_type(_loc(page, key), str(value))
+                        paste_text(_loc(page, key), str(value))
                         ok = True
                 except Exception as exc:
                     ok = False
