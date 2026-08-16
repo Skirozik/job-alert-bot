@@ -711,6 +711,17 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
     report = {"filled": [], "unmapped": [], "submit_button_text": None,
               "likely_required": []}
     seen_unmapped = set()
+    # Keys already successfully filled during THIS call. A hard bound: every
+    # field is attempted at most once per step, whatever the read-back says.
+    #
+    # Without it the loop deadlocks whenever fill and is-answered disagree —
+    # fill_avature_dropdown reads back through all four sources and reports
+    # success, while _is_answered uses only the trusted two and reports empty.
+    # The field is then re-filled on all six passes, filled_this_pass never
+    # reaches zero so the early exit never fires, and _advance_step's retries
+    # multiply it. That is the "stuck scrolling up and down" symptom: each
+    # click scrolls its field into view, forever.
+    filled_keys = set()
     known_found = 0
 
     for pass_no in range(1, _MAX_PASSES + 1):
@@ -722,6 +733,8 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
         for key, kind, rows in _logical_fields(raw, profile):
             if key in _FIELD_MAP:
                 known_found += 1 if pass_no == 1 else 0
+            if key in filled_keys or key in seen_unmapped:
+                continue
             if not _is_answered(page, key, kind, rows):
                 todo.append((key, kind, rows))
 
@@ -786,6 +799,7 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
                     if note:
                         line += f"  [{note}]"
                     report["filled"].append(line)
+                    filled_keys.add(key)
                     filled_this_pass += 1
                 elif key not in seen_unmapped:
                     seen_unmapped.add(key)
@@ -826,6 +840,7 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
 
                 if ok:
                     report["filled"].append(f"{label} ({key}) -> {field_key}")
+                    filled_keys.add(key)
                     filled_this_pass += 1
                 elif key not in seen_unmapped:
                     seen_unmapped.add(key)

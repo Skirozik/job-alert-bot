@@ -167,6 +167,7 @@ def _advance_step(page, job, profile, progress: str, step_url: str) -> bool:
     ("Gender: This field is required"), so a rejection is actionable rather
     than just a dead end.
     """
+    filled_before = set()
     for attempt in range(1, _MAX_ERROR_RETRIES + 2):
         clicked = click_next_and_verify(page)
 
@@ -191,8 +192,17 @@ def _advance_step(page, job, profile, progress: str, step_url: str) -> bool:
         retry = ibm.fill_current_step(page, job, profile)
         _print_report(retry)
         if not retry["filled"]:
-            log.warning("Nothing further could be filled from your profile.")
+            log.warning("Nothing further could be filled from your profile — "
+                        "retrying would just repeat this. Stopping.")
             break
+        # Only the resume re-attaching (or any single already-known field) is
+        # not progress; without this the retry loop re-does the same work and
+        # the operator watches it scroll.
+        if {ln.split("(")[-1].split(")")[0] for ln in retry["filled"]} <= filled_before:
+            log.warning("The retry filled nothing the previous pass had not "
+                        "already filled. Stopping rather than repeating.")
+            break
+        filled_before |= {ln.split("(")[-1].split(")")[0] for ln in retry["filled"]}
         human_pause(0.5, 1.0)
 
     log.warning("Stopping on this step. Fix the fields listed above in the open "
