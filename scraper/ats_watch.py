@@ -70,21 +70,21 @@ def run():
             # Same pre-filter as the main LinkedIn scan — a full company
             # board dump includes every level/role, not just internships.
             if _is_senior_role(job["title"]):
-                job["tier"] = "SKIP"
+                job["tier"] = "INELIGIBLE"
                 job["reason"] = "Pre-filtered: seniority keyword in title"
                 job["suggested_resume"] = "General"
                 insert_job(job)
                 continue
 
             if _is_new_grad_role(job["title"]):
-                job["tier"] = "SKIP"
+                job["tier"] = "INELIGIBLE"
                 job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
                 job["suggested_resume"] = "General"
                 insert_job(job)
                 continue
 
             if _is_non_internship_title(job["title"]):
-                job["tier"] = "SKIP"
+                job["tier"] = "INELIGIBLE"
                 job["reason"] = "Pre-filtered: no internship marker in title"
                 job["suggested_resume"] = "General"
                 insert_job(job)

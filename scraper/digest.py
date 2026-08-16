@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 STATE_KEY = "last_digest_sent_at"
 DEFAULT_LOOKBACK_HOURS = 24
-_TIER_EMOJI = {"APPLY": "🟢", "MAYBE": "🟡"}
+_TIER_EMOJI = {"APPLY": "🟢", "APPLY_CAVEAT": "🟢"}
 
 
 def _get_last_sent_at() -> str:
@@ -62,7 +62,7 @@ def _fetch_jobs_since(since: str) -> list[dict]:
     result = (
         client.table("jobs")
         .select("title, company, location, url, apply_url, tier, reason, salary, is_easy_apply")
-        .in_("tier", ["APPLY", "MAYBE"])
+        .in_("tier", ["APPLY", "APPLY_CAVEAT"])
         .gte("found_at", since)
         .order("tier")
         .execute()
