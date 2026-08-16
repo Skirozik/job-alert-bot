@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 # Each fixture: (label, job dict, expected tier).
 FIXTURES = [
     (
-        "APPLY — Help Desk Intern, near-exact match to his ICOM internship",
+        "APPLY — Help Desk Intern, near-exact match to his prior help-desk internship",
         {
             "id": "t1", "title": "Help Desk Intern - Summer 2027",
             "company": "Leidos", "location": "Reston, VA",
@@ -65,7 +65,7 @@ FIXTURES = [
         "APPLY",
     ),
     (
-        "APPLY — IAM Intern, maps to his Securcorp access-control experience",
+        "APPLY — IAM Intern, maps to his access-control experience",
         {
             "id": "t3", "title": "Identity and Access Management Intern",
             "company": "Capital One", "location": "McLean, VA",
@@ -431,7 +431,7 @@ def _reclassify(job: dict) -> tuple[str, str]:
     if _is_senior_role(job["title"]):
         return "INELIGIBLE", "Pre-filtered: seniority keyword in title"
     if _is_new_grad_role(job["title"]):
-        return "INELIGIBLE", "Pre-filtered: new grad program, he graduates May 2028"
+        return "INELIGIBLE", "Pre-filtered: new grad program, graduation year does not match"
     if _is_experienced_level(job["title"]):
         return "INELIGIBLE", "Pre-filtered: level suffix implies experience (II/III/IV)"
     result = classify(job)

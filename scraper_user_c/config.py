@@ -33,7 +33,7 @@ SEARCH_TERMS = [
     "SOC analyst",
     "information security analyst",
     "network technician",
-    "IAM analyst",                     # his Securcorp access-control experience
+    "IAM analyst",                     # his access-control / identity-verification experience
     # Internship phrasings — still the goal for summers, and these surface
     # postings the full-time terms miss entirely
     "help desk intern",
@@ -43,12 +43,12 @@ SEARCH_TERMS = [
     "information security intern",
 ]
 
-# He's in Lorton, VA. "Washington, DC" is metro-wide on LinkedIn, so it
+# He is in the DC metro. "Washington, DC" is metro-wide on LinkedIn, so it
 # returns Arlington, Alexandria, Fairfax, Reston, Tysons, McLean, Springfield
 # and DC proper.
 #
 # "United States" is here to catch REMOTE internships, which the rubric treats
-# exactly like a DC-onsite role since he's Lorton-based either way. It was
+# exactly like a DC-onsite role since he is DC-metro-based either way. It was
 # added after measuring, not on principle:
 #
 #   2026-08-03, 24h window, f_E=1, internship-titled results only:
