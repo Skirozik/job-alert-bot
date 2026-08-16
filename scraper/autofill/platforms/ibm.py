@@ -240,7 +240,8 @@ _LABEL_MAP = [
     (re.compile(r"are you willing to relocate", re.I),
      Field("select", "ibm.willing_to_relocate", "Willing to relocate")),
     # The signature-style "Your name" box under the EEO consents.
-    (re.compile(r"^your name\b|^name\s*\(signature\)|^signature$", re.I),
+    (re.compile(r"^your name\b|^please (?:type|enter|print) your (?:full |legal )?name\b"
+                r"|^full name$|^name\s*\(signature\)|^signature$", re.I),
      Field("text", None, "Your name", resolver=_full_name)),
 
     # Self-assessment dropdowns. These are ROUTED from levels the candidate
@@ -528,14 +529,44 @@ _SNAPSHOT_JS = """
     return '';
   };
 
+  // aria-labelledby is IBM's primary association — its fields carry
+  // aria-labelledby="<id>-label" and often no <label for> at all. Reading only
+  // label[for] meant a field like "Your name" resolved to whatever label
+  // happened to sit first in its container, or to nothing, so it never matched
+  // its pattern and was silently left for the human.
+  const ariaLabel = el => {
+    const ref = el.getAttribute && el.getAttribute('aria-labelledby');
+    if (ref) {
+      const parts = ref.split(/\\s+/)
+        .map(id => document.getElementById(id))
+        .filter(Boolean)
+        .map(n => norm(n.innerText || n.textContent))
+        .filter(Boolean);
+      if (parts.length) return norm(parts.join(' '));
+    }
+    const direct = el.getAttribute && el.getAttribute('aria-label');
+    return direct ? norm(direct) : '';
+  };
+
   const labelFor = el => {
     if ((el.type || '').toLowerCase() === 'radio') {
       const q = questionFor(el);
       if (q) return q;
     }
+    const aria = ariaLabel(el);
+    if (aria) return aria;
     if (el.id) {
       const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (l) return norm(l.innerText);
+    }
+    // IBM also renders a sibling element at "<id>-label" without wiring it up
+    // through aria-labelledby on every field.
+    if (el.id) {
+      const sib = document.getElementById(el.id + '-label');
+      if (sib) {
+        const t = norm(sib.innerText || sib.textContent);
+        if (t) return t;
+      }
     }
     const wrap = el.closest('label');
     if (wrap) return norm(wrap.innerText);
