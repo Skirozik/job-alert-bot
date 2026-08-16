@@ -13,9 +13,9 @@ log = logging.getLogger(__name__)
 
 NTFY_BASE = "https://ntfy.sh"
 
-_TIER_EMOJI = {"APPLY": "🟢", "MAYBE": "🟡"}
-_TIER_TAGS = {"APPLY": "green_circle", "MAYBE": "yellow_circle"}
-_TIER_PRIORITY = {"APPLY": "high", "MAYBE": "default"}
+_TIER_EMOJI = {"APPLY": "🟢", "APPLY_CAVEAT": "🟢"}
+_TIER_TAGS = {"APPLY": "green_circle", "APPLY_CAVEAT": "warning"}
+_TIER_PRIORITY = {"APPLY": "high", "APPLY_CAVEAT": "high"}
 
 
 def push_job(job: dict) -> None:
@@ -24,7 +24,7 @@ def push_job(job: dict) -> None:
         log.warning("NTFY_TOPIC not set — skipping push for job %s", job.get("id"))
         return
 
-    tier = job.get("tier", "MAYBE")
+    tier = job.get("tier", "APPLY_CAVEAT")
     emoji = _TIER_EMOJI.get(tier, "🟡")
     title = f"{emoji} {job.get('company', 'Unknown')} — {job.get('title', 'Unknown')}"
 
