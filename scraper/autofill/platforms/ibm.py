@@ -530,6 +530,13 @@ def _logical_fields(raw: list, profile: Optional[dict] = None) -> list:
             singles.append(el)
 
     def keep(key):
+        # Repeat-group cells (education 37299, employment 9017) are handled by
+        # _check_repeat_groups alone — this module never writes them, because
+        # their column meanings are inferred rather than measured. Offering
+        # them here just produced noise like "Education ID (37299-6-0)" in the
+        # needs-your-input list for a row that is already correctly prefilled.
+        if _is_repeat_row(key):
+            return False
         if not _is_eeo_id(key):
             return True
         return profile is not None and _eeo_has_value(profile, key) is not None
