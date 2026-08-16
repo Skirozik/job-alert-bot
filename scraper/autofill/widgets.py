@@ -260,6 +260,43 @@ def read_dropdown_choice(page: Page, field_id: str, trusted_only: bool = False) 
     return ("", "")
 
 
+# Finds the thing a human would actually click for a dynamic dropdown.
+#
+# The element carrying the field id is the underlying <select>, which the
+# widget hides — clicking it does nothing at all, silently. The visible control
+# is a sibling or wrapper the widget renders. Returns a unique selector for it,
+# or "" if the select itself is visible and can be clicked directly.
+_TRIGGER_JS = """
+(fid) => {
+  const el = document.getElementById(fid);
+  if (!el) return '';
+  const onScreen = n => {
+    if (!n) return false;
+    const s = getComputedStyle(n);
+    if (s.display === 'none' || s.visibility === 'hidden') return false;
+    const r = n.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  if (onScreen(el)) return '';           // ordinary select — click it directly
+
+  let box = el.parentElement;
+  for (let hop = 0; box && hop < 4; hop++, box = box.parentElement) {
+    const cands = box.querySelectorAll(
+      '[role="combobox"], [class*="select"], [class*="chosen"], [class*="dropdown"],' +
+      'button, input[type="text"], a[href="#"], span[tabindex], div[tabindex]');
+    for (const c of cands) {
+      if (c === el || !onScreen(c)) continue;
+      // Tag it so Playwright can address it unambiguously — class names on
+      // these widgets are neither unique nor stable.
+      c.setAttribute('data-autofill-trigger', fid);
+      return `[data-autofill-trigger="${fid}"]`;
+    }
+  }
+  return '';
+}
+"""
+
+
 def _wait_for_options(page: Page, timeout_ms: int = 5000) -> bool:
     """Waits for the widget's option list to populate after typing. Best
     effort: returns False on timeout and the caller falls back to a fixed
@@ -299,7 +336,22 @@ def fill_avature_dropdown(page: Page, locator: Locator, text: str, field_id: str
     if norm(before) == want:
         return True  # already answered — prefilled, or a re-scan pass
 
-    locator.click()
+    # Click the VISIBLE widget, not the element carrying the id. For a dynamic
+    # dropdown that element is the hidden <select>, and clicking a hidden
+    # element does nothing — silently, which is the whole failure mode here.
+    try:
+        trigger_sel = page.evaluate(_TRIGGER_JS, field_id)
+    except Exception:
+        trigger_sel = ""
+    target = page.locator(trigger_sel) if trigger_sel else locator
+    if trigger_sel:
+        log.debug("Dropdown %s: clicking rendered widget %s", field_id, trigger_sel)
+
+    try:
+        target.click(timeout=5000)
+    except Exception as exc:
+        log.warning("Dropdown %s: could not click its control (%s)", field_id, exc)
+        return False
     human_pause(0.2, 0.5)
     page.keyboard.type(text, delay=random.uniform(40, 120))
 
