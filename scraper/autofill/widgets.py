@@ -422,11 +422,25 @@ _DIRECT_SELECT_JS = """
   const norm = s => (s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
   const want = norm(args.want);
 
-  let match = null;
+  // Same variant rule as the interactive path: an option answers to its full
+  // text OR its leading sentence. Without this the skill dropdowns never
+  // matched here — the profile holds "Extensive Experience" while the option's
+  // DOM text is the whole paragraph — so every one of them fell through to the
+  // slow open/paste/wait/click route despite having all five options already
+  // in the DOM. Ambiguity refuses, exactly as it does there.
+  const variants = o => {
+    const full = norm(o.textContent);
+    const head = full.split('.')[0].trim();
+    return head && head !== full ? [full, head] : [full];
+  };
+
+  const hits = [];
   for (const o of el.options) {
-    if (norm(o.textContent) === want) { match = o; break; }
+    if (variants(o).indexOf(want) !== -1) hits.push(o);
   }
-  if (!match) return 'no-option';
+  if (hits.length === 0) return 'no-option';
+  if (hits.length > 1) return 'ambiguous';
+  const match = hits[0];
 
   el.value = match.value;
   const jq = window.jQuery || window.$;
@@ -436,13 +450,43 @@ _DIRECT_SELECT_JS = """
   el.dispatchEvent(new Event('input',  {bubbles: true}));
   el.dispatchEvent(new Event('change', {bubbles: true}));
 
+  // Verify against what the widget now DISPLAYS, allowing the same variants —
+  // Select2 renders the option's full text, which will not equal a profile
+  // value written as the short leading label.
   const rendered = document.getElementById('select2-' + args.fid + '-container');
-  if (rendered && norm(rendered.getAttribute('title') || rendered.textContent) === want) {
-    return 'ok';
+  if (rendered) {
+    const shown = norm(rendered.getAttribute('title') || rendered.textContent);
+    const head = shown.split('.')[0].trim();
+    if (shown === want || head === want) return 'ok';
+    return 'not-applied';
   }
-  return 'not-applied';
+  // No Select2 wrapper: an ordinary select, so the value itself is the proof.
+  return el.value === match.value ? 'ok' : 'not-applied';
 }
 """
+
+
+def list_select_options(page: Page, field_id: str) -> list:
+    """Every option in the field's underlying <select>, as [(value, text), ...].
+
+    Diagnostic. A Select2 that renders an empty list can mean two very
+    different things: the options genuinely do not exist, or they exist in the
+    <select> and the widget is failing to paint them. The second is fixable
+    from here — _try_direct_select can set the value without the UI's help —
+    and the first is IBM's problem. Reading the select is how to tell.
+    """
+    try:
+        return page.evaluate(
+            """(fid) => {
+                const el = document.getElementById(fid);
+                if (!el || !el.options) return [];
+                return Array.from(el.options).map(
+                    o => [o.value, (o.textContent || '').replace(/\\s+/g, ' ').trim()]);
+            }""",
+            field_id,
+        ) or []
+    except Exception:
+        return []
 
 
 def _try_direct_select(page: Page, field_id: str, text: str) -> str:
@@ -480,6 +524,12 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     if outcome == "ok":
         log.info("Dropdown %s = %r (selected directly, no typing)", field_id, text)
         return True
+    if outcome == "ambiguous":
+        # Two options answering to the same name. A coin flip on a real
+        # application is worse than an unanswered field.
+        log.warning("Dropdown %s: %r matches more than one option — not choosing.",
+                    field_id, text)
+        return False
     if outcome not in ("no-option", "no-select", "error", "not-applied"):
         log.debug("Dropdown %s: unexpected direct-select outcome %r", field_id, outcome)
 
