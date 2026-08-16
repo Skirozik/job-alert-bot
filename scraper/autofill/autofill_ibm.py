@@ -462,7 +462,17 @@ def run(job_id: Optional[str] = None, resume_variant: str = "General",
 
             if dry_run:
                 _dry_run_report(page, job, profile)
-                break
+                # Walk the wizard like --show-options does. Stopping after step
+                # 1 meant the flag could never show the steps that actually
+                # have fields on them — IBM's first screen is the skippable
+                # Talent Network page — so it was useless for the one thing it
+                # exists for: seeing what the tool sees before it types.
+                if not advance:
+                    break
+                if find_next_button(page) is None or not _advance_step(
+                        page, job, profile, progress, step_url):
+                    break
+                continue
 
             report = ibm.fill_current_step(page, job, profile)
             _print_report(report)
