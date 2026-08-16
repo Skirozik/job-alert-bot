@@ -224,6 +224,26 @@ check("placeholder labels detected", is_placeholder_label("Select..."))
 check("'-' is a placeholder", is_placeholder_label(" - "))
 check("a real label is not a placeholder", not is_placeholder_label("Georgia State University"))
 
+print("\n-- termination: a filled field is never re-attempted in the same step --")
+# The hang: fill_avature_dropdown reads back through all four sources and says
+# "filled", while _is_answered uses only the trusted two and says "empty". The
+# field is re-filled on every pass, filled_this_pass never reaches 0 so the
+# early exit never fires, and _advance_step's retries multiply it. Each click
+# scrolls its field into view — hence "stuck scrolling up and down".
+import inspect as _inspect
+from autofill.platforms import ibm as _ibm
+_loop_src = _inspect.getsource(_ibm.fill_current_step)
+check("the pass loop skips keys already filled this step",
+      "if key in filled_keys" in _loop_src,
+      "without this, fill/is-answered disagreement loops until the pass cap")
+check("both fill sites record the key", _loop_src.count("filled_keys.add(key)") == 2,
+      "a fill that is not recorded will be retried every pass")
+check("failed fields are skipped too", "seen_unmapped" in _loop_src)
+_adv_src = _inspect.getsource(__import__("autofill.autofill_ibm", fromlist=["x"])._advance_step)
+check("the retry loop stops when a retry adds nothing new",
+      "filled_before" in _adv_src,
+      "otherwise each retry repeats the same work")
+
 print("\n-- placeholder labels: a dropdown showing its placeholder is EMPTY --")
 # Avature renders "Select an option". The old fixed set had "select" and
 # "select..." but not that, so every dynamic dropdown read as already-answered,
