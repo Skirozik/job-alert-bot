@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from autofill.advance import _SUBMIT_BUTTON_PATTERN
 from autofill.browser import human_type, human_pause
 from autofill.field_matcher import match_field
 from autofill.profile_loader import resolve_resume_path
@@ -35,7 +36,13 @@ _SIMPLE_FIELD_IDS = {
     "email": lambda p: p["personal"]["email"],
 }
 
-_SUBMIT_BUTTON_PATTERN = "Submit Application|Submit|Apply|Finish"
+# The submit pattern is imported from advance.py rather than kept as a second
+# copy here. The two had drifted — this file had an unanchored "Apply" where
+# advance.py has "^Apply$" — and both were plain strings, so neither ever
+# matched anything (see advance.py for the full explanation). One definition
+# now, and it is the anchored one: unanchored "Apply" also matches the
+# "Apply with LinkedIn" / "Quick Apply" buttons Greenhouse renders above the
+# form, which are not the real submit button.
 
 
 def _fill_combobox(page, frame, input_locator, search_text: str) -> bool:

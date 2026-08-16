@@ -9,14 +9,28 @@ of which filler populated the fields on it.
 """
 
 import logging
+import re
+
 from playwright.sync_api import Page
 
 from autofill.browser import human_pause
 
 log = logging.getLogger(__name__)
 
-_NEXT_BUTTON_PATTERN = "Next|Continue|Save and Continue|Save & Continue"
-_SUBMIT_BUTTON_PATTERN = "Submit Application|Submit|Apply Now|^Apply$|Finish"
+# MUST be compiled Patterns, not plain strings. Playwright's get_by_role(name=...)
+# treats a str as a LITERAL case-insensitive substring and only converts a compiled
+# Pattern into a regex selector (playwright/_impl/_str_utils.py). Passing the raw
+# string built the selector
+#     internal:role=button[name="Next|Continue|Save and Continue|Save & Continue"i]
+# which looks for a button whose accessible name literally contains the pipes —
+# so it matched NOTHING, ever. find_next_button() always returned None,
+# click_next_and_verify() always returned False, and autofill_simplify.py broke at
+# step 1 every run with "No Next/Continue button found — this is likely the final
+# review/submit step", a message plausible enough that it went unnoticed for
+# months. The ^Apply$ anchors below are meaningless as a literal substring, which
+# is what gives the original intent away.
+_NEXT_BUTTON_PATTERN = re.compile(r"Next|Continue|Save and Continue|Save & Continue", re.I)
+_SUBMIT_BUTTON_PATTERN = re.compile(r"Submit Application|Submit|Apply Now|^Apply$|Finish", re.I)
 
 
 def find_next_button(page: Page):

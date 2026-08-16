@@ -24,6 +24,14 @@ def _find_placeholders(node, path=""):
     if isinstance(node, dict):
         for key, value in node.items():
             found.extend(_find_placeholders(value, f"{path}.{key}" if path else key))
+    elif isinstance(node, (list, tuple)):
+        # Lists have to recurse too. Without this branch a FILL_IN sitting inside
+        # a YAML list is invisible to the guard, load_profile() reports the file
+        # as complete, and the literal string "FILL_IN" gets typed into a real
+        # job application. No profile key is a list today, which is the only
+        # reason this never bit — but the guard should not depend on that.
+        for i, value in enumerate(node):
+            found.extend(_find_placeholders(value, f"{path}[{i}]"))
     elif isinstance(node, str) and node == _PLACEHOLDER:
         found.append(path)
     return found
