@@ -99,6 +99,13 @@ def _option_variants(label) -> set:
     head = n.split(".")[0].strip()
     if head and head != n:
         variants.add(head)
+    # Also the leading COMMA segment, so a profile value of "Yes" answers an
+    # option worded "Yes, I am willing to relocate." IBM phrases the same
+    # yes/no question as a bare Yes/No on one requisition and as a full
+    # sentence on another.
+    lead = n.split(",")[0].split(".")[0].strip()
+    if lead and lead != n:
+        variants.add(lead)
     return variants
 
 
