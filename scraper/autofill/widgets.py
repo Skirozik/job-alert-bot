@@ -375,6 +375,60 @@ def _wait_for_options(page: Page, timeout_ms: int = 5000) -> bool:
         return False
 
 
+# Select the option directly, without opening anything or typing a character.
+#
+# Select2 is a jQuery plugin: it does not watch the <select> for native events,
+# it listens for jQuery's "change". Setting .value and dispatching a native
+# CustomEvent is exactly why "setting .value does not work" was recorded during
+# the original DOM survey — the value DID change, Select2 just never heard
+# about it and went on rendering its placeholder.
+#
+# This only works when the option is already in the DOM. IBM's university,
+# country and degree fields carry the AutoCompleteField class and fetch their
+# options from the server on search, so their <select> is empty at load and
+# there is nothing to pick — that is what the typing path is for. Fixed lists
+# like "How did you hear about this opportunity" (10 options) are all present
+# and need none of it.
+#
+# Returns 'ok' | 'no-option' (must search) | 'no-select' | 'not-applied'.
+_DIRECT_SELECT_JS = """
+(args) => {
+  const el = document.getElementById(args.fid);
+  if (!el || el.tagName !== 'SELECT') return 'no-select';
+  const norm = s => (s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+  const want = norm(args.want);
+
+  let match = null;
+  for (const o of el.options) {
+    if (norm(o.textContent) === want) { match = o; break; }
+  }
+  if (!match) return 'no-option';
+
+  el.value = match.value;
+  const jq = window.jQuery || window.$;
+  if (jq && typeof jq === 'function') {
+    try { jq(el).trigger('change'); } catch (e) { /* fall through */ }
+  }
+  el.dispatchEvent(new Event('input',  {bubbles: true}));
+  el.dispatchEvent(new Event('change', {bubbles: true}));
+
+  const rendered = document.getElementById('select2-' + args.fid + '-container');
+  if (rendered && norm(rendered.getAttribute('title') || rendered.textContent) === want) {
+    return 'ok';
+  }
+  return 'not-applied';
+}
+"""
+
+
+def _try_direct_select(page: Page, field_id: str, text: str) -> str:
+    try:
+        return page.evaluate(_DIRECT_SELECT_JS, {"fid": field_id, "want": text})
+    except Exception as exc:
+        log.debug("Dropdown %s: direct select failed: %s", field_id, exc)
+        return "error"
+
+
 def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     """Drive a Select2 dropdown by its own contract rather than by keystrokes
     aimed at whatever happens to have focus.
@@ -393,6 +447,17 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     container = f'[id="select2-{field_id}-container"]'
     if page.locator(container).count() == 0:
         return False
+
+    # Fast path: the option is already in the DOM, so pick it outright — no
+    # opening, no typing, no results list, no timing to get wrong. Only the
+    # AutoCompleteField dropdowns, whose options arrive from the server on
+    # search, need the interactive path below.
+    outcome = _try_direct_select(page, field_id, text)
+    if outcome == "ok":
+        log.info("Dropdown %s = %r (selected directly, no typing)", field_id, text)
+        return True
+    if outcome not in ("no-option", "no-select", "error", "not-applied"):
+        log.debug("Dropdown %s: unexpected direct-select outcome %r", field_id, outcome)
 
     try:
         page.evaluate(_SCROLL_CENTRE_JS, container)
