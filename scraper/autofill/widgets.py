@@ -511,16 +511,42 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     # configured without it (minimumResultsForSearch), in which case the list
     # is already complete and filtering is unnecessary.
     #
-    # Typed fast on purpose. browser.human_type's slow, randomised cadence is
-    # for form fields an ATS actually watches; this is a client-side filter box
-    # inside a widget, and pacing it at ~75ms/char cost nearly two seconds on
-    # "Georgia State University" alone, per dropdown.
+    # Pasted, not typed. browser.human_type's slow randomised cadence exists so
+    # a form field an ATS is watching sees real keystrokes; this is a
+    # client-side filter box inside a widget and nothing watches it, so paying
+    # ~75ms/char here bought nothing and cost ~2s on "Georgia State University".
+    #
+    # fill() rather than assigning .value: Select2 filters on the input event,
+    # so a raw assignment changes the text and triggers no search at all —
+    # the same mistake as setting the <select>'s value and expecting the widget
+    # to notice. keyup is dispatched too, because older Select2 builds bind
+    # their search handler to that instead.
     search = page.locator(".select2-search__field")
+    typed = False
     if search.count() > 0 and search.first.is_visible():
         try:
-            search.first.type(text, delay=random.uniform(12, 30))
+            search.first.fill(text)
+            page.evaluate(
+                """() => {
+                    const f = document.querySelector('.select2-search__field');
+                    if (!f) return;
+                    f.dispatchEvent(new KeyboardEvent('keyup', {bubbles: true, key: 'a'}));
+                }"""
+            )
+            typed = True
         except Exception as exc:
-            log.debug("Dropdown %s: could not type into the search box: %s", field_id, exc)
+            log.debug("Dropdown %s: fill() on the search box failed: %s", field_id, exc)
+
+        # If pasting produced nothing, the widget wants real keystrokes after
+        # all. Retry by typing before giving up on the field.
+        if typed and not _wait_for_results(page, timeout_ms=4000):
+            log.debug("Dropdown %s: paste produced no results — retrying with keystrokes",
+                      field_id)
+            try:
+                search.first.fill("")
+                search.first.type(text, delay=random.uniform(12, 30))
+            except Exception:
+                pass
 
     # Wait for REAL options rather than a fixed pause — the AJAX-backed fields
     # answer in their own time, and a sleep is either too short (reads
