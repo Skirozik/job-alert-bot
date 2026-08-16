@@ -155,13 +155,16 @@ export function JobList({
     ? matching.filter(j => j.tier !== 'INELIGIBLE')
     : matching
 
-  // Header summary is a stable "pipeline health" readout — unconditional
-  // totals, not affected by the current filter selection.
+  // Header summary: what is still waiting on a decision. All three counts MUST
+  // share one denominator — they read as parts of a whole, so mixing bases makes
+  // them silently disagree with the pills beside them. They previously did not:
+  // apply/caveat excluded applied+dismissed rows while ineligible did not, so the
+  // header read "503 ineligible" beside an "Ineligible (499)" pill.
   const isActive = (j: Job) => { const s = j.status ?? 'new'; return s !== 'applied' && s !== 'dismissed' }
   const applyCount = jobs.filter(j => j.tier === 'APPLY' && isActive(j)).length
   const caveatCount = jobs.filter(j => j.tier === 'APPLY_CAVEAT' && isActive(j)).length
   
-  const ineligibleCount = jobs.filter(j => j.tier === 'INELIGIBLE').length
+  const ineligibleCount = jobs.filter(j => j.tier === 'INELIGIBLE' && isActive(j)).length
 
   // Pill badge counts are faceted: each shows what you'd see if you clicked
   // it, given your *other* current selections — a static total would lie
