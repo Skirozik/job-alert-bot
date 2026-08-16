@@ -72,7 +72,9 @@ export function compactSalary(raw: string | null): string {
   let m: RegExpExecArray | null
   while ((m = re.exec(raw)) !== null) nums.push(parseFloat(m[1].replace(/,/g, '')))
   if (!nums.length) return raw.length > 12 ? raw.slice(0, 11) + '…' : raw
-  const k = (n: number) => (n >= 1000 ? `${+(n / 1000).toFixed(n % 1000 ? 1 : 0)}k` : `${n}`)
+  // Integers only. "$39.7–72.8k/yr" wrapped to two lines inside a 44px
+  // row; the decimal was never doing anything for triage.
+  const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : `${Math.round(n)}`)
   const [lo, hi] = [nums[0], nums[1]]
   if (hi != null && hi !== lo) {
     // Share the k-suffix across a range: "$4–6k/wk", not "$4k–$6k/wk".
@@ -88,12 +90,34 @@ export function compactSalary(raw: string | null): string {
    boundary, which is where the concatenation seam falls. */
 export function splitLocations(loc: string | null): string[] {
   if (!loc) return []
-  return loc
+  let t = loc.trim()
+
+  // Shape 1: a bare count with no list behind it — "21 Locations". The list
+  // genuinely is not in the data, so there is nothing to expand; return it as
+  // the single value it is rather than inventing entries.
+  if (/^\d+\s+locations?$/i.test(t)) return [t]
+
+  // Shape 2: a count PREFIX followed by the concatenated list —
+  // "21 locationsBoston, MASanta Ana, CA...". Drop the prefix, keep the list.
+  t = t.replace(/^\d+\s+locations?/i, '')
+
+  // Shape 3: entries concatenated with no separator. Two seams occur:
+  //   a US state code butted against the next city  ("Austin, TXFort Mill, SC")
+  //   a lowercase char butted against a capital      ("London, UKParis, France")
+  // The state-code rule has to come first, because "TXFort" has no lowercase
+  // before the capital and the second rule alone never fires on it — which is
+  // why "Milwaukee, WIGreen Bay, WI" was rendering as one location.
+  t = t
+    .replace(/([A-Z]{2})([A-Z][a-z])/g, '$1|$2')
     .replace(/([a-z)])([A-Z])/g, '$1|$2')
-    .split(/\s*\|\s*|\s*;\s*/)
-    .map(s => s.trim())
-    .filter(Boolean)
+
+  return t.split(/\s*\|\s*|\s*;\s*/).map(x => x.trim()).filter(Boolean)
 }
+
+/** True when the stored value is only a count — the individual locations were
+ *  never captured, so neither the table nor the drawer can list them. */
+export const isLocationCountOnly = (loc: string | null): boolean =>
+  !!loc && /^\d+\s+locations?$/i.test(loc.trim())
 
 /* ── Optional columns ────────────────────────────────────────────────────
    One rule, applied to Resume, Salary and Source alike: a column that has no

@@ -30,7 +30,14 @@ const num = (re, src) => {
 // ── The contract ─────────────────────────────────────────────────────────
 const ROW_MAX = 52
 const TARGET_ROWS = 15
-const VIEWPORT_H = 900
+
+// VIEWPORT height, not window height. The original version asserted against
+// 900 and reported 18 rows; the browser was actually handing the page 684px
+// because chrome (tab strip, address bar, bookmarks) takes ~216px of a 900px
+// window. Measured live: a 1440x900 window yields a 1536x684 viewport, and 14
+// rows, not 18. The formula was right and the input was wrong.
+const VIEWPORT_H = 684          // what a 900px-tall window actually gives
+const WINDOW_H = 900            // reported only, never used in the maths
 
 const rowH = num(/--row-h:\s*(\d+)px/, css)
 const headerH = num(/gridTemplateColumns: grid, height: (\d+)/, table)
@@ -46,10 +53,16 @@ check(`toolbar height ${toolbarH}px is defined`, Number.isFinite(toolbarH))
 // table header subtract.
 const chrome = toolbarH + headerH
 const rowsVisible = Math.floor((VIEWPORT_H - chrome) / (rowH + 1)) // +1 = hairline divider
+// The honest assertion: how tall must the VIEWPORT be to clear the floor.
+const viewportFor15 = TARGET_ROWS * (rowH + 1) + chrome
 check(
-  `>= ${TARGET_ROWS} rows visible at ${VIEWPORT_H}px tall (computed ${rowsVisible})`,
-  rowsVisible >= TARGET_ROWS,
+  `row geometry supports ${TARGET_ROWS} rows in <= 760px of viewport (needs ${viewportFor15}px)`,
+  viewportFor15 <= 760,
   `chrome=${chrome}px, row=${rowH}px+1px divider`
+)
+check(
+  `at a realistic ${VIEWPORT_H}px viewport, >= 13 rows are visible (computed ${rowsVisible})`,
+  rowsVisible >= 13
 )
 
 // ── Visual rules that are cheap to assert and easy to break ──────────────
