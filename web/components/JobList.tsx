@@ -44,26 +44,66 @@ export function JobList({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState(() => new Date().toISOString())
 
-  // URL is the source of truth for view/sort/search, so the current view is
-  // bookmarkable and the back button works. Sidebar selection and filter state
-  // cannot drift because they read the same value.
-  const view = (VIEWS.includes(params.get('view') as ViewKey) ? params.get('view') : 'to-apply') as ViewKey
-  const search = params.get('q') ?? ''
-  const role = (params.get('role') ?? 'all') as RoleFilter
-  const source = (params.get('src') ?? 'all') as SourceFilter
-  const date = (params.get('date') ?? 'all') as DateFilter
-  const sort = (params.get('sort') ?? 'found_at') as SortKey
-  const dir = (params.get('dir') ?? 'desc') as SortDir
-  const selectedId = params.get('job')
+  /* ── View state ───────────────────────────────────────────────────────
+     LOCAL STATE is the source of truth; the URL is a mirror written after the
+     fact. It used to be the other way round, reading every filter out of
+     useSearchParams() on each render, and that produced a race: a click on
+     "Dismissed" could land on ?view=to-apply because a slow in-flight router
+     response for the previous view resolved after the newer one and
+     overwrote it. Rendering off local state cannot race — the click applies
+     synchronously and the URL catches up.
 
-  const setParams = useCallback((patch: Record<string, string | null>) => {
-    const p = new URLSearchParams(params.toString())
-    for (const [k, v] of Object.entries(patch)) {
-      if (v == null || v === '' || v === 'all') p.delete(k)
-      else p.set(k, v)
+     The URL still round-trips: it seeds the initial state and is re-read on
+     popstate, so bookmarks and the back button work as before. */
+  type ViewState = {
+    view: ViewKey; q: string; role: RoleFilter; src: SourceFilter
+    date: DateFilter; sort: SortKey; dir: SortDir; job: string | null
+  }
+
+  const DEFAULTS: ViewState = {
+    view: 'to-apply', q: '', role: 'all', src: 'all', date: 'all',
+    sort: 'found_at', dir: 'desc', job: null,
+  }
+
+  const readUrl = useCallback((sp: URLSearchParams): ViewState => ({
+    view: (VIEWS.includes(sp.get('view') as ViewKey) ? sp.get('view') : DEFAULTS.view) as ViewKey,
+    q:    sp.get('q') ?? '',
+    role: (sp.get('role') ?? 'all') as RoleFilter,
+    src:  (sp.get('src') ?? 'all') as SourceFilter,
+    date: (sp.get('date') ?? 'all') as DateFilter,
+    sort: (sp.get('sort') ?? 'found_at') as SortKey,
+    dir:  (sp.get('dir') ?? 'desc') as SortDir,
+    job:  sp.get('job'),
+  }), [])
+
+  const [st, setSt] = useState<ViewState>(() => readUrl(new URLSearchParams(params.toString())))
+  const { view, q: search, role, src: source, date, sort, dir, job: selectedId } = st
+
+  const patch = useCallback((p: Partial<ViewState>) => setSt(prev => ({ ...prev, ...p })), [])
+
+  // Mirror state -> URL. A key is omitted only when it equals ITS OWN default.
+  // Previously any value literally equal to the string 'all' was dropped,
+  // which silently deleted view=all — the reason "All postings" never
+  // resolved and always fell back to the default view.
+  useEffect(() => {
+    const sp = new URLSearchParams()
+    ;(Object.keys(DEFAULTS) as (keyof ViewState)[]).forEach(k => {
+      const v = st[k]
+      if (v != null && v !== '' && v !== DEFAULTS[k]) sp.set(k, String(v))
+    })
+    const qs = sp.toString()
+    const next = qs ? `${pathname}?${qs}` : pathname
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      router.replace(next, { scroll: false })
     }
-    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
-  }, [params, pathname, router])
+  }, [st, pathname, router])
+
+  // Back/forward: re-seed local state from whatever the browser restored.
+  useEffect(() => {
+    const h = () => setSt(readUrl(new URLSearchParams(window.location.search)))
+    window.addEventListener('popstate', h)
+    return () => window.removeEventListener('popstate', h)
+  }, [readUrl])
 
   useEffect(() => { setJobs(initialJobs); setLastSynced(new Date().toISOString()) }, [initialJobs])
 
@@ -132,20 +172,20 @@ export function JobList({
         ? Math.min(i < 0 ? 0 : i + 1, rows.length - 1)
         : Math.max(i < 0 ? 0 : i - 1, 0)
       const id = rows[next].id
-      setParams({ job: id })
+      patch({ job: id })
       document.querySelector<HTMLElement>(`[data-job-row="${CSS.escape(id)}"]`)
         ?.scrollIntoView({ block: 'nearest' })
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [rows, selectedId, setParams])
+  }, [rows, selectedId, patch])
 
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
       <Sidebar
         view={view}
         counts={counts}
-        onSelect={v => setParams({ view: v, job: null })}
+        onSelect={v => patch({ view: v, job: null })}
         personaLabel={personaLabel}
         personaSub={personaSub}
         onSignOut={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); router.refresh() }}
@@ -153,10 +193,10 @@ export function JobList({
 
       <main className="flex-1 min-w-0 flex flex-col">
         <Toolbar
-          search={search} onSearch={v => setParams({ q: v })}
-          role={role} onRole={v => setParams({ role: v })}
-          source={source} onSource={v => setParams({ src: v })}
-          date={date} onDate={v => setParams({ date: v })}
+          search={search} onSearch={v => patch({ q: v })}
+          role={role} onRole={v => patch({ role: v })}
+          source={source} onSource={v => patch({ src: v })}
+          date={date} onDate={v => patch({ date: v })}
           onRefresh={() => router.refresh()}
           lastSynced={relativeTime(lastSynced)}
           showSource={jobs.some(j => j.id.startsWith('ats:'))}
@@ -174,18 +214,18 @@ export function JobList({
             rows={rows}
             cols={cols}
             selectedId={selectedId}
-            onSelect={id => setParams({ job: id === selectedId ? null : id })}
+            onSelect={id => patch({ job: id === selectedId ? null : id })}
             onStatus={onStatus}
             sort={sort}
             dir={dir}
-            onSort={c => setParams({ sort: c, dir: sort === c && dir === 'desc' ? 'asc' : 'desc' })}
+            onSort={c => patch({ sort: c, dir: sort === c && dir === 'desc' ? 'asc' : 'desc' })}
             emptyMessage={EMPTY[view]}
           />
         </div>
       </main>
 
       {selected && (
-        <JobDrawer job={selected} onClose={() => setParams({ job: null })} onStatus={onStatus} />
+        <JobDrawer job={selected} onClose={() => patch({ job: null })} onStatus={onStatus} />
       )}
 
       {toast && (

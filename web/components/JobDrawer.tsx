@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { Job, Status } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
-import { splitLocations, fullTimestamp, isDirect } from '@/lib/jobView'
+import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect } from '@/lib/jobView'
 import { IconApplyFilled, IconApplyOutline, IconClose, IconBolt } from './icons'
 
 const TIER_LABEL: Record<string, string> = {
@@ -101,9 +101,22 @@ export function JobDrawer({
 
       <div className="flex-1 overflow-y-auto" style={{ padding: 'var(--s4)' }}>
         <dl className="grid grid-cols-[92px_1fr]" style={{ gap: 'var(--s2) var(--s3)', fontSize: 'var(--text-data)' }}>
-          <dt style={{ color: 'var(--fg-subtle)' }}>Locations</dt>
+          <dt style={{ color: 'var(--fg-subtle)' }}>
+            {locations.length > 1 ? `Locations (${locations.length})` : 'Location'}
+          </dt>
           <dd style={{ color: 'var(--fg)' }}>
-            {locations.length ? locations.join(' · ') : '—'}
+            {isLocationCountOnly(job.location) ? (
+              // The posting stored a bare count and no list — there is nothing
+              // to expand. Say so rather than repeat the count as if it were
+              // an address.
+              <span style={{ color: 'var(--fg-subtle)' }}>
+                {job.location} — individual locations were not captured for this posting
+              </span>
+            ) : locations.length ? (
+              <ul style={{ display: 'grid', gap: '2px' }}>
+                {locations.map((l, i) => <li key={`${l}-${i}`}>{l}</li>)}
+              </ul>
+            ) : '—'}
           </dd>
 
           <dt style={{ color: 'var(--fg-subtle)' }}>Discovered</dt>

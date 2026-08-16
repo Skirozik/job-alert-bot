@@ -103,7 +103,7 @@ export function JobTable({
         role="row"
         className="grid sticky top-0 z-10 items-center"
         style={{
-          gridTemplateColumns: grid, height: 28,
+          gridTemplateColumns: grid, height: 24,
           background: 'var(--bg)', borderBottom: '1px solid var(--border)',
           paddingLeft: 3, // matches the tier bar so headers line up with cells
         }}
@@ -199,7 +199,9 @@ export function JobTable({
 
             {cols.salary && (
               <div style={{ ...cell, textAlign: 'right' }}>
-                <span style={{ color: fgMuted, fontVariantNumeric: 'tabular-nums' }} title={job.salary ?? ''}>
+                <span className="truncate inline-block max-w-full"
+                      style={{ color: fgMuted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                      title={job.salary ?? ''}>
                   {compactSalary(job.salary)}
                 </span>
               </div>
