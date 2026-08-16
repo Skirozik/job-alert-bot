@@ -441,9 +441,17 @@ _DIRECT_SELECT_JS = """
   // anything on its own: only a literal "ANY" in the profile reaches here.
   let match = null;
   if (want === 'any') {
+    // Select on VALUE, not on text. IBM's CI/CD dropdown renders option rows
+    // with EMPTY labels — visible in the widget as blank highlighted lines —
+    // and an earlier version of this skipped any option whose text was empty,
+    // which skipped every real option and left the field unanswered. What
+    // makes an option real is that it submits something: a non-empty value.
+    // Only the placeholder is excluded.
     for (const o of el.options) {
+      const v = (o.value || '').trim();
+      if (!v) continue;                                  // the placeholder row
       const t = norm(o.textContent);
-      if (!t || /^(-+|select|choose|none|n\\/?a)\\b/.test(t) || t.indexOf('select an option') === 0) continue;
+      if (t && (/^(-+|select|choose|none)\\b/.test(t) || t.indexOf('select an option') === 0)) continue;
       match = o;
       break;
     }
@@ -459,26 +467,40 @@ _DIRECT_SELECT_JS = """
   }
 
   el.value = match.value;
-  const jq = window.jQuery || window.$;
+
+  // Select2 is a jQuery plugin and listens for jQuery's "change", not the
+  // native one. Try every place jQuery hides: the globals, and the copy
+  // Select2 itself keeps when a page has called jQuery.noConflict().
+  let jq = window.jQuery || window.$;
+  if (!jq && el.closest) {
+    const holder = document.querySelector('.select2-container');
+    if (holder && holder.ownerDocument && holder.ownerDocument.defaultView) {
+      const w = holder.ownerDocument.defaultView;
+      jq = w.jQuery || w.$;
+    }
+  }
   if (jq && typeof jq === 'function') {
-    try { jq(el).trigger('change'); } catch (e) { /* fall through */ }
+    try {
+      jq(el).trigger('change');
+      jq(el).trigger('change.select2');
+    } catch (e) { /* fall through to the native events below */ }
   }
   el.dispatchEvent(new Event('input',  {bubbles: true}));
   el.dispatchEvent(new Event('change', {bubbles: true}));
 
-  // Verify against what the widget now DISPLAYS, allowing the same variants —
-  // Select2 renders the option's full text, which will not equal a profile
-  // value written as the short leading label.
-  const rendered = document.getElementById('select2-' + args.fid + '-container');
-  if (rendered) {
-    const shown = norm(rendered.getAttribute('title') || rendered.textContent);
-    const head = shown.split('.')[0].trim();
-    if (want === 'any') return shown ? 'ok:' + shown : 'not-applied';
-    if (shown === want || head === want) return 'ok';
-    return 'not-applied';
-  }
-  // No Select2 wrapper: an ordinary select, so the value itself is the proof.
-  return el.value === match.value ? 'ok' : 'not-applied';
+  // Deliberately NOT verified here. Select2 re-renders its container
+  // asynchronously in response to the change event, so reading it in this same
+  // synchronous call sees the OLD text and reports failure — which is why every
+  // dropdown fell through to the slow open/type/click path despite the value
+  // having been set correctly. The caller polls for the update instead.
+  //
+  // The VALUE is returned alongside the text, because a blank-labelled option
+  // has no text to confirm against and the value is the only proof available.
+  // Pipe-separated: an option VALUE is an Avature numeric id and never
+  // contains one. (A NUL separator here put a raw 0x00 byte in the Python
+  // source and made the module unimportable — same family of mistake as the
+  // \b -> 0x08 corruption above.)
+  return 'set:' + match.value + '|' + norm(match.textContent);
 }
 """
 
@@ -514,6 +536,23 @@ def _try_direct_select(page: Page, field_id: str, text: str) -> str:
         return "error"
 
 
+def _select_value_is(page: Page, field_id: str, value: str) -> bool:
+    """Whether the underlying <select> currently holds this value.
+
+    The proof of a successful direct select, and the only proof available for
+    IBM's CI/CD dropdown, whose options render with EMPTY labels — there is no
+    text to read back, so the submitted value is the sole evidence.
+    """
+    try:
+        return bool(page.evaluate(
+            "(a) => { const e = document.getElementById(a.fid);"
+            " return !!e && String(e.value) === String(a.v); }",
+            {"fid": field_id, "v": value},
+        ))
+    except Exception:
+        return False
+
+
 def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     """Drive a Select2 dropdown by its own contract rather than by keystrokes
     aimed at whatever happens to have focus.
@@ -538,24 +577,37 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     # AutoCompleteField dropdowns, whose options arrive from the server on
     # search, need the interactive path below.
     outcome = _try_direct_select(page, field_id, text)
-    if outcome == "ok":
-        log.info("Dropdown %s = %r (selected directly, no typing)", field_id, text)
-        return True
-    if isinstance(outcome, str) and outcome.startswith("ok:"):
-        # Delegated choice — say loudly WHICH option it landed on, so an
-        # answer the candidate did not personally pick is never invisible.
-        log.warning("Dropdown %s: profile says ANY, so it selected %r. "
-                    "Change ibm.skill_levels if that is not what you want.",
-                    field_id, outcome[3:])
-        return True
+
     if outcome == "ambiguous":
         # Two options answering to the same name. A coin flip on a real
         # application is worse than an unanswered field.
         log.warning("Dropdown %s: %r matches more than one option — not choosing.",
                     field_id, text)
         return False
-    if outcome not in ("no-option", "no-select", "error", "not-applied"):
-        log.debug("Dropdown %s: unexpected direct-select outcome %r", field_id, outcome)
+
+    if isinstance(outcome, str) and outcome.startswith("set:"):
+        chosen_value, _, chosen_text = outcome[4:].partition("|")
+        # Poll for Select2 to repaint. It re-renders asynchronously, so the
+        # value is already correct here and only the display is catching up —
+        # this normally returns on the first or second check.
+        for _ in range(20):
+            if _select_value_is(page, field_id, chosen_value):
+                shown, _src = read_dropdown_choice(page, field_id)
+                label = shown or chosen_text or f"(blank label, value {chosen_value})"
+                if want == "any":
+                    log.warning("Dropdown %s: profile says ANY, so it selected %r. "
+                                "Change ibm.skill_levels if that is not what you want.",
+                                field_id, label)
+                else:
+                    log.info("Dropdown %s = %r (selected directly, no typing)",
+                             field_id, label)
+                return True
+            page.wait_for_timeout(25)
+        log.debug("Dropdown %s: value set but did not stick — falling back to opening it.",
+                  field_id)
+    else:
+        log.debug("Dropdown %s: direct select unavailable (%s) — opening it.",
+                  field_id, outcome)
 
     try:
         page.evaluate(_SCROLL_CENTRE_JS, container)
