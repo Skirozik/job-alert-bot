@@ -311,7 +311,14 @@ def _dry_run_report(page, job: dict, profile: dict) -> None:
     raw = ibm._snapshot(page)
     log.info("=== DRY RUN — %d field(s) on this step, nothing will be typed ===", len(raw))
     for key, kind, rows in ibm._logical_fields(raw, profile):
-        spec = ibm._FIELD_MAP.get(key)
+        # The SAME resolution order the fill loop uses. Consulting only
+        # _FIELD_MAP made every EEO, consent and label-matched field print as
+        # "[unknown]" here even though they fill correctly — a diagnostic that
+        # misreports what the tool will do is worse than no diagnostic.
+        spec = (ibm._FIELD_MAP.get(key)
+                or ibm._eeo_spec(key)
+                or ibm._consent_spec(key, profile)
+                or ibm._label_spec(rows[0].get("label") or ""))
         answered = "answered" if ibm._is_answered(page, key, kind, rows) else "EMPTY"
         if spec is None:
             log.info("  %-14s %-9s [unknown]  %s", key, answered, rows[0]["label"] or "(no label)")
