@@ -468,6 +468,31 @@ for unrelated in ["Are you currently legally authorized to work in the United St
     check(f"{unrelated[:40]!r} is not a skill question", _ls(unrelated) is None,
           "the skill patterns must not swallow unrelated questions")
 
+print("\n-- a skill answer may list alternative wordings for different scales --")
+# IBM asks the same skill question on two different option scales depending on
+# the requisition: "Expert" on one, and on another a full sentence beginning
+# "I have experience performing this work behavior...". A list is tried in
+# order so one profile entry answers either, and each candidate still has to
+# match an option exactly.
+_LONG = ("I have experience performing this work behavior across routine or "
+         "predictable situations with minimal supervision or guidance.")
+check("the long wording matches itself exactly",
+      norm(_LONG) in _option_variants(_LONG))
+check("...and matches when the profile omits the trailing period",
+      norm(_LONG.rstrip(".")) in _option_variants(_LONG))
+check("the long wording does NOT match a different sentence on the same stem",
+      norm(_LONG) not in _option_variants(
+          "I have experience performing this work behavior across a variety of "
+          "situations and settings with no supervision."),
+      "these options share a long prefix; only whole-unit matching keeps them apart")
+_ibm_src = _pl.Path(__file__).parent.joinpath("platforms", "ibm.py").read_text(encoding="utf-8")
+check("the dynamic branch accepts a list of candidates",
+      "isinstance(value, (list, tuple))" in _ibm_src)
+check("profile_loader recurses into lists (a FILL_IN in one must be caught)",
+      bool(__import__("autofill.profile_loader", fromlist=["x"])._find_placeholders(
+          {"ibm": {"skill_levels": {"containers": ["ok", "FILL_IN"]}}})),
+      "a placeholder inside a list would otherwise be typed into a real form")
+
 print("\n-- self-assessment questions are never answered from the profile --")
 # Live: "What best describes your level of experience in File versioning
 # software (e.g., Git and GitHub)?" contains "GitHub", so the github_url rule
