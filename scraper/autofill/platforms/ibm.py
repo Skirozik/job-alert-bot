@@ -376,7 +376,37 @@ _SNAPSHOT_JS = """
 () => {
   const norm = s => (s || '').replace(/\\s+/g, ' ').trim();
 
+  // The label a HUMAN would call this field's question.
+  //
+  // For a radio, label[for] gives the OPTION's text ("Yes"), not the question,
+  // which made an unmapped group report as `Yes (10775) - answer it yourself`
+  // and told the operator nothing about what they were being asked. So radios
+  // look outward for the question first: a fieldset legend, or the nearest
+  // preceding heading/label/question-ish text in the group's container.
+  const questionFor = el => {
+    const fs = el.closest('fieldset');
+    if (fs) {
+      const lg = fs.querySelector('legend');
+      if (lg && norm(lg.innerText)) return norm(lg.innerText);
+    }
+    let box = el.closest('div, td, li');
+    for (let hop = 0; box && hop < 4; hop++, box = box.parentElement) {
+      // A label that is not bound to one of the option inputs is the question.
+      for (const l of box.querySelectorAll('label, legend, h1, h2, h3, h4, .question, [class*="label"]')) {
+        const forId = l.getAttribute && l.getAttribute('for');
+        if (forId && box.querySelector(`[id="${forId}"]`)) continue;  // an option's own label
+        const t = norm(l.innerText);
+        if (t && t.length > 2) return t;
+      }
+    }
+    return '';
+  };
+
   const labelFor = el => {
+    if ((el.type || '').toLowerCase() === 'radio') {
+      const q = questionFor(el);
+      if (q) return q;
+    }
     if (el.id) {
       const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (l) return norm(l.innerText);
@@ -389,6 +419,16 @@ _SNAPSHOT_JS = """
       if (l) return norm(l.innerText);
     }
     return '';
+  };
+
+  // The option's OWN text, which radio_map/radio_label assert against.
+  const optionLabelFor = el => {
+    if (el.id) {
+      const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (l) return norm(l.innerText);
+    }
+    const wrap = el.closest('label');
+    return wrap ? norm(wrap.innerText) : '';
   };
 
   const visible = el => {
@@ -435,6 +475,7 @@ _SNAPSHOT_JS = """
       option_count: optionCount,
       selected_text: selectedText,
       label: label,
+      option_label: optionLabelFor(el),
       required: !!el.required || el.getAttribute('aria-required') === 'true'
                 || /\\*/.test(label),
       file_count: el.files ? el.files.length : 0,
@@ -507,10 +548,16 @@ def _is_answered(page, key: str, kind: Optional[str], rows: list) -> bool:
         # upload did not take; files.length is the real signal.
         return el["file_count"] > 0
     if kind == "dynamic":
-        # NEVER the underlying <select> — a dynamic widget's select is empty at
-        # load, so this would report every one of them unanswered forever and
-        # the loop would refill them on every pass.
-        return read_dropdown_choice(page, key)[0] != ""
+        # NEVER the underlying <select> alone — a dynamic widget's select is
+        # empty at load, so that would report every one of them unanswered
+        # forever and the loop would refill them on every pass.
+        #
+        # trusted_only, because the reverse error is worse and already bit:
+        # a widget showing its "Select an option" placeholder read as answered,
+        # so all four dynamic dropdowns were skipped without ever appearing in
+        # the report, and the form rejected the step for fields the tool had
+        # quietly declined to fill.
+        return read_dropdown_choice(page, key, trusted_only=True)[0] != ""
     if el["tag"] == "select":
         return bool(el["value"].strip()) and not is_placeholder_label(el["selected_text"])
     return bool(el["value"].strip())
@@ -580,7 +627,9 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
         if row is None:
             return (False, f"option element {key}_{opt} not present on this form")
 
-        rendered = row["label"] or ""
+        # The OPTION's own text, not the question — the assertion is about
+        # which choice this element represents.
+        rendered = row.get("option_label") or row.get("label") or ""
         if not re.search(label_pattern, rendered, re.I):
             return (False, f"option {key}_{opt} renders as {rendered!r}, which does not "
                            f"match {value!r} — the portal's option ids differ from what "
@@ -603,7 +652,7 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
                            f"to pick an option")
         pattern = re.compile(spec.option_label, re.I)
         for row in rows:
-            if pattern.search(row["label"] or ""):
+            if pattern.search(row.get("option_label") or row.get("label") or ""):
                 loc = _loc(page, row['id'])
                 loc.check()
                 return (loc.is_checked(), "")
