@@ -1,328 +1,201 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
-import { JobCard } from './JobCard'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { Sidebar } from './Sidebar'
+import { Toolbar } from './Toolbar'
+import { JobTable } from './JobTable'
+import { JobDrawer } from './JobDrawer'
 import type { Job, Status } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
+import {
+  matchesView, matchesRole, matchesSource, matchesDate, matchesSearch,
+  visibleOptionalColumns, sortJobs, relativeTime,
+  type ViewKey, type RoleFilter, type SourceFilter, type DateFilter,
+  type SortKey, type SortDir,
+} from '@/lib/jobView'
 
-const INTERN_RE = /intern|internship|co[\s-]?op|apprentice/i
+const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed','ineligible','all']
 
-function isInternship(job: Job): boolean {
-  return INTERN_RE.test(job.title)
+const EMPTY: Record<ViewKey, string> = {
+  'to-apply':  'Nothing clean to apply to right now.',
+  'caveat':    'No jobs with a caveat.',
+  'my-list':   'Your list is empty.',
+  'applied':   "You haven't marked anything as applied yet.",
+  'saved':     'Nothing saved yet.',
+  'dismissed': 'Nothing dismissed.',
+  'ineligible':'Nothing ruled ineligible.',
+  'all':       'No postings stored yet.',
 }
-
-// Tier and Status are independent axes — a job can be any combination of
-// the two (e.g. MAYBE + Saved), so they're separate, freely-composable
-// filters rather than one mutually-exclusive "view".
-type TierFilter = 'actionable' | 'apply' | 'caveat' | 'ineligible'
-type StatusFilter = 'active' | 'all' | 'applied' | 'saved' | 'dismissed'
-type RoleFilter = 'all' | 'internships' | 'entry-level'
-
-// APPLY and APPLY_CAVEAT share one list — that is the point of the scheme.
-// The old MAYBE tier was never looked at, so splitting them again would
-// recreate exactly the problem this replaced.
-function matchesTier(j: Job, t: TierFilter): boolean {
-  if (t === 'actionable') return j.tier === 'APPLY' || j.tier === 'APPLY_CAVEAT'
-  if (t === 'apply') return j.tier === 'APPLY'
-  if (t === 'caveat') return j.tier === 'APPLY_CAVEAT'
-  return j.tier === 'INELIGIBLE'
-}
-
-function matchesStatus(j: Job, s: StatusFilter): boolean {
-  const status = j.status ?? 'new'
-  if (s === 'active') return status !== 'applied' && status !== 'dismissed'
-  if (s === 'all') return true
-  return status === s
-}
-
-function matchesRole(j: Job, r: RoleFilter): boolean {
-  if (r === 'internships') return isInternship(j)
-  if (r === 'entry-level') return !isInternship(j)
-  return true
-}
-
-const NEUTRAL_ACTIVE = 'bg-gray-800 border-gray-600 text-gray-200'
-const INACTIVE_PILL = 'bg-gray-900 border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300'
-
-const TIER_OPTS: { key: TierFilter; label: string; activeClass: string }[] = [
-  { key: 'actionable', label: 'My list', activeClass: NEUTRAL_ACTIVE },
-  { key: 'apply', label: 'Clean', activeClass: 'bg-green-600/20 border-green-500/40 text-green-300' },
-  { key: 'caveat', label: 'Caveat', activeClass: 'bg-amber-600/20 border-amber-500/40 text-amber-300' },
-  { key: 'ineligible', label: 'Ineligible', activeClass: 'bg-gray-700 border-gray-600 text-white' },
-]
-
-const STATUS_OPTS: { key: StatusFilter; label: string; activeClass: string }[] = [
-  { key: 'active', label: 'Active', activeClass: NEUTRAL_ACTIVE },
-  { key: 'all', label: 'All', activeClass: NEUTRAL_ACTIVE },
-  { key: 'applied', label: 'Applied', activeClass: 'bg-blue-600/20 border-blue-500/40 text-blue-300' },
-  { key: 'saved', label: 'Saved', activeClass: 'bg-purple-600/20 border-purple-500/40 text-purple-300' },
-  { key: 'dismissed', label: 'Dismissed', activeClass: 'bg-red-900/30 border-red-700/40 text-red-400' },
-]
-
-const ROLE_LABELS: Record<RoleFilter, string> = {
-  'all': 'Filter',
-  'internships': 'Internships',
-  'entry-level': 'Entry-level',
-}
-const ROLE_OPTIONS: { key: RoleFilter; label: string }[] = [
-  { key: 'all', label: 'All roles' },
-  { key: 'internships', label: 'Internships' },
-  { key: 'entry-level', label: 'Entry-level' },
-]
 
 export function JobList({
-  initialJobs,
-  personaLabel,
+  initialJobs, personaLabel, personaSub,
 }: {
   initialJobs: Grouped[]
   personaLabel?: string
+  personaSub?: string
 }) {
   const router = useRouter()
+  const pathname = usePathname()
+  const params = useSearchParams()
+
   const [jobs, setJobs] = useState<Grouped[]>(initialJobs)
-  const [tierFilter, setTierFilter] = useState<TierFilter>('actionable')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
-  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
-  const [showFilterMenu, setShowFilterMenu] = useState(false)
-  // INELIGIBLE is the ONLY tier that is ever hidden, and only behind this
-  // explicit toggle with a visible count — never silently dropped.
-  const [showIneligible, setShowIneligible] = useState(false)
-  const filterRef = useRef<HTMLDivElement>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [lastSynced, setLastSynced] = useState(() => new Date().toISOString())
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
-        setShowFilterMenu(false)
-      }
+  // URL is the source of truth for view/sort/search, so the current view is
+  // bookmarkable and the back button works. Sidebar selection and filter state
+  // cannot drift because they read the same value.
+  const view = (VIEWS.includes(params.get('view') as ViewKey) ? params.get('view') : 'to-apply') as ViewKey
+  const search = params.get('q') ?? ''
+  const role = (params.get('role') ?? 'all') as RoleFilter
+  const source = (params.get('src') ?? 'all') as SourceFilter
+  const date = (params.get('date') ?? 'all') as DateFilter
+  const sort = (params.get('sort') ?? 'found_at') as SortKey
+  const dir = (params.get('dir') ?? 'desc') as SortDir
+  const selectedId = params.get('job')
+
+  const setParams = useCallback((patch: Record<string, string | null>) => {
+    const p = new URLSearchParams(params.toString())
+    for (const [k, v] of Object.entries(patch)) {
+      if (v == null || v === '' || v === 'all') p.delete(k)
+      else p.set(k, v)
     }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }, [params, pathname, router])
 
-  // Adopt refreshed server data. Without this, `useState(initialJobs)` above
-  // captures the first render's array forever and every router.refresh() below
-  // would silently change nothing on screen. `initialJobs` is a fresh array
-  // identity on each server render, so this fires on every refresh — intended.
-  //
-  // Safe against the optimistic updates in handleStatusChange: the PATCH has
-  // already persisted (and is read-back-verified server-side) before
-  // onStatusChange runs, so a refresh landing afterwards carries the same value.
-  useEffect(() => {
-    setJobs(initialJobs)
-  }, [initialJobs])
+  useEffect(() => { setJobs(initialJobs); setLastSynced(new Date().toISOString()) }, [initialJobs])
 
-  // Poll instead of subscribing to Supabase realtime.
-  //
-  // Realtime needed NEXT_PUBLIC_SUPABASE_ANON_KEY in the browser, which is
-  // inlined at build time and therefore single-valued — it cannot vary per
-  // logged-in person, so it can't work on a multi-tenant deployment. Making it
-  // work would also require a permissive anon SELECT policy on every project,
-  // which would put real people's job-search history behind a key that ships
-  // in a publicly-served JS bundle.
-  //
-  // Polling removes the browser's Supabase access entirely. Freshness costs
-  // nothing here: the scrapers run every 20 minutes to 2 hours, so a 60-second
-  // poll is an order of magnitude fresher than the underlying data.
+  // Poll instead of subscribing: NEXT_PUBLIC_* is build-time-inlined and so
+  // single-valued, which cannot work on a multi-tenant deployment.
   useEffect(() => {
-    const tick = () => {
-      if (document.visibilityState === 'visible') router.refresh()
-    }
+    const tick = () => { if (document.visibilityState === 'visible') router.refresh() }
     const id = setInterval(tick, 60_000)
     window.addEventListener('focus', tick)
-    return () => {
-      clearInterval(id)
-      window.removeEventListener('focus', tick)
-    }
+    return () => { clearInterval(id); window.removeEventListener('focus', tick) }
   }, [router])
 
-  function handleStatusChange(id: string, status: Status) {
-    setJobs(prev => prev.map(j => j.id === id ? { ...j, status } : j))
+  const counts = useMemo(() => {
+    const c = {} as Record<ViewKey, number>
+    for (const v of VIEWS) c[v] = jobs.filter(j => matchesView(j, v)).length
+    return c
+  }, [jobs])
+
+  const rows = useMemo(() => {
+    const filtered = jobs.filter(j =>
+      matchesView(j, view) && matchesRole(j, role) &&
+      matchesSource(j, source) && matchesDate(j, date) && matchesSearch(j, search)
+    )
+    return sortJobs(filtered, sort, dir) as Grouped[]
+  }, [jobs, view, role, source, date, search, sort, dir])
+
+  // The optional-column rule: one implementation, three columns. Computed from
+  // the CURRENT filtered set, so a persona with no resume variants (Beyonce,
+  // Hassan) simply never sees that column — no per-tenant branch.
+  const cols = useMemo(() => visibleOptionalColumns(rows), [rows])
+
+  const selected = useMemo(() => rows.find(j => j.id === selectedId) ?? null, [rows, selectedId])
+
+  async function onStatus(id: string, status: Status) {
+    setSaveError(null)
+    const prev = jobs
+    setJobs(js => js.map(j => (j.id === id ? { ...j, status } : j)))
+    try {
+      const res = await fetch(`/api/jobs/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      setToast(status === 'applied' ? 'Marked as applied'
+             : status === 'saved' ? 'Saved'
+             : status === 'dismissed' ? 'Dismissed' : 'Reset')
+      setTimeout(() => setToast(null), 1200)
+    } catch {
+      setJobs(prev)   // roll the optimistic update back
+      setSaveError('Failed to save — check the dashboard service key')
+    }
   }
 
-  // Fully composable: every predicate is independent, so no combination can
-  // ever silently ignore one of the active filters.
-  const matching = jobs.filter(j =>
-    matchesTier(j, tierFilter) &&
-    matchesStatus(j, statusFilter) &&
-    matchesRole(j, roleFilter)
-  )
-  // When the user is on their own list, ineligible rows collapse behind a
-  // toggle. Selecting the Ineligible filter explicitly shows them regardless.
-  const collapsing = tierFilter !== 'ineligible'
-  const hiddenIneligible = collapsing ? matching.filter(j => j.tier === 'INELIGIBLE') : []
-  const displayed = collapsing && !showIneligible
-    ? matching.filter(j => j.tier !== 'INELIGIBLE')
-    : matching
-
-  // Header summary: what is still waiting on a decision. All three counts MUST
-  // share one denominator — they read as parts of a whole, so mixing bases makes
-  // them silently disagree with the pills beside them. They previously did not:
-  // apply/caveat excluded applied+dismissed rows while ineligible did not, so the
-  // header read "503 ineligible" beside an "Ineligible (499)" pill.
-  const isActive = (j: Job) => { const s = j.status ?? 'new'; return s !== 'applied' && s !== 'dismissed' }
-  const applyCount = jobs.filter(j => j.tier === 'APPLY' && isActive(j)).length
-  const caveatCount = jobs.filter(j => j.tier === 'APPLY_CAVEAT' && isActive(j)).length
-  
-  const ineligibleCount = jobs.filter(j => j.tier === 'INELIGIBLE' && isActive(j)).length
-
-  // Pill badge counts are faceted: each shows what you'd see if you clicked
-  // it, given your *other* current selections — a static total would lie
-  // once two axes combine (e.g. "Applied (25)" while Tier=Skip is selected
-  // would still show 25 even though almost none of those are skip-tier).
-  const tierBase = jobs.filter(j => matchesStatus(j, statusFilter) && matchesRole(j, roleFilter))
-  const tierCounts: Record<TierFilter, number> = {
-    actionable: tierBase.filter(j => matchesTier(j, 'actionable')).length,
-    apply: tierBase.filter(j => matchesTier(j, 'apply')).length,
-    caveat: tierBase.filter(j => matchesTier(j, 'caveat')).length,
-    ineligible: tierBase.filter(j => matchesTier(j, 'ineligible')).length,
-  }
-
-  const statusBase = jobs.filter(j => matchesTier(j, tierFilter) && matchesRole(j, roleFilter))
-  const statusCounts: Record<StatusFilter, number> = {
-    active: statusBase.filter(j => matchesStatus(j, 'active')).length,
-    all: statusBase.length,
-    applied: statusBase.filter(j => matchesStatus(j, 'applied')).length,
-    saved: statusBase.filter(j => matchesStatus(j, 'saved')).length,
-    dismissed: statusBase.filter(j => matchesStatus(j, 'dismissed')).length,
-  }
+  // Up/Down move between rows while the drawer is open, so a queue can be
+  // triaged without touching the mouse.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      const t = e.target as HTMLElement
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
+      if (!rows.length) return
+      e.preventDefault()
+      const i = rows.findIndex(j => j.id === selectedId)
+      const next = e.key === 'ArrowDown'
+        ? Math.min(i < 0 ? 0 : i + 1, rows.length - 1)
+        : Math.max(i < 0 ? 0 : i - 1, 0)
+      const id = rows[next].id
+      setParams({ job: id })
+      document.querySelector<HTMLElement>(`[data-job-row="${CSS.escape(id)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [rows, selectedId, setParams])
 
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white">
-            Job Dashboard
-            {personaLabel && (
-              <span className="ml-2 text-sm font-normal text-gray-500">{personaLabel}</span>
-            )}
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">
-              {/* Clean only. The three header numbers PARTITION the loaded set —
-                  they must not nest, or the reader has to subtract to find out
-                  how many are actually clean. The combined figure already has a
-                  home in the "My list" pill. */}
-              <span className="text-green-400 font-medium">{applyCount} to apply</span>
-              {caveatCount > 0 && (
-                <>
-                  {' · '}
-                  <span className="text-amber-300 font-medium">{caveatCount} with a caveat</span>
-                </>
-              )}
-              {' · '}
-              <span className="text-gray-600">{ineligibleCount} ineligible</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => router.refresh()}
-            title="Refresh now (also refreshes automatically every 60s)"
-            className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-gray-300 hover:border-gray-500 transition-colors"
-          >
-            Refresh
-          </button>
-          <button
-            onClick={async () => {
-              await fetch('/api/auth/logout', { method: 'POST' })
-              router.push('/login')
-              router.refresh()
-            }}
-            className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-800 text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-colors"
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
+    <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
+      <Sidebar
+        view={view}
+        counts={counts}
+        onSelect={v => setParams({ view: v, job: null })}
+        personaLabel={personaLabel}
+        personaSub={personaSub}
+        onSignOut={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); router.refresh() }}
+      />
 
-      {/* Controls — Tier and Status are independent filters that compose;
-          Role narrows either. Each pill's count reflects the other active
-          selections, so it always matches what clicking it will show. */}
-      <div className="mb-6 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Role filter dropdown */}
-          <div className="relative" ref={filterRef}>
-            <button
-              onClick={() => setShowFilterMenu(v => !v)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-gray-300 hover:border-gray-500 transition-colors flex items-center gap-1"
-            >
-              {ROLE_LABELS[roleFilter]} <span className="text-gray-500">▾</span>
-            </button>
-            {showFilterMenu && (
-              <div className="absolute top-full mt-1 left-0 bg-gray-900 border border-gray-700 rounded-lg py-1 z-20 min-w-[140px] shadow-xl">
-                {ROLE_OPTIONS.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => { setRoleFilter(key); setShowFilterMenu(false) }}
-                    className={`block w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-gray-800 ${
-                      roleFilter === key ? 'text-white' : 'text-gray-400'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+      <main className="flex-1 min-w-0 flex flex-col">
+        <Toolbar
+          search={search} onSearch={v => setParams({ q: v })}
+          role={role} onRole={v => setParams({ role: v })}
+          source={source} onSource={v => setParams({ src: v })}
+          date={date} onDate={v => setParams({ date: v })}
+          onRefresh={() => router.refresh()}
+          lastSynced={relativeTime(lastSynced)}
+          showSource={jobs.some(j => j.id.startsWith('ats:'))}
+        />
 
-          <span className="text-xs uppercase tracking-wide text-gray-600 ml-1">Tier</span>
-          {TIER_OPTS.map(({ key, label, activeClass }) => (
-            <button
-              key={key}
-              onClick={() => setTierFilter(key)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                tierFilter === key ? activeClass : INACTIVE_PILL
-              }`}
-            >
-              {label} ({tierCounts[key]})
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-gray-600 mr-1">Status</span>
-          {STATUS_OPTS.map(({ key, label, activeClass }) => (
-            <button
-              key={key}
-              onClick={() => setStatusFilter(key)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                statusFilter === key ? activeClass : INACTIVE_PILL
-              }`}
-            >
-              {label} ({statusCounts[key]})
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* List */}
-      <div className="space-y-3">
-        {hiddenIneligible.length > 0 && (
-          <button
-            onClick={() => setShowIneligible(v => !v)}
-            className="w-full text-left text-xs px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-500 hover:text-gray-300 hover:border-gray-700 transition-colors"
-          >
-            {showIneligible
-              ? `Hide ${hiddenIneligible.length} ineligible`
-              : `Show ${hiddenIneligible.length} ineligible`}
-          </button>
-        )}
-        {displayed.map(job => (
-          <JobCard key={job.id} job={job} onStatusChange={handleStatusChange} />
-        ))}
-        {displayed.length === 0 && jobs.length > 0 && (
-          <div className="text-center py-20 text-gray-600">
-            <p className="text-lg mb-1">No jobs match these filters</p>
-            <p className="text-sm">Try widening the Tier, Status, or Role filter above.</p>
+        {saveError && (
+          <div style={{ padding: 'var(--s2) var(--s4)', fontSize: 'var(--text-data)', color: 'var(--danger)',
+                        borderBottom: '1px solid var(--border)' }}>
+            {saveError}
           </div>
         )}
-        {displayed.length === 0 && jobs.length === 0 && (
-          <div className="text-center py-20 text-gray-600">
-            <p className="text-lg mb-1">No jobs here</p>
-            <p className="text-sm">Scraper runs every 30 minutes — check back soon.</p>
-          </div>
-        )}
-      </div>
+
+        <div className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-surface)' }}>
+          <JobTable
+            rows={rows}
+            cols={cols}
+            selectedId={selectedId}
+            onSelect={id => setParams({ job: id === selectedId ? null : id })}
+            onStatus={onStatus}
+            sort={sort}
+            dir={dir}
+            onSort={c => setParams({ sort: c, dir: sort === c && dir === 'desc' ? 'asc' : 'desc' })}
+            emptyMessage={EMPTY[view]}
+          />
+        </div>
+      </main>
+
+      {selected && (
+        <JobDrawer job={selected} onClose={() => setParams({ job: null })} onStatus={onStatus} />
+      )}
+
+      {toast && (
+        <div role="status" className="fixed left-1/2 -translate-x-1/2 z-50"
+             style={{ bottom: 'var(--s6)', padding: 'var(--s2) var(--s4)', fontSize: 'var(--text-data)',
+                      color: 'var(--fg)', background: 'var(--bg-raised)',
+                      border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)' }}>
+          {toast}
+        </div>
+      )}
     </div>
   )
 }

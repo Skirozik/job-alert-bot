@@ -1,0 +1,142 @@
+import type { Job } from '@/types/job'
+
+/* ── Filters ─────────────────────────────────────────────────────────────
+   A single view key drives BOTH the sidebar selection and the table, so the
+   two cannot drift apart. It is also what round-trips through the URL. */
+
+export type ViewKey =
+  | 'to-apply' | 'caveat' | 'my-list'          // REVIEW
+  | 'applied' | 'saved' | 'dismissed'          // TRACKING
+  | 'ineligible' | 'all'                       // ARCHIVE
+
+export type RoleFilter = 'all' | 'internships' | 'entry-level'
+export type SourceFilter = 'all' | 'direct' | 'linkedin'
+export type DateFilter = 'all' | '24h' | '7d' | '30d'
+
+const INTERN_RE = /intern|internship|co[\s-]?op|apprentice|summer analyst|summer associate|trainee/i
+
+export const isActive = (j: Job) => {
+  const s = j.status ?? 'new'
+  return s !== 'applied' && s !== 'dismissed'
+}
+
+/** The view predicate. REVIEW views are implicitly active-only — a job you've
+ *  already acted on is not still "to apply". TRACKING views are status lookups.
+ *  ARCHIVE is reference. */
+export function matchesView(j: Job, v: ViewKey): boolean {
+  switch (v) {
+    case 'to-apply':   return j.tier === 'APPLY' && isActive(j)
+    case 'caveat':     return j.tier === 'APPLY_CAVEAT' && isActive(j)
+    case 'my-list':    return (j.tier === 'APPLY' || j.tier === 'APPLY_CAVEAT') && isActive(j)
+    case 'applied':    return j.status === 'applied'
+    case 'saved':      return j.status === 'saved'
+    case 'dismissed':  return j.status === 'dismissed'
+    case 'ineligible': return j.tier === 'INELIGIBLE'
+    case 'all':        return true
+  }
+}
+
+export const matchesRole = (j: Job, r: RoleFilter) =>
+  r === 'all' ? true : r === 'internships' ? INTERN_RE.test(j.title) : !INTERN_RE.test(j.title)
+
+export const isDirect = (j: Job) => j.id.startsWith('ats:')
+
+export const matchesSource = (j: Job, s: SourceFilter) =>
+  s === 'all' ? true : s === 'direct' ? isDirect(j) : !isDirect(j)
+
+export function matchesDate(j: Job, d: DateFilter): boolean {
+  if (d === 'all') return true
+  const hours = d === '24h' ? 24 : d === '7d' ? 168 : 720
+  return Date.now() - new Date(j.found_at).getTime() <= hours * 3_600_000
+}
+
+export function matchesSearch(j: Job, q: string): boolean {
+  if (!q.trim()) return true
+  const n = q.toLowerCase()
+  return j.company.toLowerCase().includes(n) || j.title.toLowerCase().includes(n)
+}
+
+/* ── Salary ──────────────────────────────────────────────────────────────
+   The column is ~90px. "$4,000.00/wk - $6,000.00/wk" does not fit, so the
+   table gets a compact form and the drawer keeps the original string
+   verbatim — normalising is for scanning, not a replacement for the source. */
+export function compactSalary(raw: string | null): string {
+  if (!raw) return ''
+  const unit = /\/?\s*(hr|hour|wk|week|mo|month|yr|year)/i.exec(raw)?.[1]?.toLowerCase() ?? ''
+  const u = unit.startsWith('hr') || unit.startsWith('hour') ? '/hr'
+          : unit.startsWith('wk') || unit.startsWith('week') ? '/wk'
+          : unit.startsWith('mo') ? '/mo'
+          : unit.startsWith('yr') || unit.startsWith('year') ? '/yr' : ''
+  const nums: number[] = []
+  const re = /\$\s*([\d,]+(?:\.\d+)?)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(raw)) !== null) nums.push(parseFloat(m[1].replace(/,/g, '')))
+  if (!nums.length) return raw.length > 12 ? raw.slice(0, 11) + '…' : raw
+  const k = (n: number) => (n >= 1000 ? `${+(n / 1000).toFixed(n % 1000 ? 1 : 0)}k` : `${n}`)
+  const [lo, hi] = [nums[0], nums[1]]
+  if (hi != null && hi !== lo) {
+    // Share the k-suffix across a range: "$4–6k/wk", not "$4k–$6k/wk".
+    const bothK = lo >= 1000 && hi >= 1000
+    return bothK ? `$${k(lo).replace('k', '')}–${k(hi)}${u}` : `$${k(lo)}–${k(hi)}${u}`
+  }
+  return `$${k(lo)}${u}`
+}
+
+/* ── Locations ───────────────────────────────────────────────────────────
+   Some postings carry 21 locations concatenated without a separator
+   ("London, UKParis, France"). Split on comma-runs and on a lower→upper
+   boundary, which is where the concatenation seam falls. */
+export function splitLocations(loc: string | null): string[] {
+  if (!loc) return []
+  return loc
+    .replace(/([a-z)])([A-Z])/g, '$1|$2')
+    .split(/\s*\|\s*|\s*;\s*/)
+    .map(s => s.trim())
+    .filter(Boolean)
+}
+
+/* ── Optional columns ────────────────────────────────────────────────────
+   One rule, applied to Resume, Salary and Source alike: a column that has no
+   values in the CURRENT filtered set hides itself. This is what lets the same
+   table serve three personas — Beyonce and Hassan have no suggested_resume
+   column at all — without a per-tenant branch. */
+export type OptionalCol = 'source' | 'resume' | 'salary'
+
+export function visibleOptionalColumns(rows: Job[]): Record<OptionalCol, boolean> {
+  return {
+    source: rows.some(isDirect),
+    resume: rows.some(j => j.suggested_resume && j.suggested_resume !== 'N/A'),
+    salary: rows.some(j => !!j.salary),
+  }
+}
+
+/* ── Sorting ─────────────────────────────────────────────────────────────*/
+export type SortKey = 'company' | 'title' | 'location' | 'found_at'
+export type SortDir = 'asc' | 'desc'
+
+export function sortJobs(rows: Job[], key: SortKey, dir: SortDir): Job[] {
+  const s = [...rows]
+  s.sort((a, b) => {
+    let r: number
+    if (key === 'found_at') r = new Date(a.found_at).getTime() - new Date(b.found_at).getTime()
+    else r = (a[key] ?? '').localeCompare(b[key] ?? '', undefined, { sensitivity: 'base' })
+    return dir === 'asc' ? r : -r
+  })
+  return s
+}
+
+/** "4h ago" — the table form. Full timestamp goes in the title attribute. */
+export function relativeTime(iso: string): string {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const h = Math.round(mins / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.round(h / 24)
+  return d < 30 ? `${d}d ago` : `${Math.round(d / 30)}mo ago`
+}
+
+export const fullTimestamp = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
