@@ -536,6 +536,43 @@ def _try_direct_select(page: Page, field_id: str, text: str) -> str:
         return "error"
 
 
+def _direct_select_and_confirm(page: Page, field_id: str, text: str, want: str) -> bool:
+    """Set the underlying <select> and confirm it stuck. Widget-agnostic.
+
+    Works for anything backed by a <select>, which is every dynamic dropdown on
+    this portal, so it is tried before any widget-specific handling. Confirmation
+    is by the select's VALUE, not by the rendered label: Select2 repaints
+    asynchronously, and IBM's CI/CD options carry no label at all.
+    """
+    outcome = _try_direct_select(page, field_id, text)
+
+    if outcome == "ambiguous":
+        log.warning("Dropdown %s: %r matches more than one option — not choosing.",
+                    field_id, text)
+        return False
+
+    if not (isinstance(outcome, str) and outcome.startswith("set:")):
+        log.debug("Dropdown %s: no direct selection possible (%s).", field_id, outcome)
+        return False
+
+    chosen_value, _, chosen_text = outcome[4:].partition("|")
+    for _ in range(20):
+        if _select_value_is(page, field_id, chosen_value):
+            shown, _src = read_dropdown_choice(page, field_id)
+            label = shown or chosen_text or f"(blank label, value {chosen_value})"
+            if want == "any":
+                log.warning("Dropdown %s: profile says ANY, so it selected %r. "
+                            "Change ibm.skill_levels if that is not what you want.",
+                            field_id, label)
+            else:
+                log.info("Dropdown %s = %r (selected directly, no typing)", field_id, label)
+            return True
+        page.wait_for_timeout(25)
+
+    log.debug("Dropdown %s: value did not stick — falling back to the widget.", field_id)
+    return False
+
+
 def _select_value_is(page: Page, field_id: str, value: str) -> bool:
     """Whether the underlying <select> currently holds this value.
 
@@ -572,42 +609,10 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
     if page.locator(container).count() == 0:
         return False
 
-    # Fast path: the option is already in the DOM, so pick it outright — no
-    # opening, no typing, no results list, no timing to get wrong. Only the
-    # AutoCompleteField dropdowns, whose options arrive from the server on
-    # search, need the interactive path below.
-    outcome = _try_direct_select(page, field_id, text)
-
-    if outcome == "ambiguous":
-        # Two options answering to the same name. A coin flip on a real
-        # application is worse than an unanswered field.
-        log.warning("Dropdown %s: %r matches more than one option — not choosing.",
-                    field_id, text)
-        return False
-
-    if isinstance(outcome, str) and outcome.startswith("set:"):
-        chosen_value, _, chosen_text = outcome[4:].partition("|")
-        # Poll for Select2 to repaint. It re-renders asynchronously, so the
-        # value is already correct here and only the display is catching up —
-        # this normally returns on the first or second check.
-        for _ in range(20):
-            if _select_value_is(page, field_id, chosen_value):
-                shown, _src = read_dropdown_choice(page, field_id)
-                label = shown or chosen_text or f"(blank label, value {chosen_value})"
-                if want == "any":
-                    log.warning("Dropdown %s: profile says ANY, so it selected %r. "
-                                "Change ibm.skill_levels if that is not what you want.",
-                                field_id, label)
-                else:
-                    log.info("Dropdown %s = %r (selected directly, no typing)",
-                             field_id, label)
-                return True
-            page.wait_for_timeout(25)
-        log.debug("Dropdown %s: value set but did not stick — falling back to opening it.",
-                  field_id)
-    else:
-        log.debug("Dropdown %s: direct select unavailable (%s) — opening it.",
-                  field_id, outcome)
+    # The fast path already ran in fill_avature_dropdown, for every widget
+    # rather than only this one. Reaching here means it could not select — the
+    # options are not in the DOM yet, which is the AutoCompleteField case this
+    # interactive path exists for.
 
     try:
         page.evaluate(_SCROLL_CENTRE_JS, container)
@@ -792,13 +797,32 @@ def fill_avature_dropdown(page: Page, locator: Locator, text: str, field_id: str
     if norm(before) == want:
         return True  # already answered — prefilled, or a re-scan pass
 
-    # Select2 is what IBM actually uses; drive it by its own contract.
+    # Direct selection FIRST, for every widget — not just Select2.
+    #
+    # This lives here rather than inside _fill_select2 because it depends only
+    # on there being a <select> behind the widget, which is true of all of
+    # them. Nesting it in the Select2 branch meant a dropdown with no
+    # select2-<id>-container never got the fast path OR the ANY handling, and
+    # "ANY" was typed into a search box as if it were a country name —
+    # exactly what "wanted 'ANY', reads back ''" was reporting for 10542-10.
+    if _direct_select_and_confirm(page, field_id, text, want):
+        return True
+
+    # Select2, driven by its own contract.
     if page.locator(f'[id="select2-{field_id}-container"]').count() > 0:
         ok = _fill_select2(page, field_id, text)
         if ok:
             after, src = read_dropdown_choice(page, field_id)
             log.info("Dropdown %s = %r (confirmed via '%s')", field_id, after, src)
         return ok
+
+    # A dropdown with no rendered options and no Select2 wrapper cannot be
+    # searched, so ANY has nowhere left to go. Say so precisely rather than
+    # typing the literal word into it.
+    if want == "any":
+        log.warning("Dropdown %s: profile says ANY, but its <select> holds no "
+                    "selectable option. Nothing to choose.", field_id)
+        return False
 
     # Click the VISIBLE widget, not the element carrying the id. For a dynamic
     # dropdown that element is the hidden <select>, and clicking a hidden
