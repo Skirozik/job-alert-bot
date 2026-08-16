@@ -284,6 +284,10 @@ _LABEL_MAP = [
     (re.compile(r"Requirements analysis|system architecture", re.I),
      Field("dynamic", "ibm.skill_levels.requirements_analysis",
            "Skill — requirements analysis / architecture")),
+    (re.compile(r"level of experience in REST APIs|\bREST API", re.I),
+     Field("dynamic", "ibm.skill_levels.rest_apis", "Skill — REST APIs")),
+    (re.compile(r"level of experience in Web services", re.I),
+     Field("dynamic", "ibm.skill_levels.web_services", "Skill — web services")),
 ]
 
 
