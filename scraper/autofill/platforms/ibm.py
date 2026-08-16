@@ -219,6 +219,13 @@ _FIELD_MAP = {
     # human — this never picks one.
     "12704": Field("radio_map", "eeo_demographics.gender", "Gender", True,
                    options=_GENDER_OPTIONS),
+
+    # The signature box under the EEO consents. Mapped by ID rather than left
+    # to the label matcher: the id was confirmed from the live DOM
+    # (<input type="text" id="12711" aria-labelledby="12711-label">, label text
+    # "Your name"), and an id that is known is always better evidence than a
+    # label that has to be pattern-matched.
+    "12711": Field("text", None, "Your name", resolver=_full_name),
 }
 
 # Fields matched by their LABEL rather than their id.
@@ -307,7 +314,14 @@ def _label_spec(label: str):
 # answer or decline.
 #
 # 12704 (gender) is deliberately NOT in this range — it is a mapped field above.
-_EEO_RE = re.compile(r"^(1270[5-9]|1271[01])(_|$)|^13602(_|$)")
+# 12711 is NOT in this range, despite sitting inside it numerically. The
+# measured field map recorded "12704-12711 -> EEO block, SKIP", but 12711 is
+# the "Your name" signature box under the consents, not a demographic
+# question. Being caught by this pattern is why it was never filled: it was
+# dropped from the snapshot before any label matching ran, so a correct label
+# ("Your name", resolving from aria-labelledby, label[for] AND a sibling) was
+# matched against a field that had already been discarded.
+_EEO_RE = re.compile(r"^(1270[5-9]|12710)(_|$)|^13602(_|$)")
 
 
 def _is_eeo_id(field_id: str) -> bool:
