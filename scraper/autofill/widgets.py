@@ -78,6 +78,30 @@ def norm(text) -> str:
     return re.sub(r"\s+", " ", str(text)).strip().casefold()
 
 
+def _option_variants(label) -> set:
+    """The names an option legitimately answers to: its full text, and its
+    leading sentence when it is phrased "Label. Long explanation...".
+
+    IBM's skill dropdowns render whole paragraphs —
+        "Extensive Experience. I am proficient in performing this skill across
+         a variety of situations & settings. I need help with this skill only
+         in unusually complex situations."
+    Requiring that verbatim in the profile would be miserable to maintain and
+    would break on any wording tweak, so "Extensive Experience" is accepted too.
+
+    Still not substring matching. The variants are whole units, so "United
+    States" cannot match "United States Minor Outlying Islands" — the failure
+    this module exists to prevent. And the caller refuses to choose at all if
+    two options answer to the same name.
+    """
+    n = norm(label)
+    variants = {n}
+    head = n.split(".")[0].strip()
+    if head and head != n:
+        variants.add(head)
+    return variants
+
+
 def is_placeholder_label(text) -> bool:
     t = norm(text)
     return not t or bool(_PLACEHOLDER_RE.search(t))
@@ -503,26 +527,34 @@ def _fill_select2(page: Page, field_id: str, text: str) -> bool:
         _close_select2(page)
         return False
 
-    # Exact match first. Never a substring — "United States" is a prefix of
-    # "United States Minor Outlying Islands", and picking the wrong country on
-    # a real application is the failure this whole module is built around.
     options = page.locator(".select2-results__option")
-    exact_idx, count = -1, options.count()
-    labels = []
-    for i in range(min(count, 200)):
+    count = options.count()
+    labels, matches = [], []
+    for i in range(min(count, 300)):
         try:
             label = options.nth(i).inner_text()
         except Exception:
             continue
         labels.append(label)
-        if norm(label) == want and exact_idx < 0:
-            exact_idx = i
+        if want in _option_variants(label):
+            matches.append(i)
 
-    if exact_idx < 0:
-        log.warning("Dropdown %s: no option exactly matching %r. Saw: %s",
-                    field_id, text, "; ".join(l.strip() for l in labels[:6]) or "(none)")
+    if not matches:
+        log.warning("Dropdown %s: no option matching %r. Saw: %s",
+                    field_id, text, " | ".join(l.strip()[:60] for l in labels[:6]) or "(none)")
         _close_select2(page)
         return False
+
+    if len(matches) > 1:
+        # Two options answering to the same name. Picking either would be a
+        # coin flip on a real application, so pick neither.
+        log.warning("Dropdown %s: %r matches %d options ambiguously — not choosing. %s",
+                    field_id, text, len(matches),
+                    " | ".join(labels[i].strip()[:50] for i in matches[:3]))
+        _close_select2(page)
+        return False
+
+    exact_idx = matches[0]
 
     try:
         options.nth(exact_idx).click(timeout=3000)

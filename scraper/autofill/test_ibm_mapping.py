@@ -389,6 +389,33 @@ for label, key in [("City", "address_city"), ("State/Province", "address_state")
     got = _mf(label, _addr)
     check(f"{label!r} still routes to {key}", got is not None and got[0] == key)
 
+print("\n-- long option labels match on their leading sentence, unambiguously --")
+from autofill.widgets import _option_variants
+_IBM_SKILL_OPTIONS = [
+    "No Experience.",
+    "Limited Experience. I need additional direction and/or support to demonstrate this skill.",
+    "Demonstrated Experience. I am proficient in performing this skill across routine or predictable situations with little direction / support.",
+    "Extensive Experience. I am proficient in performing this skill across a variety of situations & settings. I need help with this skill only in unusually complex situations.",
+    "Expert. I have mastered this skill. I could instruct and advise others - colleagues and supervisors could consult my expertise in complex situations.",
+]
+
+
+def _hits(want):
+    return [o for o in _IBM_SKILL_OPTIONS if norm(want) in _option_variants(o)]
+
+
+for want in ["No Experience", "Limited Experience", "Demonstrated Experience",
+             "Extensive Experience", "Expert", "expert", "EXTENSIVE EXPERIENCE"]:
+    check(f"{want!r} resolves to exactly one option", len(_hits(want)) == 1,
+          f"matched {len(_hits(want))}")
+check("'Expert' does not also match 'Extensive Experience'",
+      _hits("Expert") == [_IBM_SKILL_OPTIONS[4]])
+check("a bare 'Experience' matches nothing", len(_hits("Experience")) == 0,
+      "an ambiguous stem must not silently pick one")
+check("the substring trap still holds",
+      norm("United States") not in _option_variants("United States Minor Outlying Islands"),
+      "leading-sentence variants must not degrade into prefix matching")
+
 print("\n-- self-assessment questions are never answered from the profile --")
 # Live: "What best describes your level of experience in File versioning
 # software (e.g., Git and GitHub)?" contains "GitHub", so the github_url rule
