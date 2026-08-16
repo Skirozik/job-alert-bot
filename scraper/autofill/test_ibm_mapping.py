@@ -439,6 +439,35 @@ check("the substring trap still holds",
       norm("United States") not in _option_variants("United States Minor Outlying Islands"),
       "leading-sentence variants must not degrade into prefix matching")
 
+print("\n-- every skill question IBM asks routes to its own profile key --")
+# Which skills IBM asks VARIES BY REQUISITION — containers, data structures and
+# cloud appear on only some postings, which is why this family is matched on
+# the question's wording rather than on a field id.
+from autofill.platforms.ibm import _label_spec as _ls
+_SKILL_QUESTIONS = [
+    ("Programming and software development?", "ibm.skill_levels.programming"),
+    ("File versioning software (e.g., Git and GitHub)?", "ibm.skill_levels.version_control"),
+    ("Database management system software (e.g., Hadoop, MongoDB, SQL, etc.)?", "ibm.skill_levels.databases"),
+    ("Automation testing frameworks such as Selenium, etc.?", "ibm.skill_levels.automation_testing"),
+    ("Continuous Integration/Continuous Delivery (CI/CD)?", "ibm.skill_levels.ci_cd"),
+    ("Containers (e.g., Kubernetes, Docker, etc.)?", "ibm.skill_levels.containers"),
+    ("Data structures and algorithms?", "ibm.skill_levels.data_structures"),
+    ("Cloud environments such as AWS, Azure, IBM Cloud, etc.?", "ibm.skill_levels.cloud"),
+]
+for tail, expect_key in _SKILL_QUESTIONS:
+    q = f"What best describes your level of experience in {tail} *"
+    got = _ls(q)
+    check(f"{tail[:42]!r} -> {expect_key.split('.')[-1]}",
+          got is not None and got.key == expect_key,
+          f"got {got.key if got else None}")
+_keys = [k for _, k in _SKILL_QUESTIONS]
+check("no two skill questions share a profile key", len(set(_keys)) == len(_keys))
+for unrelated in ["Are you currently legally authorized to work in the United States?",
+                  "Have you ever worked at IBM before?", "First choice",
+                  "Please select the country where your University or School program is/was located"]:
+    check(f"{unrelated[:40]!r} is not a skill question", _ls(unrelated) is None,
+          "the skill patterns must not swallow unrelated questions")
+
 print("\n-- self-assessment questions are never answered from the profile --")
 # Live: "What best describes your level of experience in File versioning
 # software (e.g., Git and GitHub)?" contains "GitHub", so the github_url rule

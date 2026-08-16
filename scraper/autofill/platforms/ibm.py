@@ -250,6 +250,14 @@ _LABEL_MAP = [
      Field("dynamic", "ibm.skill_levels.ci_cd", "Skill — CI/CD")),
     (re.compile(r"Automation testing frameworks|\bSelenium\b", re.I),
      Field("dynamic", "ibm.skill_levels.automation_testing", "Skill — automation testing")),
+    # These three appear only on some requisitions — more evidence that this
+    # family has to be recognised by its wording rather than by field id.
+    (re.compile(r"level of experience in Containers|Kubernetes,\s*Docker", re.I),
+     Field("dynamic", "ibm.skill_levels.containers", "Skill — containers")),
+    (re.compile(r"Data structures and algorithms", re.I),
+     Field("dynamic", "ibm.skill_levels.data_structures", "Skill — data structures")),
+    (re.compile(r"Cloud environments|AWS,\s*Azure", re.I),
+     Field("dynamic", "ibm.skill_levels.cloud", "Skill — cloud environments")),
 ]
 
 
