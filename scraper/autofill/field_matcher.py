@@ -107,6 +107,9 @@ _RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\be-?mail\b", re.I), "email"),
     (re.compile(r"\bphone\b|\bmobile.*number\b|\btelephone\b", re.I), "phone"),
     (re.compile(r"\bstreet\b|\baddress.*line|\bhome.*address\b", re.I), "address_street"),
+    # NB: the rule above matches "Address line 2" as well as "Address line 1".
+    # _NEVER_MATCH (checked before this table) is what keeps the second line
+    # from being filled with the street.
     (re.compile(r"\bcity\b", re.I), "address_city"),
     (re.compile(r"\bstate\b|\bprovince\b", re.I), "address_state"),
     (re.compile(r"\bzip\b|\bpostal.*code\b", re.I), "address_zip"),
@@ -148,6 +151,27 @@ _FIELD_MATCH_TOOL = {
 }
 
 
+# Labels that must NEVER be routed, whatever the rules or the LLM think.
+#
+# These are fields the profile has no datum for, whose labels are near-misses
+# for one it does. "Address line 2" is the case that bit: the street rule
+# matches "address.*line", so an empty optional second line was filled with the
+# street from line 1 — a duplicated address on a real application, and squarely
+# the authoring this module promises never to do. The profile has no apartment
+# or suite, so the honest answer is to leave it alone.
+#
+# Scoped tightly on purpose: `\bunit\b` alone would swallow "Business Unit",
+# so a unit number must be spelled as one.
+_NEVER_MATCH = re.compile(
+    r"address\s*(?:line\s*)?(?:2|two|ii)\b"
+    r"|\baddress\s*2\b"
+    r"|\bapt\.?\b|\bapartment\b|\bsuite\b|\bste\.?\s*#"
+    r"|\bunit\s*(?:#|no\.?|number)\b"
+    r"|\bfloor\b|\bbuilding\s*(?:name|number|#)",
+    re.I,
+)
+
+
 def match_field(label: str, profile: dict) -> Optional[tuple[str, str]]:
     """Returns (field_key, value) if the label maps to a known, non-empty
     profile field. Returns None if unmapped — caller must flag these for
@@ -155,6 +179,10 @@ def match_field(label: str, profile: dict) -> Optional[tuple[str, str]]:
     flat = _flatten_profile(profile)
     label_clean = label.strip()
     if not label_clean:
+        return None
+
+    # Checked BEFORE the rules and before the LLM, so neither can route these.
+    if _NEVER_MATCH.search(label_clean):
         return None
 
     for pattern, field_key in _RULES:
