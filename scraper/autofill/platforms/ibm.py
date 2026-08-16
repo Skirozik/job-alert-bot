@@ -138,6 +138,15 @@ def _join_locations(profile: dict) -> str:
     return ", ".join(str(p).strip() for p in parts if p and str(p).strip())
 
 
+def _full_name(profile: dict) -> str:
+    """First + last, the way a person signs their name. Defined here, above
+    _LABEL_MAP, because that table references it at import time."""
+    p = profile.get("personal", {}) or {}
+    first = p.get("preferred_first_name") or p.get("legal_first_name") or ""
+    last = p.get("last_name") or ""
+    return f"{str(first).strip()} {str(last).strip()}".strip()
+
+
 # Key convention: for radios the key is the group NAME (that is what "is this
 # answered" is asked of, since the group has several element ids). For every
 # other kind it is the element id.
@@ -210,6 +219,9 @@ _LABEL_MAP = [
      Field("textarea", None, "Top 3 location preferences", resolver=_join_locations)),
     (re.compile(r"available to start|start date.*month.*year|date are you available", re.I),
      Field("text", "ibm.available_start_month_year", "Available start date")),
+    # The signature-style "Your name" box under the EEO consents.
+    (re.compile(r"^your name\b|^name\s*\(signature\)|^signature$", re.I),
+     Field("text", None, "Your name", resolver=_full_name)),
 
     # Self-assessment dropdowns. These are ROUTED from levels the candidate
     # states in their own profile — never inferred from a resume, never
@@ -263,11 +275,33 @@ def _is_eeo_id(field_id: str) -> bool:
 # so it printed the right answer while the form held the wrong one. Routing a
 # self-identification answer means mapping the stored value to a specific
 # option and proving the label agrees, never picking one and calling it routed.
+#
+# The veteran question is asked three separate ways — a dropdown (12710) and
+# two radio groups (12707 "Are you a veteran?", 12708 "Are you a protected
+# veteran?"). Each is answered independently from its own profile key.
+_YESNO_DECLINE_OPTIONS = {
+    "yes": ("741283", r"\byes\b"),
+    "no": ("741284", r"\bno\b"),
+    "true": ("741283", r"\byes\b"),
+    "false": ("741284", r"\bno\b"),
+    "decline": ("741285", r"not wish|decline|prefer not"),
+    "prefer not to say": ("741285", r"not wish|decline|prefer not"),
+    "i do not wish to answer": ("741285", r"not wish|decline|prefer not"),
+}
+
 _EEO_OPTIONAL = {
     "12706": ("eeo_demographics.race_ethnicity", "dynamic", "Race", None),
     "12710": ("eeo_demographics.veteran_status", "dynamic", "Veteran status", None),
     "12709": ("eeo_demographics.disability_status", "radio_map", "Disability",
               _DISABILITY_OPTIONS),
+    "12707": ("eeo_demographics.is_veteran", "radio_map", "Are you a veteran",
+              _YESNO_DECLINE_OPTIONS),
+    "12708": ("eeo_demographics.is_protected_veteran", "radio_map",
+              "Are you a protected veteran", _YESNO_DECLINE_OPTIONS),
+    # Hispanic / Non-Hispanic, resolved by label rather than by option id —
+    # its ids are portal-instance values, the class the module already
+    # distrusts (see 20527).
+    "12705": ("eeo_demographics.ethnicity", "radio_value", "Ethnicity", None),
 }
 
 
@@ -283,6 +317,22 @@ def _eeo_has_value(profile: dict, field_id: str):
     if value is None or not str(value).strip():
         return None
     return (dotted, kind, label, value, options)
+
+
+def _consent_spec(field_id: str, profile: dict):
+    """The two "I authorize the use of my responses..." checkboxes in IBM's
+    Being You section, at 13602_*.
+
+    Gated on an explicit profile bool and always surfaced in the filled list,
+    because ticking a consent quietly is exactly what this tool must not do.
+    A false or missing value leaves both for the human.
+    """
+    if not re.match(r"^13602(_|$)", field_id or ""):
+        return None
+    if not _lookup(profile, "eeo_demographics.authorize_response_use"):
+        return None
+    return Field("check", "eeo_demographics.authorize_response_use",
+                 "Authorize use of responses")
 
 
 def _eeo_spec(field_id: str):
@@ -581,7 +631,10 @@ def _logical_fields(raw: list, profile: Optional[dict] = None) -> list:
             return False
         if not _is_eeo_id(key):
             return True
-        return profile is not None and _eeo_has_value(profile, key) is not None
+        if profile is None:
+            return False
+        return (_eeo_has_value(profile, key) is not None
+                or _consent_spec(key, profile) is not None)
 
     out = []
     for name, rows in groups.items():
@@ -608,7 +661,7 @@ def _is_answered(page, key: str, kind: Optional[str], rows: list) -> bool:
     kind = (spec.kind if spec else None) or kind
     el = rows[0]
 
-    if kind in ("yesno", "radio_label", "radio_map") or el["type"] == "radio":
+    if kind in ("yesno", "radio_label", "radio_map", "radio_value") or el["type"] == "radio":
         return any(r["checked"] for r in rows)
     if kind == "check" or el["type"] == "checkbox":
         return el["checked"]
@@ -707,6 +760,24 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
         loc = _loc(page, f"{key}_{opt}")
         if loc.count() == 0:
             return (False, f"option element {key}_{opt} not found")
+        loc.check()
+        return (loc.is_checked(), "")
+
+    if spec.kind == "radio_value":
+        # Pick the option whose rendered label IS the stored value. Used where
+        # the option ids are portal-instance numbers not worth trusting and the
+        # labels are short and unambiguous ("Hispanic" / "Non-Hispanic").
+        want = norm(value)
+        hits = [r for r in rows
+                if norm(r.get("option_label") or r.get("label")) == want]
+        if not hits:
+            seen = ", ".join(
+                (r.get("option_label") or r.get("label") or "?") for r in rows[:5])
+            return (False, f"no option labelled {value!r} in group {key} (saw: {seen})")
+        if len(hits) > 1:
+            return (False, f"{value!r} matches {len(hits)} options in group {key} — "
+                           f"not choosing between them")
+        loc = _loc(page, hits[0]["id"])
         loc.check()
         return (loc.is_checked(), "")
 
@@ -820,6 +891,8 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
             # builder _is_answered uses, so the two cannot drift apart.
             if spec is None and _eeo_has_value(profile, key) is not None:
                 spec = _eeo_spec(key)
+            if spec is None:
+                spec = _consent_spec(key, profile)
 
             # Then by label, for the fields whose ids move between requisitions.
             if spec is None:

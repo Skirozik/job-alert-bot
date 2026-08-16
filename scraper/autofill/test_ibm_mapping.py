@@ -244,6 +244,25 @@ check("the retry loop stops when a retry adds nothing new",
       "filled_before" in _adv_src,
       "otherwise each retry repeats the same work")
 
+print("\n-- no control characters in any source (the \\b -> 0x08 trap) --")
+# This repo has hit this four times now: db.py's norm_role, classifier.py's
+# regexes, jobView.ts's splitLocations, and ibm.py's "^your name\b". Writing
+# regex through a generator script puts "\b" inside a NON-raw Python string,
+# where it becomes a literal 0x08 BACKSPACE before the file is ever written.
+# The pattern then silently matches nothing, which looks exactly like a field
+# the form did not render.
+import pathlib as _pl
+_ctrl = {b"\x08": r"\b backspace", b"\x0c": r"\f formfeed",
+         b"\x07": r"\a bell", b"\x0b": r"\v vertical tab"}
+_dirty = []
+for _f in sorted(_pl.Path(__file__).parent.rglob("*.py")):
+    _raw = _f.read_bytes()
+    for _c, _name in _ctrl.items():
+        if _c in _raw:
+            _dirty.append(f"{_f.name}:{_raw[:_raw.index(_c)].count(chr(10).encode()) + 1} {_name}")
+check("no stray control characters in autofill sources", not _dirty,
+      "; ".join(_dirty) or "")
+
 print("\n-- placeholder labels: a dropdown showing its placeholder is EMPTY --")
 # Avature renders "Select an option". The old fixed set had "select" and
 # "select..." but not that, so every dynamic dropdown read as already-answered,
