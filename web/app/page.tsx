@@ -7,6 +7,31 @@ import type { Job } from '@/types/job'
 // another.
 export const dynamic = 'force-dynamic'
 
+// PostgREST caps every response at 1000 rows. A query without an explicit
+// limit does NOT error when it exceeds that — it silently returns the first
+// 1000, so the shortfall is invisible from the response alone.
+//
+// This bit us: once the tracked set (applied/saved/dismissed) grew past 1000,
+// 130 applied jobs stopped appearing on the dashboard. They were never
+// deleted; ordering is found_at.desc, so the OLDEST tracked rows were the ones
+// silently dropped, and the history looked like it had been trimmed.
+//
+// Any query that can legitimately exceed 1000 rows must page through. The
+// INELIGIBLE query is exempt because its limit=500 is a deliberate cap, not an
+// accident.
+const PAGE = 1000
+
+async function fetchPaged(url: string, key: string, query: string, personaId: string): Promise<Job[]> {
+  const all: Job[] = []
+  for (let offset = 0; ; offset += PAGE) {
+    const page = await fetchJobs(url, key, `${query}&limit=${PAGE}&offset=${offset}`, personaId)
+    all.push(...page)
+    if (page.length < PAGE) return all
+    // Runaway guard: 50k rows is far beyond any real persona's tracked set.
+    if (all.length >= 50_000) return all
+  }
+}
+
 async function fetchJobs(url: string, key: string, query: string, personaId: string): Promise<Job[]> {
   const res = await fetch(`${url}/rest/v1/jobs?${query}`, {
     headers: {
@@ -39,8 +64,8 @@ export default async function HomePage() {
   //   - tier APPLY/APPLY_CAVEAT + status = 'new': jobs awaiting your decision
   //   - tier INELIGIBLE + status = 'new': hard-blocked, fine to trim by age
   const [tracked, activeReview, skipRecent] = await Promise.all([
-    fetchJobs(url, key, 'select=*&status=neq.new&order=found_at.desc', id),
-    fetchJobs(url, key, 'select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', id),
+    fetchPaged(url, key, 'select=*&status=neq.new&order=found_at.desc', id),
+    fetchPaged(url, key, 'select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', id),
     fetchJobs(url, key, 'select=*&status=eq.new&tier=eq.INELIGIBLE&order=found_at.desc&limit=500', id),
   ])
 
