@@ -162,12 +162,25 @@ _FIELD_MATCH_TOOL = {
 #
 # Scoped tightly on purpose: `\bunit\b` alone would swallow "Business Unit",
 # so a unit number must be spelled as one.
+# Self-assessment questions are the second family here, and they matter more.
+# "What best describes your level of experience in File versioning software
+# (e.g., Git and GitHub)?" contains "GitHub", so the github_url rule fired and
+# the tool typed https://github.com/... into a proficiency dropdown. The
+# profile stores no skill ratings, so the honest answer to every one of these
+# is that it has nothing to say — and a rating the candidate did not give is
+# the purest form of the authoring this module forbids.
 _NEVER_MATCH = re.compile(
     r"address\s*(?:line\s*)?(?:2|two|ii)\b"
     r"|\baddress\s*2\b"
     r"|\bapt\.?\b|\bapartment\b|\bsuite\b|\bste\.?\s*#"
     r"|\bunit\s*(?:#|no\.?|number)\b"
-    r"|\bfloor\b|\bbuilding\s*(?:name|number|#)",
+    r"|\bfloor\b|\bbuilding\s*(?:name|number|#)"
+    r"|level of (?:experience|proficiency|expertise)"
+    r"|years? of experience"
+    r"|best describes your"
+    r"|how (?:would you )?(?:rate|proficient)"
+    r"|\bproficiency\b"
+    r"|rate your\b",
     re.I,
 )
 

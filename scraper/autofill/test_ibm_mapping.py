@@ -389,6 +389,27 @@ for label, key in [("City", "address_city"), ("State/Province", "address_state")
     got = _mf(label, _addr)
     check(f"{label!r} still routes to {key}", got is not None and got[0] == key)
 
+print("\n-- self-assessment questions are never answered from the profile --")
+# Live: "What best describes your level of experience in File versioning
+# software (e.g., Git and GitHub)?" contains "GitHub", so the github_url rule
+# fired and a URL was typed into a proficiency dropdown. The profile stores no
+# skill ratings, so inventing one is the purest form of authoring.
+_skills = {"personal": {"github_url": "https://github.com/Skirozik",
+                        "linkedin_url": "https://linkedin.com/in/x", "email": "a@b.c"}}
+for label in [
+    "What best describes your level of experience in File versioning software (e.g., Git and GitHub)?",
+    "What best describes your level of experience in Programming and software development?",
+    "What best describes your level of experience in Database management system software (e.g., Hadoop, MongoDB, SQL, etc.)?",
+    "Years of experience with Python",
+    "Rate your proficiency in Java",
+]:
+    check(f"{label[:44]!r}... left alone", _mf(label, _skills) is None)
+for label, key in [("GitHub URL", "github_url"), ("LinkedIn URL", "linkedin_url"),
+                   ("Email", "email")]:
+    got = _mf(label, _skills)
+    check(f"{label!r} still routes", got is not None and got[0] == key,
+          "the guard must not swallow the real profile fields")
+
 print("\n-- dynamic EEO fields read as answered (no re-fill every pass) --")
 check("_eeo_spec gives 12706 a dynamic kind", _eeo_spec("12706").kind == "dynamic",
       "without this _is_answered falls through to the plain-select branch")
