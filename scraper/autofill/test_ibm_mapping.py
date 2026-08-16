@@ -370,6 +370,25 @@ check("a stored False still yields No", flat["requires_sponsorship"] == "No")
 check("a stored False relocate yields No", flat["willing_to_relocate"] == "No")
 check("resides_in_us still computed when country is present", flat["resides_in_us"] == "Yes")
 
+print("\n-- an optional near-miss field is left alone, not filled with a neighbour --")
+# Observed live on IBM step 40%: "Address line 2" was empty and optional, and
+# the street rule (\baddress.*line) matched it, so the tool typed line 1's
+# street into it. A duplicated address on a real application, and exactly the
+# authoring field_matcher promises never to do.
+from autofill.field_matcher import match_field as _mf
+_addr = {"personal": {"address": {"street": "1177 Sells Ave SW", "city": "Atlanta",
+                                  "state": "GA", "zip": "30310", "country": "United States"}}}
+for label in ["Address line 1", "Address Line 1 *", "Street Address"]:
+    check(f"{label!r} still fills", _mf(label, _addr) is not None)
+for label in ["Address line 2", "Address Line 2", "Address line 2 (optional)",
+              "Address 2", "Apt", "Apartment", "Suite", "Unit Number", "Floor"]:
+    check(f"{label!r} is left alone", _mf(label, _addr) is None,
+          "the profile has no apartment/suite, so the honest answer is to not fill it")
+for label, key in [("City", "address_city"), ("State/Province", "address_state"),
+                   ("Country", "address_country"), ("Zip", "address_zip")]:
+    got = _mf(label, _addr)
+    check(f"{label!r} still routes to {key}", got is not None and got[0] == key)
+
 print("\n-- dynamic EEO fields read as answered (no re-fill every pass) --")
 check("_eeo_spec gives 12706 a dynamic kind", _eeo_spec("12706").kind == "dynamic",
       "without this _is_answered falls through to the plain-select branch")
