@@ -182,9 +182,14 @@ _FIELD_MAP = {
     "10530": Field("yesno", "ibm.worked_at_ibm_before", "Worked at IBM before"),
     "35979_month": Field("select", "ibm.birth_month", "Month of birth", True),
     "35979_day": Field("select", "ibm.birth_day", "Day of birth", True),
-    "10542-1": Field("select", "ibm.willing_to_relocate", "Willing to relocate"),
-    "10542-2": Field("textarea", None, "Top 3 location preferences", resolver=_join_locations),
-    "10542-3": Field("text", "ibm.available_start_month_year", "Available start date"),
+    # NOTHING from the 10542-N group is mapped by id. Its sub-indices move
+    # between requisitions, and the consequence was not a missed field but a
+    # WRONG one: on jobId 128526, 10542-3 is the "top 3 location preferences"
+    # textarea, so the hardcoded entry for it typed the start date
+    # ("01/27 and 05/27") into the preferences box while leaving the real start
+    # date empty. _FIELD_MAP is consulted before _LABEL_MAP, so the stale id
+    # beat the correct label. Every field in this group is matched on what it
+    # asks — see _LABEL_MAP.
     "20400": Field("select", "ibm.hybrid_requirement", "Can meet hybrid requirement"),
     "21272": Field("file", None, "Resume / CV", True,
                    resolver=lambda p: None),   # handled specially, needs the job dict
@@ -228,10 +233,12 @@ _FIELD_MAP = {
 # Checked after _FIELD_MAP and before the match_field fallback, so a stable id
 # still wins when there is one.
 _LABEL_MAP = [
-    (re.compile(r"top\s*3\s*preferences|list their top 3", re.I),
+    (re.compile(r"top\s*3\s*preferences|top three preferences|list their top 3", re.I),
      Field("textarea", None, "Top 3 location preferences", resolver=_join_locations)),
     (re.compile(r"available to start|start date.*month.*year|date are you available", re.I),
      Field("text", "ibm.available_start_month_year", "Available start date")),
+    (re.compile(r"are you willing to relocate", re.I),
+     Field("select", "ibm.willing_to_relocate", "Willing to relocate")),
     # The signature-style "Your name" box under the EEO consents.
     (re.compile(r"^your name\b|^name\s*\(signature\)|^signature$", re.I),
      Field("text", None, "Your name", resolver=_full_name)),
@@ -258,6 +265,12 @@ _LABEL_MAP = [
      Field("dynamic", "ibm.skill_levels.data_structures", "Skill — data structures")),
     (re.compile(r"Cloud environments|AWS,\s*Azure", re.I),
      Field("dynamic", "ibm.skill_levels.cloud", "Skill — cloud environments")),
+    (re.compile(r"level of experience in Data Analytics|regressions,\s*clustering", re.I),
+     Field("dynamic", "ibm.skill_levels.data_analytics", "Skill — data analytics")),
+    (re.compile(r"Data Science frameworks|\bPandas\b", re.I),
+     Field("dynamic", "ibm.skill_levels.data_science_frameworks", "Skill — data science frameworks")),
+    (re.compile(r"Data warehousing|extract,\s*transform,\s*load|\bETL\b", re.I),
+     Field("dynamic", "ibm.skill_levels.data_warehousing", "Skill — data warehousing / ETL")),
 ]
 
 
@@ -700,7 +713,14 @@ def _is_answered(page, key: str, kind: Optional[str], rows: list) -> bool:
         # so all four dynamic dropdowns were skipped without ever appearing in
         # the report, and the form rejected the step for fields the tool had
         # quietly declined to fill.
-        return read_dropdown_choice(page, key, trusted_only=True)[0] != ""
+        if read_dropdown_choice(page, key, trusted_only=True)[0] != "":
+            return True
+        # A blank-labelled option has no text to read back — IBM's CI/CD
+        # dropdown renders its options with empty labels — so the submitted
+        # VALUE is the only evidence it was answered. Without this the
+        # read-back demoted a correct fill to "reported filled but reads back
+        # EMPTY" and the field was re-offered on every pass.
+        return bool((el.get("value") or "").strip())
     if el["tag"] == "select":
         return bool(el["value"].strip()) and not is_placeholder_label(el["selected_text"])
     return bool(el["value"].strip())
@@ -859,6 +879,20 @@ def _fill_one(page, key: str, spec: Field, value, rows: list) -> tuple:
 
     if spec.kind in ("text", "textarea"):
         loc = _loc(page, key)
+        # The DOM outranks the map on what KIND a field is. On jobId 128526 the
+        # "top 3 preferences" question is a <select>, not the textarea it is on
+        # other requisitions, and fill() on a <select> raises
+        # "Element is not an <input>, <textarea> or [contenteditable]". Since
+        # the same question changes control type between postings, trust what
+        # is actually on the page.
+        if (rows[0].get("tag") or "") == "select":
+            ok = fill_plain_select(loc, str(value))
+            if ok:
+                return (True, "")
+            if fill_avature_dropdown(page, loc, str(value), key):
+                return (True, "")
+            return (False, f"rendered as a dropdown here, and no option matches "
+                           f"'{value}' — check it yourself")
         paste_text(loc, str(value))
         return (bool(loc.input_value().strip()), "")
 
