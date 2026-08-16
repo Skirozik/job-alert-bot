@@ -23,7 +23,7 @@ if hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import get_client
 from autofill.profile_loader import load_profile, ProfileError
-from autofill.browser import launch_browser, has_visible_captcha_challenge
+from autofill.browser import close_browser, launch_browser, has_visible_captcha_challenge
 from autofill.platforms.dispatch import detect_platform, get_filler
 
 logging.basicConfig(
@@ -103,8 +103,7 @@ def run(job_id: str):
             log.info("Marked as applied in the dashboard.")
 
     finally:
-        context.close()
-        pw.stop()
+        close_browser(pw, context)
 
 
 if __name__ == "__main__":

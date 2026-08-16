@@ -16,6 +16,8 @@ platforms/greenhouse.py) runs some form of bot detection (reCAPTCHA
 Enterprise on Greenhouse, confirmed live), so this isn't optional polish.
 """
 
+import json
+import logging
 import random
 import sys
 import time
@@ -25,6 +27,64 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import AUTOFILL_BROWSER_PROFILE_DIR
 
 from playwright.sync_api import sync_playwright, Locator, BrowserContext, Page
+
+log = logging.getLogger(__name__)
+
+# Cookie snapshot, kept beside the profile rather than inside it so Chrome
+# never touches it.
+#
+# A persistent profile is NOT enough to stay logged in. Chrome deletes every
+# cookie with no expiry when the browser closes — that is the definition of a
+# session cookie — and IBM/Avature holds the signed-in state in exactly that
+# kind. So the profile preserved the saved password but not the session, and
+# every run started logged out. storage_state() captures session cookies too,
+# so snapshotting on close and re-injecting on launch is what actually carries
+# the login across runs.
+_SESSION_FILE = AUTOFILL_BROWSER_PROFILE_DIR.parent / "autofill_session.json"
+
+
+def save_session(context: BrowserContext) -> None:
+    """Snapshot cookies so the next run starts signed in. Call BEFORE close()."""
+    try:
+        state = context.storage_state()
+        _SESSION_FILE.write_text(json.dumps(state), encoding="utf-8")
+        log.debug("Saved %d cookies to %s", len(state.get("cookies", [])), _SESSION_FILE)
+    except Exception as exc:
+        # Never let a snapshot failure take down a run that otherwise worked.
+        log.debug("Could not save session: %s", exc)
+
+
+def _restore_session(context: BrowserContext) -> None:
+    if not _SESSION_FILE.exists():
+        return
+    try:
+        cookies = json.loads(_SESSION_FILE.read_text(encoding="utf-8")).get("cookies", [])
+        if cookies:
+            context.add_cookies(cookies)
+            log.debug("Restored %d cookies", len(cookies))
+    except Exception as exc:
+        log.debug("Could not restore session: %s", exc)
+
+
+def profile_in_use() -> bool:
+    """Whether another Chrome already holds this profile.
+
+    Two Chromes on one user-data-dir is not supported: the second either fails
+    to launch or runs against a locked cookie store and silently loses whatever
+    it writes. Worth detecting so it surfaces as an explanation rather than a
+    puzzling re-login.
+    """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "@(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+             "Where-Object { $_.CommandLine -like '*autofill_browser_profile*' }).Count"],
+            capture_output=True, text=True, timeout=15,
+        )
+        return int((out.stdout or "0").strip() or 0) > 0
+    except Exception:
+        return False
 
 
 def launch_browser(allow_extensions: bool = False):
@@ -80,8 +140,24 @@ def launch_browser(allow_extensions: bool = False):
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
     )
 
+    _restore_session(context)
+
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page
+
+
+def close_browser(pw, context) -> None:
+    """Snapshot the session, then tear down in the required order.
+
+    Every caller used `finally: context.close(); pw.stop()`, which loses the
+    session cookies the next run needs. This is that teardown plus the
+    snapshot, so no caller has to remember it.
+    """
+    save_session(context)
+    try:
+        context.close()
+    finally:
+        pw.stop()
 
 
 def human_pause(min_s: float = 0.4, max_s: float = 1.4) -> None:
