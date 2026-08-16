@@ -439,6 +439,24 @@ check("the substring trap still holds",
       norm("United States") not in _option_variants("United States Minor Outlying Islands"),
       "leading-sentence variants must not degrade into prefix matching")
 
+# A bare "Yes" must answer a sentence-worded yes/no, because IBM asks the same
+# relocate question both ways — but only when exactly one option answers to it.
+_RELOCATE = ["Select an option", "Yes, I am willing to relocate.",
+             "No, I am not willing to relocate."]
+def _hit(w, opts):
+    return [o for o in opts if norm(w) in _option_variants(o)]
+check("'Yes' matches the sentence-worded yes option",
+      _hit("Yes", _RELOCATE) == ["Yes, I am willing to relocate."])
+check("'No' matches only the no option",
+      _hit("No", _RELOCATE) == ["No, I am not willing to relocate."])
+check("two options answering to 'Yes' stay ambiguous, so the caller refuses",
+      len(_hit("Yes", ["Yes, option one", "Yes, option two"])) == 2,
+      "a tie must never resolve to the first option")
+check("the comma variant does not reopen the United States trap",
+      _hit("United States", ["United States", "United States Minor Outlying Islands"])
+      == ["United States"],
+      "an exact match must still win outright")
+
 print("\n-- every skill question IBM asks routes to its own profile key --")
 # Which skills IBM asks VARIES BY REQUISITION — containers, data structures and
 # cloud appear on only some postings, which is why this family is matched on
