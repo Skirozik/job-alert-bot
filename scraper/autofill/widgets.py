@@ -327,7 +327,13 @@ def fill_avature_dropdown(page: Page, locator: Locator, text: str, field_id: str
             "have committed. Check this field before submitting.", field_id,
         )
 
-    log.debug("Dropdown %s = %r (verified via %s)", field_id, after, after_src)
+    # INFO, not debug. Which source confirms a dropdown could not be determined
+    # without a live logged-in session, so the chain carries four candidates and
+    # this line is how the winner gets identified from a real run's log — after
+    # which the chain gets trimmed to the one that works.
+    trusted, _ = read_dropdown_choice(page, field_id, trusted_only=True)
+    log.info("Dropdown %s = %r (confirmed via '%s'%s)", field_id, after, after_src,
+             "" if trusted else "; NOT visible to the trusted sources")
     return True
 
 
