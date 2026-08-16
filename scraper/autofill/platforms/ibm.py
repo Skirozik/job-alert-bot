@@ -194,6 +194,48 @@ _FIELD_MAP = {
                    options=_GENDER_OPTIONS),
 }
 
+# Fields matched by their LABEL rather than their id.
+#
+# The 10542-N group's sub-indices are NOT stable across requisitions, which the
+# measured field map got wrong. On jobId 129227 the top-3-locations textarea is
+# 10542-5 (mapped as -2) and the start date is 10542-9 (mapped as -3). The
+# start date only got filled at all because the generic label fallback happened
+# to catch it. Anything in this group has to be recognised by what it asks, not
+# by where it sits.
+#
+# Checked after _FIELD_MAP and before the match_field fallback, so a stable id
+# still wins when there is one.
+_LABEL_MAP = [
+    (re.compile(r"top\s*3\s*preferences|list their top 3", re.I),
+     Field("textarea", None, "Top 3 location preferences", resolver=_join_locations)),
+    (re.compile(r"available to start|start date.*month.*year|date are you available", re.I),
+     Field("text", "ibm.available_start_month_year", "Available start date")),
+
+    # Self-assessment dropdowns. These are ROUTED from levels the candidate
+    # states in their own profile — never inferred from a resume, never
+    # guessed. A blank profile value leaves the field for the human, exactly as
+    # before this map existed.
+    (re.compile(r"level of experience in Programming and software", re.I),
+     Field("dynamic", "ibm.skill_levels.programming", "Skill — programming")),
+    (re.compile(r"level of experience in File versioning|\bGit and GitHub\b", re.I),
+     Field("dynamic", "ibm.skill_levels.version_control", "Skill — version control")),
+    (re.compile(r"level of experience in Database management", re.I),
+     Field("dynamic", "ibm.skill_levels.databases", "Skill — databases")),
+    (re.compile(r"Continuous Integration|CI/CD", re.I),
+     Field("dynamic", "ibm.skill_levels.ci_cd", "Skill — CI/CD")),
+    (re.compile(r"Automation testing frameworks|\bSelenium\b", re.I),
+     Field("dynamic", "ibm.skill_levels.automation_testing", "Skill — automation testing")),
+]
+
+
+def _label_spec(label: str):
+    """The Field for a label-recognised question, or None."""
+    for pattern, spec in _LABEL_MAP:
+        if pattern.search(label or ""):
+            return spec
+    return None
+
+
 # The rest of the EEO / self-identification block. These are OPTIONAL on IBM's
 # form, and are skipped unless the profile carries an explicit value — see
 # _eeo_has_value. Skipped silently rather than listed as unmapped, because a
@@ -562,7 +604,7 @@ def _is_answered(page, key: str, kind: Optional[str], rows: list) -> bool:
     # underlying <select>, exactly what a dynamic widget leaves empty. It
     # therefore read as unanswered forever, was re-filled on every pass, and
     # burned all six passes before a spurious "still unanswered" warning.
-    spec = _FIELD_MAP.get(key) or _eeo_spec(key)
+    spec = _FIELD_MAP.get(key) or _eeo_spec(key) or _label_spec(rows[0].get("label") or "")
     kind = (spec.kind if spec else None) or kind
     el = rows[0]
 
@@ -778,6 +820,10 @@ def fill_current_step(page, job: dict, profile: dict) -> dict:
             # builder _is_answered uses, so the two cannot drift apart.
             if spec is None and _eeo_has_value(profile, key) is not None:
                 spec = _eeo_spec(key)
+
+            # Then by label, for the fields whose ids move between requisitions.
+            if spec is None:
+                spec = _label_spec(rows[0].get("label") or "")
 
             # Re-check visibility: a cascade triggered earlier in THIS pass can
             # hide a field that was visible when the snapshot was taken. That is
