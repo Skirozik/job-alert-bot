@@ -375,6 +375,110 @@ def _wait_for_options(page: Page, timeout_ms: int = 5000) -> bool:
         return False
 
 
+def _fill_select2(page: Page, field_id: str, text: str) -> bool:
+    """Drive a Select2 dropdown by its own contract rather than by keystrokes
+    aimed at whatever happens to have focus.
+
+    Select2 renders its search box and results list in a `.select2-dropdown`
+    appended to <body>, NOT inside the field's container. Typing through
+    page.keyboard therefore only lands if focus happened to move there, which
+    is why every dropdown reported `reads back '' (source: none)`: the control
+    opened, the keystrokes went nowhere, and Enter selected nothing.
+
+    Selection is by clicking the option whose text matches EXACTLY. Enter takes
+    whatever Select2 has highlighted, which is how "United States" became
+    "United States Minor Outlying Islands" during the original DOM survey.
+    """
+    want = norm(text)
+    container = f'[id="select2-{field_id}-container"]'
+    if page.locator(container).count() == 0:
+        return False
+
+    try:
+        page.evaluate(_SCROLL_CENTRE_JS, container)
+        human_pause(0.15, 0.3)
+    except Exception:
+        pass
+
+    opened = False
+    try:
+        page.locator(container).click(timeout=4000)
+        opened = True
+    except Exception:
+        try:
+            opened = bool(page.evaluate(_MOUSEDOWN_JS, container))
+        except Exception:
+            opened = False
+    if not opened:
+        log.warning("Dropdown %s: could not open the Select2 control.", field_id)
+        return False
+
+    try:
+        page.wait_for_selector(".select2-dropdown, .select2-container--open", timeout=3000)
+    except Exception:
+        log.warning("Dropdown %s: clicked, but Select2 never opened.", field_id)
+        return False
+    human_pause(0.2, 0.4)
+
+    # Type into Select2's own search box when it has one. Some instances are
+    # configured without it (minimumResultsForSearch), in which case the list
+    # is already complete and filtering is unnecessary.
+    search = page.locator(".select2-search__field")
+    if search.count() > 0 and search.first.is_visible():
+        try:
+            search.first.type(text, delay=random.uniform(40, 110))
+            human_pause(0.5, 0.9)
+        except Exception as exc:
+            log.debug("Dropdown %s: could not type into the search box: %s", field_id, exc)
+
+    try:
+        page.wait_for_selector(".select2-results__option", timeout=3000)
+    except Exception:
+        log.warning("Dropdown %s: no options rendered for %r.", field_id, text)
+        _close_select2(page)
+        return False
+
+    # Exact match first. Never a substring — "United States" is a prefix of
+    # "United States Minor Outlying Islands", and picking the wrong country on
+    # a real application is the failure this whole module is built around.
+    options = page.locator(".select2-results__option")
+    exact_idx, count = -1, options.count()
+    labels = []
+    for i in range(min(count, 200)):
+        try:
+            label = options.nth(i).inner_text()
+        except Exception:
+            continue
+        labels.append(label)
+        if norm(label) == want and exact_idx < 0:
+            exact_idx = i
+
+    if exact_idx < 0:
+        log.warning("Dropdown %s: no option exactly matching %r. Saw: %s",
+                    field_id, text, "; ".join(l.strip() for l in labels[:6]) or "(none)")
+        _close_select2(page)
+        return False
+
+    try:
+        options.nth(exact_idx).click(timeout=3000)
+    except Exception as exc:
+        log.warning("Dropdown %s: could not click the matching option (%s).", field_id, exc)
+        _close_select2(page)
+        return False
+
+    human_pause(0.3, 0.6)
+    after, _ = read_dropdown_choice(page, field_id)
+    return norm(after) == want
+
+
+def _close_select2(page: Page) -> None:
+    """Leave no dropdown hanging open over the next field."""
+    try:
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+
+
 def fill_avature_dropdown(page: Page, locator: Locator, text: str, field_id: str) -> bool:
     """Fills a dynamic Avature dropdown: click it, type the search text, press
     Enter. Returns whether the widget is DISPLAYING that exact label
@@ -396,6 +500,14 @@ def fill_avature_dropdown(page: Page, locator: Locator, text: str, field_id: str
     before, before_src = read_dropdown_choice(page, field_id)
     if norm(before) == want:
         return True  # already answered — prefilled, or a re-scan pass
+
+    # Select2 is what IBM actually uses; drive it by its own contract.
+    if page.locator(f'[id="select2-{field_id}-container"]').count() > 0:
+        ok = _fill_select2(page, field_id, text)
+        if ok:
+            after, src = read_dropdown_choice(page, field_id)
+            log.info("Dropdown %s = %r (confirmed via '%s')", field_id, after, src)
+        return ok
 
     # Click the VISIBLE widget, not the element carrying the id. For a dynamic
     # dropdown that element is the hidden <select>, and clicking a hidden
