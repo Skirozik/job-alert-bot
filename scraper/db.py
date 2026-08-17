@@ -184,7 +184,13 @@ def finish_run(run_id: Optional[int], **stats) -> None:
 
 
 def insert_job(job: dict) -> bool:
-    """Insert a classified job into Supabase. Returns True on success, False on failure."""
+    """Insert a classified job into Supabase. Returns True on success, False on failure.
+
+    NOTE the asymmetry with update_job_classification(): this upserts with
+    ignore_duplicates=True (ON CONFLICT DO NOTHING), so calling it for a row
+    that already exists changes NOTHING. Promoting a parked PENDING row must go
+    through update_job_classification, not through here.
+    """
     client = get_client()
     payload = {
         "id": job["id"],
@@ -211,3 +217,111 @@ def insert_job(job: dict) -> bool:
     except Exception as exc:
         log.error("DB insert failed for job %s: %s", job.get("id"), exc)
         return False
+
+
+# ── Pending-classification queue ─────────────────────────────────────────
+#
+# A job whose classification failed is parked as tier="PENDING" rather than
+# dropped, and drained by main.retry_pending() on later runs. PENDING is a
+# queue state, never a verdict — see the comment above MAX_CLASSIFY_ATTEMPTS
+# in classifier.py for why storing a fake verdict is the one thing this
+# pipeline must never do.
+#
+# No migration needed: jobs.tier is unconstrained text and jobs_tier_idx
+# already covers this lookup.
+
+def fetch_pending_jobs(limit: int) -> list[dict]:
+    """Parked jobs, oldest first — the oldest are closest to their deadlines.
+
+    Returns [] on any error rather than raising: a DB blip must not take down
+    the scrape that follows it.
+    """
+    try:
+        result = (
+            get_client().table("jobs")
+            .select("*")
+            .eq("tier", "PENDING")
+            .order("found_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+        return result.data or []
+    except Exception as exc:
+        log.error("Could not fetch pending jobs: %s", exc)
+        return []
+
+
+def count_pending_jobs() -> int:
+    """How many jobs are parked in total — for the canary message."""
+    try:
+        result = (
+            get_client().table("jobs")
+            .select("id", count="exact")
+            .eq("tier", "PENDING")
+            .limit(1)
+            .execute()
+        )
+        return result.count or 0
+    except Exception as exc:
+        log.error("Could not count pending jobs: %s", exc)
+        return 0
+
+
+def update_job_classification(job_id: str, tier: str, reason: str,
+                              suggested_resume: str,
+                              salary: Optional[str] = None) -> bool:
+    """Promote a parked row to a real verdict.
+
+    A real UPDATE, not an upsert, and that is not a style choice: insert_job()
+    upserts with ignore_duplicates=True (ON CONFLICT DO NOTHING), so calling it
+    again for a row that already exists silently changes nothing. Promotion has
+    to go through this.
+
+    Deliberately never touches status, found_at, description, norm_key or
+    search_term. found_at means "first seen" and drives dashboard ordering and
+    date filters — moving it would misrepresent when the job appeared.
+    """
+    payload = {
+        "tier": tier,
+        "reason": reason,
+        "suggested_resume": suggested_resume,
+    }
+    # Only when the classifier actually produced one; never blank an existing value.
+    if salary:
+        payload["salary"] = salary
+
+    try:
+        get_client().table("jobs").update(payload).eq("id", job_id).execute()
+        log.info("DB: promoted %s [%s]", job_id, tier)
+        return True
+    except Exception as exc:
+        log.error("DB update failed for job %s: %s", job_id, exc)
+        return False
+
+
+# ── bot_state key/value helpers ──────────────────────────────────────────
+# Same table digest.py uses for its send watermark.
+
+def get_state(key: str) -> Optional[str]:
+    try:
+        result = get_client().table("bot_state").select("value").eq("key", key).execute()
+        if result.data:
+            return result.data[0]["value"]
+    except Exception as exc:
+        log.warning("bot_state unavailable reading %s: %s", key, exc)
+    return None
+
+
+def set_state(key: str, value: str) -> None:
+    try:
+        get_client().table("bot_state").upsert({"key": key, "value": value},
+                                               on_conflict="key").execute()
+    except Exception as exc:
+        log.error("Could not write bot_state %s: %s", key, exc)
+
+
+def clear_state(key: str) -> None:
+    try:
+        get_client().table("bot_state").delete().eq("key", key).execute()
+    except Exception as exc:
+        log.error("Could not clear bot_state %s: %s", key, exc)

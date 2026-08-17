@@ -10,14 +10,19 @@ Scrapes LinkedIn (plus a few GitHub-tracked internship lists) every 20 min, clas
 GitHub Actions (every 20 min)
   └─ scraper/main.py
        ├─ Run-lock: skip if another scheduler's run is still in progress (scrape_runs table)
+       ├─ Drain the PENDING queue: reclassify up to 40 jobs parked by an earlier
+       │   run, push any that promote to APPLY / APPLY_CAVEAT
        ├─ Load dedup index once (all known job ids + norm_keys, one bulk query)
        ├─ 10 LinkedIn searches (5 terms × 2 locations, f_E=1 internship filter), with
        │   retry/backoff on rate limiting
        ├─ Canary: 0 LinkedIn results across all searches → push "may be blocked" alert
        ├─ Supplementary fetch from tracked GitHub internship-list repos (no rate limiting)
        ├─ Fetch job description for each new LinkedIn listing
-       ├─ Claude Haiku classifies: APPLY / MAYBE / SKIP (prompt-cached, structured tool output)
-       ├─ Store first, then ntfy.sh push for APPLY and MAYBE (only once stored)
+       ├─ Claude Haiku classifies: APPLY / APPLY_CAVEAT / INELIGIBLE
+       │   (prompt-cached, structured tool output)
+       ├─ If the classifier is unavailable, PARK as PENDING with the fetched
+       │   description instead of dropping the job, and canary once per 6h
+       ├─ Store first, then ntfy.sh push for APPLY and APPLY_CAVEAT (only once stored)
        └─ Record run stats (raw/new/notified/rate-limited counts) in scrape_runs
 
 GitHub Actions (8am & 6pm ET)
@@ -47,7 +52,10 @@ create table jobs (
   description      text,
   logo_url         text,
   norm_key         text,
-  tier             text,                    -- APPLY | MAYBE | SKIP
+  tier             text,                    -- APPLY | APPLY_CAVEAT | INELIGIBLE
+                                            -- plus PENDING, a queue state (not a
+                                            -- verdict) for jobs awaiting retry
+                                            -- after a classifier outage
   reason           text,
   suggested_resume text,
   status           text default 'new',      -- new | saved | applied | dismissed
