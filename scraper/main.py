@@ -22,6 +22,7 @@ import re
 import sys
 import time
 import random
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Load .env from repo root for local development
@@ -42,7 +43,27 @@ from github_sources import fetch_github_listings
 from external_descriptions import fetch_external_description
 from classifier import classify
 from notifier import push_job, push_canary
-from db import load_dedup_index, make_norm_key, insert_job, start_run, finish_run
+from db import (
+    load_dedup_index, make_norm_key, insert_job, start_run, finish_run,
+    fetch_pending_jobs, count_pending_jobs, update_job_classification,
+    get_state, set_state, clear_state,
+)
+
+# How many jobs were parked this run, by failure kind. Module-level rather than
+# threaded through return values because process_job's bool return is load
+# bearing — ats_watch.py and github_watch.py truth-test it for "notified" — and
+# widening that contract to carry a diagnostic would be the wrong trade.
+_PARKED_THIS_RUN: dict = {}
+
+# Parked jobs retried per run. The scrape itself uses ~50-70s of a 20-minute
+# Actions budget; 40 classifications at ~2-3s each adds at most 2-3 minutes, and
+# a multi-day backlog still drains at roughly 120 jobs/hour across runs.
+RETRY_PENDING_MAX = 40
+
+# bot_state key for the outage canary. Throttled so a multi-day outage sends
+# one alert every 6h rather than one every 20 minutes.
+_DOWN_ALERT_KEY = "classifier_down_alert_at"
+_DOWN_ALERT_THROTTLE_HOURS = 6
 
 logging.basicConfig(
     level=logging.INFO,
@@ -231,8 +252,27 @@ def process_job(job: dict) -> bool:
     # exactly how the 2026-08-04 outage buried real APPLY jobs as junk MAYBEs.
     # Returning early leaves the row absent, and the next run rediscovers it.
     if result.get("failed"):
-        log.warning("  Classification FAILED — not storing '%s' @ %s; the next run will retry it",
-                    job.get("title"), job.get("company"))
+        # PARK, don't drop. The description was fetched a few lines above and
+        # would be lost with the row — and a LinkedIn listing is only
+        # rediscoverable while it is inside LOOKBACK_SECONDS and still ranked
+        # in the first ten pages, so "the next run will retry it" quietly
+        # stopped being true for any outage longer than a few hours.
+        #
+        # Storing it puts the job in the dedup index, which here is the point:
+        # retry_pending() reads it back from the DB, so nothing depends on the
+        # posting still being live.
+        #
+        # PENDING is a queue state, not a verdict. Never notify on one.
+        kind = result.get("failed_kind", "transient")
+        job["tier"] = "PENDING"
+        job["reason"] = "Awaiting classification — Claude API unavailable when this job was found"
+        job["suggested_resume"] = "General"   # placeholder, overwritten at promotion
+        if insert_job(job):
+            _PARKED_THIS_RUN[kind] = _PARKED_THIS_RUN.get(kind, 0) + 1
+            log.warning("  Classification FAILED (%s) — parked as PENDING for automatic retry", kind)
+        else:
+            log.error("  Classification FAILED (%s) and the park write failed too — job %s is lost",
+                      kind, job.get("id"))
         return False
     job["tier"] = result.get("tier", "APPLY_CAVEAT")
     job["reason"] = result.get("reason", "")
@@ -259,6 +299,121 @@ def process_job(job: dict) -> bool:
     return False
 
 
+def retry_pending() -> int:
+    """Classify jobs parked by an earlier run. Returns how many were promoted.
+
+    Runs before the LinkedIn search so the backlog drains even if the search
+    half later fails. Nothing here re-fetches a description: the parked row
+    already carries whatever was fetched at discovery, and classify() handles a
+    NULL description through its "(not available…)" prompt branch. That keeps
+    this pass API-only and fast.
+    """
+    pending = fetch_pending_jobs(RETRY_PENDING_MAX)
+    if not pending:
+        return 0
+
+    log.info("Retrying %d parked job(s)", len(pending))
+    attempted = promoted = notified = 0
+    consecutive_failures = 0
+
+    for row in pending:
+        # The gh: id prefix has to survive — _never_skip_github_sourced keys off it.
+        job = {
+            "id": row["id"],
+            "title": row.get("title", ""),
+            "company": row.get("company", ""),
+            "location": row.get("location", ""),
+            "description": row.get("description"),
+        }
+        attempted += 1
+        result = classify(job)
+
+        if result.get("failed"):
+            kind = result.get("failed_kind", "transient")
+            if kind in ("billing", "auth"):
+                # The breaker just tripped; every remaining row would fail the
+                # same way. Leave them PENDING for the next run — while credits
+                # are out this costs exactly one failed call per run.
+                log.warning("Classifier still down (%s) — stopping the retry pass; "
+                            "%d job(s) remain parked", kind, len(pending) - attempted + 1)
+                _PARKED_THIS_RUN[kind] = _PARKED_THIS_RUN.get(kind, 0) + 1
+                break
+
+            # A poison row — e.g. one that never yields a tool_use block — sits
+            # at the head of an oldest-first queue forever. Skip past it rather
+            # than letting it block everything behind it.
+            consecutive_failures += 1
+            log.warning("Pending job %s failed again (%s) — leaving parked", row["id"], kind)
+            if consecutive_failures >= 2:
+                log.warning("Two consecutive failures — stopping the retry pass for this run")
+                break
+            continue
+
+        consecutive_failures = 0
+        ok = update_job_classification(
+            row["id"],
+            result["tier"],
+            result.get("reason", ""),
+            result.get("suggested_resume", "General"),
+            # Only if the classifier found one AND the row does not already have it.
+            salary=result.get("salary") if not row.get("salary") else None,
+        )
+        if not ok:
+            continue
+        promoted += 1
+
+        # Store first, then notify — the same ordering process_job uses, so a
+        # DB hiccup can never produce a push for a row that was not written.
+        if result["tier"] in ("APPLY", "APPLY_CAVEAT"):
+            merged = {**row, **result}
+            push_job(merged)
+            notified += 1
+
+    still = count_pending_jobs()
+    log.info("Pending retry: %d attempted, %d promoted (%d notified), %d still pending",
+             attempted, promoted, notified, still)
+
+    # Recovery note, once per outage. Only fires if an outage was actually
+    # announced, so a routine one-off transient park never triggers it.
+    if promoted and get_state(_DOWN_ALERT_KEY):
+        push_canary(f"Classifier recovered — {promoted} parked job(s) classified, "
+                    f"{notified} pushed. {still} still queued.")
+        clear_state(_DOWN_ALERT_KEY)
+
+    return notified
+
+
+def _maybe_alert_classifier_down() -> None:
+    """One urgent push per ~6h while the classifier is down.
+
+    Only for billing and auth. A transient park is a network blip that
+    self-heals within 20 minutes and is not worth a 3am notification.
+    """
+    hard = _PARKED_THIS_RUN.get("billing", 0) + _PARKED_THIS_RUN.get("auth", 0)
+    if not hard:
+        return
+
+    last = get_state(_DOWN_ALERT_KEY)
+    if last:
+        try:
+            when = datetime.fromisoformat(last)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - when < timedelta(hours=_DOWN_ALERT_THROTTLE_HOURS):
+                return          # already alerted recently
+        except Exception:
+            pass                # unparseable marker — alert rather than stay silent
+
+    kind = "billing" if _PARKED_THIS_RUN.get("billing") else "auth"
+    total = count_pending_jobs()
+    push_canary(
+        f"Claude classifier is DOWN ({kind}) — parked {hard} job(s) this run, "
+        f"{total} waiting. They classify automatically once the API is back. "
+        f"Top up: console.anthropic.com"
+    )
+    set_state(_DOWN_ALERT_KEY, datetime.now(timezone.utc).isoformat())
+
+
 def run():
     log.info("=== Job scraper starting — %d terms × %d locations ===",
              len(SEARCH_TERMS), len(LOCATIONS))
@@ -277,6 +432,12 @@ def run():
     notified = 0
 
     try:
+        # ── 0.5 Drain the parked backlog first ──────────────────────────────
+        # Before the search, so a backlog still drains on a run where the
+        # LinkedIn half later fails. Inside the try, so finish_run() in the
+        # finally still releases the run-lock.
+        notified += retry_pending()
+
         # ── 1. Fetch + dedup, paginating until an all-duplicate page ────────
         # Dedup index is loaded once (one bulk query) instead of 2 Supabase
         # calls per listing. LinkedIn returns newest-first, so once a full
@@ -426,6 +587,11 @@ def run():
 
             if process_job(job):
                 notified += 1
+
+        if _PARKED_THIS_RUN:
+            log.warning("Parked this run: %s",
+                        ", ".join(f"{n} {k}" for k, n in sorted(_PARKED_THIS_RUN.items())))
+        _maybe_alert_classifier_down()
 
         log.info("=== Run complete: %d new jobs, %d notified ===",
                  len(new_jobs), notified)

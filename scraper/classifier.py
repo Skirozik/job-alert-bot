@@ -1,14 +1,20 @@
 """Claude Haiku fit classifier.
 
 Reads Candidate_Profile_and_Filters.md at startup and uses it as the rubric
-for every classification call. Returns tier (APPLY/MAYBE/SKIP), a one-line
-reason, and which resume variant to use.
+for every classification call. Returns tier (APPLY / APPLY_CAVEAT /
+INELIGIBLE), a one-line reason, and which resume variant to use.
 
 The candidate profile + instructions are sent as a cached system prompt
 (prompt caching), since they're identical on every call in a run — this cuts
 input token cost substantially on the 2nd+ call. The response is forced
 through a tool call with a JSON schema instead of asking for free-text JSON,
 so there's no markdown-fence stripping or JSONDecodeError fallback path.
+
+WHEN THE API IS UNAVAILABLE this returns _failed(), and the caller parks the
+job as tier="PENDING" rather than storing a verdict or dropping the row —
+see the comment above MAX_CLASSIFY_ATTEMPTS. A billing or auth failure also
+trips a per-process breaker so the rest of the run costs zero API calls
+instead of three attempts and two backoffs per job.
 """
 
 import logging
@@ -157,29 +163,79 @@ _profile: Optional[str] = None
 
 MODEL = "claude-haiku-4-5-20251001"
 
-# On a transient API failure the job is NOT stored at all — see _failed() and
-# main.process_job(). A missing row self-heals, because the next run rediscovers
-# the listing and classifies it properly. A row stored with a fallback verdict
-# does not: dedup means it is never looked at again.
+# NEVER store a verdict the model did not produce.
 #
 # Confirmed the hard way on 2026-08-04, when an API outage stored 82 jobs as
 # "MAYBE / Classifier error — review manually". 32 of them were actually APPLY,
-# including four TikTok 2027 internships, Boeing and RTX, and they would have
-# stayed buried indefinitely.
+# including four TikTok 2027 internships, Boeing and RTX, and they stayed
+# buried indefinitely: dedup means a stored row is never looked at again.
+#
+# The original fix was to store nothing at all and let the next run rediscover
+# the listing. That closed the fake-verdict hole but opened another: a LinkedIn
+# job is only rediscoverable while it is inside LOOKBACK_SECONDS (6h) AND still
+# ranked in the first ten pages, so an outage longer than a few hours lost those
+# jobs permanently — seen, described, and then evaporated.
+#
+# So a failed job is now PARKED as tier="PENDING" (main.process_job) and retried
+# automatically on later runs (main.retry_pending). PENDING is a QUEUE STATE,
+# not a verdict: it is impossible to confuse with a classification, it never
+# reaches the dashboard's actionable views, and it is guaranteed to get a real
+# classification later. The invariant above is untouched.
 MAX_CLASSIFY_ATTEMPTS = 3
+
+# Tripped by a billing or auth failure, which no amount of retrying can fix.
+# Once set, classify() returns immediately without touching the API — so an
+# outage costs one failed call per run instead of 3 attempts x exponential
+# backoff PER JOB, which on a full scrape is the difference between a run that
+# finishes and one that hits the 20-minute Actions timeout.
+#
+# Per-process by design. Every scheduled run is a fresh process, so it cannot
+# stick past a run and needs no reset logic.
+_API_HARD_DOWN: Optional[str] = None
+
+
+def _error_kind(exc: Exception) -> str:
+    """Classify an SDK exception into what it means for retrying.
+
+    Pure and exception-instance-only so it is testable without a network or a
+    real key. Verified against anthropic 0.105.2.
+
+      billing   — the account is out of credit. Anthropic returns HTTP 400 with
+                  "Your credit balance is too low..." rather than a dedicated
+                  exception class, so the message substring is the only signal
+                  available. Matched case-insensitively, and deliberately not
+                  pinned to the full sentence.
+      auth      — bad or revoked key, or a key without access to the model.
+      transient — rate limits, overloads, connection resets, 5xx. Worth retrying.
+    """
+    if isinstance(exc, anthropic.BadRequestError):
+        message = str(getattr(exc, "message", "") or exc).lower()
+        if "credit balance" in message or "insufficient credit" in message:
+            return "billing"
+        return "transient"
+    if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return "auth"
+    return "transient"
 
 
 def _backoff_seconds(attempt: int) -> float:
     return 2.0 * (2 ** attempt) + random.uniform(0, 1.5)
 
 
-def _failed(detail: str) -> dict:
-    """Signals 'do not store this job'. Callers must check result["failed"]
-    BEFORE reading tier — the tier here is a placeholder, not a judgment."""
+def _failed(detail: str, kind: str = "transient") -> dict:
+    """Signals 'this job has no verdict'. Callers must check result["failed"]
+    BEFORE reading tier — the tier here is a placeholder, not a judgment.
+
+    The caller parks the job as PENDING rather than dropping it. `failed_kind`
+    tells it which: billing/auth mean the outage is account-wide and worth a
+    canary alert, transient/malformed mean this one job hiccuped and will
+    quietly retry.
+    """
     return {
         "failed": True,
+        "failed_kind": kind,
         "tier": "APPLY_CAVEAT",
-        "reason": f"Classifier error — not stored, will retry next run ({detail[:120]})",
+        "reason": f"Classifier error — parked for retry ({detail[:120]})",
         "suggested_resume": "General",
     }
 MAX_TOKENS = 400
@@ -261,6 +317,14 @@ Company: {job.get("company", "")}
 Location: {job.get("location", "")}
 Description: {job.get("description") or "(not available — classify on title/company/location only)"}"""
 
+    global _API_HARD_DOWN
+
+    # Breaker: a billing or auth failure earlier in this run means every
+    # further call would fail identically. Return without touching the API.
+    if _API_HARD_DOWN is not None:
+        return _failed(f"API unavailable ({_API_HARD_DOWN}) — skipped without calling",
+                       _API_HARD_DOWN)
+
     last_exc = None
     for attempt in range(MAX_CLASSIFY_ATTEMPTS):
         try:
@@ -284,7 +348,7 @@ Description: {job.get("description") or "(not available — classify on title/co
                 # A malformed response is not retryable in any useful way, but
                 # it IS a failure — don't invent a verdict for it.
                 log.error("Classifier returned no tool_use block for job %s", job.get("id"))
-                return _failed("no tool_use block in response")
+                return _failed("no tool_use block in response", "malformed")
 
             result = dict(tool_use.input)
 
@@ -303,6 +367,18 @@ Description: {job.get("description") or "(not available — classify on title/co
 
         except Exception as exc:
             last_exc = exc
+            kind = _error_kind(exc)
+
+            # Billing and auth are account-wide and permanent for this run.
+            # Retrying them is pure wasted wall-clock, and on a full scrape
+            # that waste is what pushes a run past the Actions timeout.
+            if kind in ("billing", "auth"):
+                if _API_HARD_DOWN is None:
+                    log.error("Classifier is hard down (%s) — parking the rest of this run "
+                              "without further API calls: %s", kind, exc)
+                    _API_HARD_DOWN = kind
+                return _failed(str(exc), kind)
+
             if attempt < MAX_CLASSIFY_ATTEMPTS - 1:
                 backoff = _backoff_seconds(attempt)
                 log.warning("Classifier attempt %d/%d failed for job %s (%s) — retrying in %.1fs",
@@ -312,7 +388,7 @@ Description: {job.get("description") or "(not available — classify on title/co
                 log.error("Classifier failed for job %s after %d attempts: %s",
                           job.get("id"), MAX_CLASSIFY_ATTEMPTS, exc)
 
-    return _failed(str(last_exc))
+    return _failed(str(last_exc), "transient")
 
 
 def _apply_full_time_override(job: dict, result: dict) -> dict:
