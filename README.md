@@ -13,10 +13,11 @@ GitHub Actions (every 20 min)
        ├─ Drain the PENDING queue: reclassify up to 40 jobs parked by an earlier
        │   run, push any that promote to APPLY / APPLY_CAVEAT
        ├─ Load dedup index once (all known job ids + norm_keys, one bulk query)
+       ├─ Fetch + process tracked GitHub internship-list repos first (no rate
+       │   limiting, newest postings first — their pushes don't wait on LinkedIn)
        ├─ 10 LinkedIn searches (5 terms × 2 locations, f_E=1 internship filter), with
        │   retry/backoff on rate limiting
        ├─ Canary: 0 LinkedIn results across all searches → push "may be blocked" alert
-       ├─ Supplementary fetch from tracked GitHub internship-list repos (no rate limiting)
        ├─ Fetch job description for each new LinkedIn listing
        ├─ Claude Haiku classifies: APPLY / APPLY_CAVEAT / INELIGIBLE
        │   (prompt-cached, structured tool output)

@@ -19,7 +19,9 @@ on:
     # frequently delayed under load, so Modal's 3-minute cadence is not
     # reproducible here. 15 minutes still beats LinkedIn syndication by hours,
     # which is the entire point of this path.
-    - cron: '*/15 * * * *'
+    # 10-min, off-herd; affordable since fetch_all_listings was parallelized.
+    # The external pinger is the real cadence — see FAST_PINGS_SETUP.md.
+    - cron: '4,14,24,34,44,54 * * * *'
   workflow_dispatch:
 
 # Shares db.start_run()/finish_run() with the main scraper and the GitHub
