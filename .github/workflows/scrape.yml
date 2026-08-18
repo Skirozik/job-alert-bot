@@ -2,7 +2,9 @@ name: Job Scraper
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
+    # Off-herd minutes: schedule: is best-effort and delayed most at :00/:15/:20.
+    # The external pinger is the real cadence — see FAST_PINGS_SETUP.md.
+    - cron: '7,27,47 * * * *'
   workflow_dispatch:
 
 # Never let two runs of this workflow overlap. The in-DB run-lock in

@@ -30,6 +30,7 @@ import hashlib
 import html
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -328,12 +329,49 @@ def fetch_company_listings(company: str, platform: str, token: str) -> list[dict
     return fetcher(company, token)
 
 
+# Sized for ~100 boards on ~100 unrelated hosts. Higher gains little — the
+# sweep converges on the slowest single board (a large Workday tenant paging
+# 20 rows per POST) — and this is polite enough that no one host sees more
+# than one connection from us anyway.
+_SWEEP_WORKERS = 12
+
+
 def fetch_all_listings(companies: dict) -> list[dict]:
-    """Fetch every configured company's open-jobs list. companies is
-    ats_config.ATS_COMPANIES-shaped: {name: {platform, token}}."""
+    """Fetch every configured company's open-jobs list, in parallel.
+
+    companies is ats_config.ATS_COMPANIES-shaped: {name: {platform, token}}.
+
+    Parallel because the boards are independent hosts and the sequential
+    sweep was most of this fast path's latency budget: ~100 boards and
+    ~30,000 postings fetched one after another took minutes per pass (Workday
+    tenants alone need dozens of back-to-back 20-row POSTs each), and held
+    the run-lock long enough that overlapping github_watch passes were
+    skipped outright. Every fetcher is self-contained and fails soft
+    (returns [] and logs), each request is an independent requests call with
+    no shared session, and results are only combined here — so threads change
+    nothing but the wall-clock, which drops to roughly the slowest single
+    board.
+
+    The returned order follows completion, not config order. Nothing
+    downstream cares: ats_watch diffs against the dedup index by id.
+    """
     all_jobs: list[dict] = []
-    for company, cfg in companies.items():
-        jobs = fetch_company_listings(company, cfg["platform"], cfg["token"])
-        log.info("ATS %s (%s): %d listings", company, cfg["platform"], len(jobs))
-        all_jobs.extend(jobs)
+    with ThreadPoolExecutor(max_workers=_SWEEP_WORKERS) as pool:
+        futures = {
+            pool.submit(fetch_company_listings, company, cfg["platform"], cfg["token"]):
+                (company, cfg["platform"])
+            for company, cfg in companies.items()
+        }
+        for future in as_completed(futures):
+            company, platform = futures[future]
+            try:
+                jobs = future.result()
+            except Exception as exc:
+                # The fetchers all catch their own exceptions; this guard
+                # preserves the module's "one broken entry never blocks the
+                # other 49" contract even if one ever leaks.
+                log.error("ATS %s (%s): unexpected sweep error: %s", company, platform, exc)
+                continue
+            log.info("ATS %s (%s): %d listings", company, platform, len(jobs))
+            all_jobs.extend(jobs)
     return all_jobs

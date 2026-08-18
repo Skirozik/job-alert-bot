@@ -17,7 +17,8 @@ name: GitHub Tracker Fast-Path Watcher
 on:
   schedule:
     # GitHub's floor is 5 minutes; Modal's 2-minute cadence isn't reproducible.
-    - cron: '*/5 * * * *'
+    # Offset off the herd minute; the external pinger is the real cadence — see FAST_PINGS_SETUP.md.
+    - cron: '3-58/5 * * * *'
   workflow_dispatch:
 
 concurrency:
