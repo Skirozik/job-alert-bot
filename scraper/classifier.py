@@ -356,6 +356,7 @@ Description: {job.get("description") or "(not available — classify on title/co
                 log.warning("Unexpected tier '%s' for job %s — defaulting to APPLY_CAVEAT", result.get("tier"), job.get("id"))
                 result["tier"] = "APPLY_CAVEAT"
 
+            result = _apply_returning_intern_override(job, result)
             result = _apply_full_time_override(job, result)
             result = _apply_school_specific_override(job, result)
             result = _apply_advanced_degree_override(job, result)
@@ -389,6 +390,507 @@ Description: {job.get("description") or "(not available — classify on title/co
                           job.get("id"), MAX_CLASSIFY_ATTEMPTS, exc)
 
     return _failed(str(last_exc), "transient")
+
+
+# ============================================================================
+# Deterministic backstop: INSIDER-GROUP ELIGIBILITY GATES.
+#
+# Built from gh:957897d315475c83 (RTX "Software Engineer Intern - Spring 2027",
+# stored APPLY -> false push notification). Its description contains the
+# dispositive sentence "This requisition is for an RTX intern returning for an
+# internship in 2027." buried at the END of the Security Clearance block, some
+# 4,000 characters into a posting that is otherwise a perfect stack match. The
+# TITLE is clean, so the rubric's "the restriction is frequently in the TITLE,
+# so read the title for it explicitly" instruction does not help here — the
+# model read past one declarative sentence under attention pressure, which is
+# the same failure mode the full-time / school / advanced-degree overrides
+# above already exist for.
+#
+# A sweep of all 58,995 stored rows found 82 postings carrying a gate of this
+# family and 24 of them were still live at APPLY / APPLY_CAVEAT, so these
+# patterns describe the whole shape rather than the one RTX sentence:
+# intern-status gates (RTX, Truist, HNTB, Williams, Travelers, Blue Origin,
+# IBM, Oracle, Northrop, Baker Tilly, Kearney, Regions, Target, Accenture
+# Federal, Sam's Club), military-status gates (DoD SkillBridge, HOH Fellows,
+# Oracle's OVIP veteran program), pre-selected-cohort gates (PhoenixTeam,
+# Scale AI's ICML attendees) and region-of-university gates (SIG's Hong
+# Kong/Singapore programme).
+#
+# THE SAFETY RULE FOR EVERYTHING BELOW (see _SCHOOL_BARE_COOP_RE's comment: a
+# too-permissive pattern matched "IBM co-op program" inside an IBM posting and
+# hid a job the candidate had already applied to): a false positive is worse
+# than a leak. Every pattern here was run against all 58,995 stored titles and
+# descriptions; the combined match set is 82 rows and every one was read by
+# hand and confirmed to be a real gate. Each pattern's own match set was also
+# measured in isolation (first-match-wins otherwise hides a pattern's true
+# false-positive surface), and is quoted in its comment below.
+#
+# SCOPE IS LOAD-BEARING. Three of these phrases are a gate in a title and
+# ordinary prose in a body, so title-scoping is what keeps them safe:
+#   - "intern conversion" in a BODY hits Notion's "Head of Early Career
+#     Recruiting", where "university recruiting, internship conversion,
+#     emerging pipelines" is a list of that job's duties.
+#   - "returning ... intern" in a BODY hits 27 rows, ALL boilerplate:
+#     "returning to school after the internship" (AWS, Anduril, Abbott,
+#     Rivian), "return offer" (MeshyAI), "earn a return internship" (Optiver).
+#     It is the single most common sentence in the whole intern corpus.
+#   - "SkillBridge" anywhere in a BODY matches Penn State ARL's ordinary,
+#     open-to-everyone "Research and Development Engineer Intern", whose body
+#     merely says ARL "is an authorized DoD SkillBridge partner". Restricting
+#     the token to the TITLE keeps all 42 real SkillBridge rows (Rise8, Two
+#     Six and Black Cape, the three live leaks, all name it in the title) and
+#     drops that false positive.
+# ============================================================================
+
+# Descriptions arrive with literal "&#xa;" where newlines should be, and some
+# ATS sources arrive as raw HTML ("<p><strong>This posting is for ..."). Every
+# pattern below spans several words, so it must not be broken by an entity or a
+# tag sitting mid-phrase. Flatten once, match many times.
+#
+# Block-level markup collapses to " . " and NOT to a space. That period is a
+# safety device, not cosmetics: the gaps in the sentence patterns below are
+# [^.] runs, and the "<qualifier> interns only" patterns cannot cross a period
+# either. Collapsing a </li> or an "&#xa;" to a bare space would let a bullet
+# ending in "...our 2026 summer interns" weld itself onto the next block's
+# extremely common "Only those selected for an interview will be contacted."
+# and manufacture a gate out of two innocent sentences. Verified over the whole
+# corpus: sentence-stop and bare-space flattening produce an IDENTICAL 82-row
+# match set, so the period costs nothing and closes that class outright.
+_MARKUP_BLOCK_RE = re.compile(
+    r"&#xa;|&#xd;|[\r\n]|<\s*/?\s*(?:p|div|li|ul|ol|br|tr|td|th|h[1-6]|section|table)\b[^>]{0,200}>",
+    re.IGNORECASE,
+)
+_MARKUP_INLINE_RE = re.compile(r"&#x9;|&nbsp;|&#160;|<[^>]{1,200}>|\s+", re.IGNORECASE)
+
+
+def _flatten_markup(text: str) -> str:
+    """'Interns&#xa;ONLY' -> 'Interns . ONLY'; '<strong>Interns</strong> only'
+    -> 'Interns only'. Block markup becomes a sentence stop, inline markup and
+    runs of whitespace become a single space."""
+    return _MARKUP_INLINE_RE.sub(" ", _MARKUP_BLOCK_RE.sub(" . ", text)).strip()
+
+
+# --- TITLE-SCOPED GATES (never run against a description; see above) ---------
+
+# "Intern Conversion: Software Developer" (IBM), "Research Extern Intern
+# conversion" (IBM — note the lowercase 'c', which is why this is IGNORECASE),
+# "2026 Intern Conversion - Aerospace Software Apps Engineer I" (Blue Origin),
+# "Full-time Intern Conversion" (Oracle), "(BT Summer Intern Conversions Only)"
+# (Baker Tilly). A conversion req is by definition open only to the company's
+# own interns. 11 titles corpus-wide, every one a gate; three of them have an
+# EMPTY or entirely ordinary description, so the title is the only evidence
+# that exists.
+_TITLE_CONVERSION_RE = re.compile(r"\bintern(?:ship)?\s+conversions?\b", re.IGNORECASE)
+
+# "2027 Returning Intern Software Engineer" (Northrop, description length 0),
+# "Returning Intern: Software Developer" (IBM), "Returning Summer Analyst"
+# (Accenture Federal — 'Analyst', not 'Intern', so a rule keyed on "returning
+# intern" alone misses it, and its description is empty too). 3 titles corpus
+# wide, all gates. The optional filler is restricted to seasons and years
+# rather than \w+ so "returning to school"-style phrasing can never be reached
+# through it. "student" is deliberately NOT in the noun list: in university
+# usage a "returning student" is someone resuming their own studies, not a
+# company's former hire, and no corpus row needs it.
+_TITLE_RETURNING_RE = re.compile(
+    r"\breturning\s+(?:(?:summer|winter|fall|spring|20\d\d)\s+){0,2}"
+    r"(?:intern|co[\s-]?op|analyst|associate|scholar|trainee)s?\b",
+    re.IGNORECASE,
+)
+
+# DoD SkillBridge is, by statute, open only to service members inside their
+# final 180 days of active duty. 42 corpus titles name it and the candidate can
+# satisfy none of them. \s? absorbs "Skill Bridge"; IGNORECASE absorbs the four
+# spellings actually seen (SkillBridge, Skillbridge, skillbridge, and Newport
+# News' all-caps SKILLBRIDGE).
+_TITLE_SKILLBRIDGE_RE = re.compile(r"\bskill\s?bridge\b", re.IGNORECASE)
+
+# "Internship - Active Duty Only" (Aura Health). Same military-status gate
+# stated without the SkillBridge brand name. 1 corpus title.
+_TITLE_MILITARY_ONLY_RE = re.compile(
+    r"\b(?:active[\s-]?duty|military|veterans?|service\s?members?)\s+only\b", re.IGNORECASE
+)
+
+# Oracle's OVIP: "OCI Software Engineer Intern - OVIP". 6 corpus titles, all
+# Oracle veteran-program reqs. This is only ever used as the required second
+# factor for _VETERAN_PROGRAM_RE below — never on its own, because "Military
+# Intern" alone could name an ordinary defense-sector internship.
+_TITLE_VETERAN_PROGRAM_RE = re.compile(
+    r"\bOVIP\b|\b(?:veterans?|military)\s+(?:internship|intern|fellowship)\b", re.IGNORECASE
+)
+
+
+# --- TEXT-SCOPED GATES (title + description, after flattening) ---------------
+
+# "This requisition is open to 2026 Truist Interns only." / "For current/former
+# HNTB Interns ONLY." / "2026 Regions Interns Only." / "Current Interns Only-"
+# (the Target posting the rubric already records as a confirmed live miss).
+#
+# The leading current|former|...|20\d\d token is what makes this safe. The bare
+# phrase "interns only" occurs in exactly 5 rows of 58,995 and all 5 are real
+# gates, so there is no benign in-corpus exercise of this pattern at all —
+# which makes it the least corpus-validated pattern in the set, and is why it
+# carries the extra _PERK_CONTEXT_RE guard below. The optional [/&,] branch is
+# for HNTB's "current/former"; the {0,3} filler carries the company name.
+_INTERNS_ONLY_RE = re.compile(
+    r"\b(?:current|former|returning|previous|existing|internal|20\d\d)"
+    r"(?:\s*[/&,]\s*(?:current|former|returning|previous|existing|internal))?"
+    r"(?:\s+[A-Za-z][\w.&'’-]*){0,3}\s+interns?\s+only\b",
+    re.IGNORECASE,
+)
+
+# The benign shape "interns only" would plausibly take in a posting that does
+# not restrict who may apply: a PERK offered to the intern class. "Housing is
+# provided for our 2026 summer interns only", "these events are for current
+# interns only". Zero rows in the corpus do this today, but 14 rows do the
+# exact equivalent with "employees only" (Bilt's "Exclusive Employee only Bilt
+# Points", UST's "Company-paid Employee Only benefits", Copart's E-Verify
+# "For U.S. applicants and employees only" x11), which is what that shape looks
+# like in the wild. A gate phrased with a real exclusivity frame ("this
+# requisition is open/available/offered only to ...") is caught by
+# _RESTRICTED_REQ_RE regardless, so skipping perk context costs no recall: all
+# 5 true "interns only" rows still fire.
+_PERK_CONTEXT_RE = re.compile(
+    r"\b(?:housing|meals?|lunch|discounts?|perks?|benefits?|swag|parking|insurance|"
+    r"401\s?k|stipend|events?|socials?|networking|provided|offered|available|free|"
+    r"gym|shuttle)\b",
+    re.IGNORECASE,
+)
+
+# "(Drexel University Co-ops Only)" — AVEVA, buried in the body as "Job Title:
+# Software Developer Intern (Drexel University Co-ops Only)". The school
+# override misses it because _SCHOOL_BARE_COOP_RE wants the school adjacent to
+# the co-op token and _SCHOOL_COOP_PREFIX_RE wants a delimiter after it.
+#
+# [A-Z] and NOT re.IGNORECASE, exactly as in _SCHOOL_NAME_RE: the capital is
+# the signal "a real proper noun is being named" rather than a generic phrase.
+# The group noun list is deliberately ONLY Co-ops/Interns. "Employees?" was
+# tried and removed — it matches the 14 benign perk rows above. "Students?" was
+# tried and removed too: no corpus row needs it and it would match the utterly
+# ordinary requirement "Full-Time Students Only".
+#
+# Group 1 is the qualifier and is checked twice in the function: against the
+# candidate's own school, so a hypothetical "Georgia State University Co-ops
+# Only" can never fire, and against _GENERIC_GROUP_WORDS, so "Summer Interns
+# Only" and "Full Time Interns Only" — capitalised but not naming anybody — are
+# left to _INTERNS_ONLY_RE, which requires a status/year token they lack.
+_NAMED_GROUP_ONLY_RE = re.compile(
+    r"\b((?:[A-Z][A-Za-z&.\-]*\s+){1,3})(?:Co[\s-]?[Oo]ps?|Interns?)\s+[Oo]nly\b"
+)
+_GENERIC_GROUP_WORDS = frozenset(
+    """summer winter fall spring autumn full part time paid unpaid new all the our your and for
+    january february march april may june july august september october november december
+    student students""".split()
+)
+
+# THE RTX SENTENCE, and its whole grammatical family. Two halves that must both
+# appear inside one sentence (the [^.] gaps stop at the first period):
+#   half 1, the exclusivity frame — "This requisition is for", "This requisition
+#           is open to", "This job posting is intended for", "this role is only
+#           open to", "This opportunity is open only to", "This posting is for";
+#   half 2, the insider group — "intern returning" (RTX), "2026 Truist Interns",
+#           "Williams' summer 2026 interns", "former Regions contract workers",
+#           or a pre-selected/attendee cohort ("Drexel University students who
+#           have already been officially selected", PhoenixTeam; "candidates who
+#           attended ICML 2026", Scale AI).
+# Half 1 alone is worthless — it matches 1,337 corpus rows, because "This
+# position is for a software engineering intern joining our platform team" is an
+# ordinary sentence. Requiring half 2 within 80 characters is what makes the
+# pair dispositive: across 58,995 rows the pair fires 11 times and all 11 are
+# gates. Widening the two gaps from 80/60 to 200/150 still yields exactly those
+# 11 rows, so the margin is large rather than tuned.
+#
+# "interns? (who is/are) returning" and not "intern returning": all four RTX
+# rows use the singular verbatim, but RTX regenerates this boilerplate with the
+# year embedded, and the plural or relative-clause rewrite ("This requisition is
+# for RTX interns returning for an internship in 2027", "...for an RTX intern
+# who is returning...") is the likeliest recurrence of the exact bug this
+# override was built for. Branch 2 cannot cover it, because branch 2 needs the
+# qualifier BEFORE the noun. Verified: the widened branch matches the same 11
+# rows, 0 added, 0 lost.
+_RESTRICTED_REQ_RE = re.compile(
+    r"\b(?:this|the)\s+(?:requisition|job\s+posting|posting|position|role|opportunity|opening)\s+"
+    r"(?:is\s+)?(?:only\s+)?"
+    r"(?:for|open(?:\s+only)?\s+to|intended\s+(?:only\s+)?for|restricted\s+to|limited\s+to|"
+    r"reserved\s+for|available\s+(?:only\s+)?to|offered\s+(?:only\s+)?to|designated\s+for)\b"
+    r"[^.]{0,80}?"
+    r"(?:\binterns?\s+(?:who\s+(?:is|are)\s+)?returning\b"
+    r"|\b(?:returning|current|former|previous|existing|internal|20\d\d)\b[^.;]{0,60}?"
+    r"\b(?:interns?|co[\s-]?ops?|employees?|contract\s+workers?)\b"
+    r"|\bwho\s+(?:have\s+)?(?:already\s+)?(?:been\s+)?(?:officially\s+)?"
+    r"(?:selected|pre-selected|invited|interviewed|attended|met\s+with)\b)",
+    re.IGNORECASE,
+)
+
+# "internal candidates only" / "current applicants only" — named verbatim in
+# Candidate_Profile_and_Filters.md as a gate. ZERO corpus rows match it today,
+# in either direction: this is pure forward defence, and its false-positive
+# surface across 58,995 rows is measured at zero. "employees?" is deliberately
+# NOT in the noun list here — "current employees only" is how a benefits
+# paragraph talks (see _PERK_CONTEXT_RE), while "current applicants only" is
+# not a sentence a perk paragraph can produce.
+_INTERNAL_ONLY_RE = re.compile(
+    r"\b(?:internal|current)\s+(?:candidates?|applicants?)\s+only\b", re.IGNORECASE
+)
+
+# Travelers, five postings, verbatim: "The intent of this position is to provide
+# our internal employees, 2026 Travelers Summer Interns and Summer Students the
+# ability to apply... Applications outside of this audience will not be
+# considered at this time." The generic half of that sentence ("will not be
+# considered") is unusable on its own — "incomplete applications will not be
+# considered" is common — so anchor on the distinctive noun phrase. 5 corpus
+# rows, all Travelers, all gates, two of them still live at APPLY.
+_OUTSIDE_AUDIENCE_RE = re.compile(r"\boutside\s+(?:of\s+)?th(?:is|e)\s+audience\b", re.IGNORECASE)
+
+# Truist: "Applicants who were not 2026 Truist interns will not be considered."
+# The exclusion is only trusted when the excluded trait is intern STATUS — a
+# year or current/former token — and the consequence is stated in the same
+# sentence. 2 corpus rows, both Truist.
+#
+# Both of those requirements are load-bearing against a sentence that is not a
+# gate at all: "Applicants who are not available for the full internship period
+# will not be considered" is an ordinary scheduling requirement the candidate
+# can satisfy. It has no status token, and \binterns?\b deliberately does not
+# match "internship", so it stays clean. Verified: adding the status token and
+# dropping the -ship alternation keeps both Truist rows.
+_NOT_AN_INTERN_RE = re.compile(
+    r"\b(?:applicants?|candidates?|those|anyone|students?)\s+who\s+(?:were|was|are|is|did)\s+not\b"
+    r"[^.]{0,60}?\b(?:current|former|returning|previous|20\d\d)\b[^.]{0,40}?\binterns?\b"
+    r"[^.]{0,60}?\bwill\s+not\s+be\s+considered\b",
+    re.IGNORECASE,
+)
+
+# A qualifications-list gate: "Must be a 2026 Truist Intern", "Must be a current
+# Summer 2026 Baker Tilly Intern", "Must have been a 2026 Summer Kearney &
+# Company Intern". 4 corpus rows, all gates. The current|former|...|20\d\d token
+# again does the work, and the [^.;] gap also stops at a semicolon so the
+# innocuous "Must be a current student enrolled full time in a degree program;
+# prior intern experience is a plus" cannot bridge into the word "intern".
+# Measured: the 4 true gates sit 8-26 characters from the stem, and no benign
+# row in the corpus has a bare "intern" in the same sentence at all — \bintern\b
+# correctly does not match "internship", which is what saves the nearest benign
+# row (PSECU, whose "internship/student worker" sits 77 characters away).
+#
+# The (?-i:[A-Z]...) island is the third requirement and the one that survives
+# a rephrasing: the noun must be a NAMED employer's intern — "2026 Truist
+# Intern", "current Summer 2026 Baker Tilly Intern", "2026 Summer Kearney &
+# Company Intern". Without it, "Must be a 2027 graduating senior with prior
+# intern experience" reads as a gate. Verified: all 4 corpus gates still fire.
+_MUST_BE_INTERN_RE = re.compile(
+    r"\bmust\s+(?:be|have\s+been)\s+(?:a|an)\s+"
+    r"(?:current|former|returning|previous|existing|20\d\d)\b[^.;]{0,60}?"
+    r"(?-i:[A-Z][\w&.\-]*)\s+[Ii]nterns?\b",
+    re.IGNORECASE,
+)
+
+# Blue Origin, under Minimum Qualifications: "Successfully completed an
+# internship with Blue Origin in 2026." Case-SENSITIVE on the employer name and
+# requiring an explicit year, so the ordinary preferred qualification "completed
+# an internship in software engineering at a technology company" cannot match.
+# 2 corpus rows, both Blue Origin.
+#
+# The captured name is then checked against job["company"] in the function. That
+# check is the difference between this and a real false positive: without it,
+# the preferred qualification "has completed an internship at NASA in 2025 or
+# similar research experience" reads as a gate on a posting that is not NASA's.
+# Dropping the year requirement entirely still returns only these same 2 rows,
+# so the year is margin rather than load-bearing.
+_PRIOR_INTERNSHIP_RE = re.compile(
+    r"\b(?:successfully\s+)?completed\s+(?:an?\s+)?(?:prior\s+|previous\s+)?internship\s+"
+    r"(?:with|at)\s+(us\b|our\s+(?:company|team|firm|organi[sz]ation)\b"
+    r"|[A-Z][\w&.\-]*(?:\s+[A-Z][\w&.\-]*){0,3})\s+in\s+20\d\d\b"
+)
+
+# Oracle's OVIP: "About the Oracle Veteran Internship Program (OVIP): Oracle is
+# proud to sponsor an internship and integration program that exposes
+# transitioning military veterans and active-duty Military Spouses...". The
+# model read this restriction as a selling point ("military-focused
+# sponsorship") and shipped APPLY on one of them.
+#
+# Note how narrow this has to be: 10,575 corpus rows contain "veteran" and 3,102
+# contain "military", almost all of it EEO boilerplate ("without regard to
+# protected veteran status"). This phrase alone is still too weak — "we also
+# sponsor a Military Internship Program for transitioning service members; this
+# role is open to all students" would match it and hide an open job. So the
+# function requires a SECOND factor, _TITLE_VETERAN_PROGRAM_RE in the title,
+# i.e. the posting must BE the veteran programme rather than mention one. All 5
+# corpus rows carry both; combined, they fire on exactly those 5.
+_VETERAN_PROGRAM_RE = re.compile(
+    r"\b(?:veterans?|military)\s+(?:internship|intern)\s+program\b", re.IGNORECASE
+)
+
+# The same military-status gate written as an eligibility line rather than a
+# programme name: "Currently on active duty and eligible for SkillBridge"
+# (Rise8), "Has served at least 180 days on active duty. Is within 180 days of
+# separation or retirement" (Two Six). 8 corpus rows, all genuine.
+#
+# The danger here is the OFCCP boilerplate that 207 rows carry — "protected
+# veterans... active duty wartime or campaign badge veterans" — which is why
+# neither branch keys on "active duty" alone: one requires a currently/must-be
+# frame immediately in front of it, the other requires the statutory 180-day
+# separation window. Widening the branches ~4x still returns the same rows.
+_MILITARY_STATUS_RE = re.compile(
+    r"\bwithin\s+180\s+days\s+of\s+(?:separation|retirement|transition)\b"
+    r"|\b(?:currently|must\s+be|are)\s+(?:serving\s+)?on\s+active\s+duty\b"
+    r"|\bactive[\s-]?duty\s+service\s?members?\s+only\b",
+    re.IGNORECASE,
+)
+
+# SIG: "This program offers students currently enrolled at universities in Hong
+# Kong or Singapore the opportunity to intern in the US...". A cohort gate keyed
+# on where the school is, which the school override cannot see because it names
+# no school. 1 corpus row.
+#
+# The region is CAPTURED and then tested for a US token in the function, rather
+# than excluded by a lookahead at the front of the phrase. A lookahead is
+# evaluated at one position only, so "enrolled at universities in Metro Atlanta"
+# / "Greater Atlanta" / "North Georgia" would all slide past it and mark the
+# candidate ineligible for a job in his own city — the single worst outcome this
+# family can produce. Capturing and searching mirrors how _apply_non_us_override
+# tests the whole location string, and how the school patterns above hand
+# group(1) to _normalize_school.
+_REGION_UNIVERSITY_RE = re.compile(
+    r"\benrolled\s+at\s+(?:a\s+)?(?:universit(?:y|ies)|colleges?|schools?|institutions?)\s+in\s+"
+    r"((?:the\s+)?[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)?)"
+)
+_REGION_EXEMPT_RE = re.compile(
+    r"\b(?:U\.?S\.?A?|United\s+States|North\s+America|America|Georgia|Atlanta)\b", re.IGNORECASE
+)
+
+
+def _insider_group_gate(job: dict):
+    """Return (label, quoted_match) for the first insider-group gate found in
+    this posting, or None. Split out from the override itself so the tests can
+    assert on WHICH gate fired, and so the override stays the same shape as its
+    four siblings."""
+    title = _flatten_markup(job.get("title") or "")
+    # " . " between the two fields for the same reason block markup becomes a
+    # period: a title ending in "...Interns" must not weld onto a description
+    # opening with "Only candidates selected will be contacted."
+    text = _flatten_markup((job.get("title") or "") + " . " + (job.get("description") or ""))
+
+    for label, pattern in (
+        ("company's own intern-conversion req", _TITLE_CONVERSION_RE),
+        ("returning-intern-only req", _TITLE_RETURNING_RE),
+        ("DoD SkillBridge (active-duty service members only)", _TITLE_SKILLBRIDGE_RE),
+        ("military-status-only posting", _TITLE_MILITARY_ONLY_RE),
+    ):
+        match = pattern.search(title)
+        if match:
+            return label, match.group(0)
+
+    match = _RESTRICTED_REQ_RE.search(text)
+    if match:
+        return "requisition restricted to a named insider group", match.group(0)
+
+    for match in _INTERNS_ONLY_RE.finditer(text):
+        if _PERK_CONTEXT_RE.search(text[max(0, match.start() - 80):match.start()]):
+            continue  # a perk offered to interns, not a restriction on applying
+        return "open to that company's own interns only", match.group(0)
+
+    for match in _NAMED_GROUP_ONLY_RE.finditer(text):
+        qualifier = match.group(1).strip()
+        if _normalize_school(qualifier) == _CANDIDATE_SCHOOL_CORE:
+            continue  # the candidate's OWN school named — not a restriction
+        if all(w.lower() in _GENERIC_GROUP_WORDS for w in re.findall(r"[A-Za-z]+", qualifier)):
+            continue  # "Summer Interns Only" names no group
+        if _PERK_CONTEXT_RE.search(text[max(0, match.start() - 80):match.start()]):
+            continue
+        return "restricted to a named group the candidate is not in", match.group(0)
+
+    for label, pattern in (
+        ("internal candidates only", _INTERNAL_ONLY_RE),
+        ("applications outside the stated audience are not considered", _OUTSIDE_AUDIENCE_RE),
+        ("non-interns explicitly will not be considered", _NOT_AN_INTERN_RE),
+        ("requires being that company's current/former intern", _MUST_BE_INTERN_RE),
+    ):
+        match = pattern.search(text)
+        if match:
+            return label, match.group(0)
+
+    match = _PRIOR_INTERNSHIP_RE.search(text)
+    if match:
+        named = match.group(1)
+        company_words = {w.lower() for w in re.findall(r"[A-Za-z]{3,}", job.get("company") or "")}
+        named_words = {w.lower() for w in re.findall(r"[A-Za-z]{3,}", named)}
+        # Only a gate when the named employer IS this posting's employer.
+        # "completed an internship at NASA in 2025" in someone else's preferred
+        # qualifications is a nice-to-have, not a restriction.
+        if named.lower().startswith(("us", "our")) or (company_words and named_words & company_words):
+            return "requires a prior internship at this same employer", match.group(0)
+
+    if _TITLE_VETERAN_PROGRAM_RE.search(title):
+        match = _VETERAN_PROGRAM_RE.search(text)
+        if match:
+            return "veteran/military-spouse internship programme", match.group(0)
+
+    match = _MILITARY_STATUS_RE.search(text)
+    if match:
+        return "requires active-duty military status", match.group(0)
+
+    for match in _REGION_UNIVERSITY_RE.finditer(text):
+        if _REGION_EXEMPT_RE.search(match.group(1)):
+            continue  # a US region, including "Metro Atlanta" — not a gate
+        return "restricted to students enrolled outside the US", match.group(0)
+
+    return None
+
+
+def _apply_returning_intern_override(job: dict, result: dict) -> dict:
+    """Force SKIP when the posting is open only to a group the candidate cannot
+    join — the company's own returning interns, its internal employees, a
+    pre-selected cohort, active-duty service members, or students enrolled
+    abroad. See the module-level comment above _MARKUP_BLOCK_RE for why this is
+    a deterministic catch rather than a rubric instruction: the rubric already
+    carries the rule, and all four RTX postings carrying "This requisition is
+    for an RTX intern returning for an internship in 2027" were classified
+    actionable anyway.
+
+    Runs FIRST in the override chain. _apply_full_time_override sets a tier
+    WITHOUT hard_ineligible, so letting it fire first on one of these rows would
+    leave this override's never-promote guard to return early, and
+    _never_skip_github_sourced would then resurrect a gh: row it cannot
+    actually apply to."""
+    tier = result.get("tier")
+    # PENDING is a queue state, not a verdict, and must never be touched here.
+    if tier not in ("APPLY", "APPLY_CAVEAT", "INELIGIBLE"):
+        return result
+
+    gate = _insider_group_gate(job)
+    if not gate:
+        return result
+
+    label, quoted = gate
+
+    if tier == "INELIGIBLE":
+        # The model already reached the right verdict unaided, so its reason is
+        # kept and the tier is untouched — but the flag still has to be stamped.
+        #
+        # This branch is NOT cosmetic. Without it the guard above returned early
+        # whenever the model got there first, hard_ineligible was never set, and
+        # _never_skip_github_sourced read the verdict as an ordinary judgment
+        # call and resurrected the row to APPLY_CAVEAT — which still pushes. The
+        # perverse consequence: the better the rubric got at describing these
+        # gates, the MORE often the model said INELIGIBLE itself, and the more
+        # often its correct verdict was silently undone. Two consecutive
+        # classify() calls on RTX gh:957897d315475c83 returned APPLY_CAVEAT and
+        # INELIGIBLE from byte-identical input at temperature=0 for exactly this
+        # reason. Only gh:-sourced rows can be resurrected, which is why the
+        # four RTX rows failed while the IBM and Oracle LinkedIn rows passed.
+        result["hard_ineligible"] = True
+        return result
+
+    log.info("  Insider-group override: job %s gated by %s", job.get("id"), label)
+    result["tier"] = "INELIGIBLE"
+    # Group membership he literally cannot enter, exactly like a school he does
+    # not attend — so this is hard, and _never_skip_github_sourced must respect
+    # it. Without this flag a gh: row (which every RTX leak is) comes straight
+    # back as APPLY_CAVEAT and still pushes.
+    result["hard_ineligible"] = True
+    result["reason"] = (
+        f"Overridden: this posting is restricted to a group the candidate is not in "
+        f"({label}) — \"{quoted.strip()[:160]}\"."
+    )
+    return result
 
 
 def _apply_full_time_override(job: dict, result: dict) -> dict:
