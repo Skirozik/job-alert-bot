@@ -5,8 +5,10 @@ Env:  set variables in ../.env (local) or GitHub repo secrets (CI).
 
 Flow per run:
   0. Acquire a run-lock in Supabase (guards against two schedulers overlapping)
-  1. Search LinkedIn (5 terms × 2 locations), paginating up to MAX_PAGES per search,
-     plus a supplementary fetch from tracked GitHub internship-list repos.
+  1. Fetch + process the tracked GitHub internship-list repos FIRST (one
+     README fetch each, no rate limiting) so their pushes never wait behind
+     LinkedIn pagination sleeps, then search LinkedIn (5 terms × 2 locations),
+     paginating up to MAX_PAGES per search.
      Dedup runs against an in-memory index loaded once at the start of the run
      (LinkedIn returns newest-first, so once a full page is all true DB
      duplicates, nothing deeper can be new either).
@@ -247,10 +249,6 @@ def process_job(job: dict) -> bool:
     # Classify
     result = classify(job)
 
-    # A transient API failure must NOT be persisted. Storing a fallback verdict
-    # puts the job in the dedup index, so it is never reconsidered — that is
-    # exactly how the 2026-08-04 outage buried real APPLY jobs as junk MAYBEs.
-    # Returning early leaves the row absent, and the next run rediscovers it.
     if result.get("failed"):
         # PARK, don't drop. The description was fetched a few lines above and
         # would be lost with the row — and a LinkedIn listing is only
@@ -299,8 +297,26 @@ def process_job(job: dict) -> bool:
     return False
 
 
+def _freshest_first(jobs: list[dict]) -> list[dict]:
+    """Order a batch newest-posting-first before processing.
+
+    Each job costs ~5-8s to process (paced description fetch + classify), so
+    in a 20-job batch the LAST job's push lands ~2 minutes after the first.
+    Spend that queue position on the newest postings — they are the ones
+    where minutes matter (fresh tracker rows draw hundreds of applicants
+    within the hour); a posting already days old does not care.
+
+    Best-effort ordering, not correctness: posted_at is an ISO-8601 string
+    (sometimes date-only from LinkedIn cards, sometimes missing entirely),
+    and ISO strings order correctly under plain string comparison. Missing
+    posted_at sorts last.
+    """
+    return sorted(jobs, key=lambda j: j.get("posted_at") or "", reverse=True)
+
+
 def retry_pending() -> int:
-    """Classify jobs parked by an earlier run. Returns how many were promoted.
+    """Classify jobs parked by an earlier run. Returns the number of push
+    notifications sent, which run() folds into its notified stat.
 
     Runs before the LinkedIn search so the backlog drains even if the search
     half later fails. Nothing here re-fetches a description: the parked row
@@ -430,6 +446,7 @@ def run():
     total_raw = 0
     rate_limited_count = 0
     notified = 0
+    gh_new = 0
 
     try:
         # ── 0.5 Drain the parked backlog first ──────────────────────────────
@@ -446,6 +463,33 @@ def run():
         # this run under another search term", which used to be conflated
         # with a DB duplicate and could cut pagination short too early.)
         known_ids, known_norm_keys = load_dedup_index()
+
+        # ── 1a. GitHub-tracker sources FIRST (no rate limiting) ─────────────
+        # One README fetch per repo, and the most time-sensitive jobs in the
+        # pipeline — a popular tracker row draws hundreds of applicants within
+        # the hour. This block used to run AFTER every LinkedIn search, which
+        # parked its pushes behind 1-2 minutes of deliberate anti-rate-limit
+        # pagination sleeps for no benefit; it also meant a LinkedIn-side
+        # failure or the 0-results canary return took the gh: path down with
+        # it. Deliberately NOT counted into total_raw — the canary exists to
+        # detect LinkedIn-specific blocking, and mixing in another source
+        # would mask it.
+        gh_batch: list[dict] = []
+        for j in fetch_github_listings():
+            if j["id"] in seen_in_run:
+                continue
+            seen_in_run.add(j["id"])
+            nk = make_norm_key(j["company"], j["title"])
+            if j["id"] in known_ids or nk in known_norm_keys:
+                continue
+            known_ids.add(j["id"])
+            known_norm_keys.add(nk)
+            j["norm_key"] = nk
+            gh_batch.append(j)
+        for j in _freshest_first(gh_batch):
+            gh_new += 1
+            if process_job(j):
+                notified += 1
 
         for term in SEARCH_TERMS:
             for location in LOCATIONS:
@@ -528,27 +572,12 @@ def run():
             push_canary(msg)
             return
 
-        # ── 1b. Supplementary GitHub-tracker sources (no rate limiting) ──────
-        # Kept out of the canary/total_raw check above — it exists to detect
-        # LinkedIn-specific blocking, and mixing in another source would mask it.
-        for j in fetch_github_listings():
-            if j["id"] in seen_in_run:
-                continue
-            seen_in_run.add(j["id"])
-            nk = make_norm_key(j["company"], j["title"])
-            if j["id"] in known_ids or nk in known_norm_keys:
-                continue
-            known_ids.add(j["id"])
-            known_norm_keys.add(nk)
-            j["norm_key"] = nk
-            new_jobs.append(j)
-
         if not new_jobs:
-            log.info("No new jobs this run — done.")
+            log.info("No new LinkedIn jobs this run — done.")
             return
 
         # ── 3–6. Per-job: describe → classify → notify → store ──────────────
-        for job in new_jobs:
+        for job in _freshest_first(new_jobs):
             log.info("Processing: '%s' @ %s [%s]",
                      job["title"], job["company"], job["id"])
 
@@ -588,22 +617,28 @@ def run():
             if process_job(job):
                 notified += 1
 
-        if _PARKED_THIS_RUN:
-            log.warning("Parked this run: %s",
-                        ", ".join(f"{n} {k}" for k, n in sorted(_PARKED_THIS_RUN.items())))
-        _maybe_alert_classifier_down()
-
-        log.info("=== Run complete: %d new jobs, %d notified ===",
-                 len(new_jobs), notified)
+        log.info("=== Run complete: %d new jobs (%d gh-tracker), %d notified ===",
+                 len(new_jobs) + gh_new, gh_new, notified)
 
     finally:
         finish_run(
             run_id,
             total_raw=total_raw,
-            new_jobs=len(new_jobs),
+            new_jobs=len(new_jobs) + gh_new,
             notified=notified,
             rate_limited=rate_limited_count,
         )
+        # In the finally, because the run has two early returns (the 0-results
+        # canary and "no new jobs this run") that used to skip the alert: during
+        # an outage, a run that discovers nothing new still has a billing-failed
+        # retry probe worth announcing, and the first "top up credits" push must
+        # not wait for a run that happens to find a job. After finish_run so the
+        # run-lock is already released — every helper this calls swallows its
+        # own exceptions, but the lock must not depend on that.
+        if _PARKED_THIS_RUN:
+            log.warning("Parked this run: %s",
+                        ", ".join(f"{n} {k}" for k, n in sorted(_PARKED_THIS_RUN.items())))
+        _maybe_alert_classifier_down()
 
 
 if __name__ == "__main__":

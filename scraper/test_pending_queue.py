@@ -334,6 +334,9 @@ check("retry_pending runs before the search loop",
       _run.index("retry_pending()") < _run.index("for term in SEARCH_TERMS"))
 check("...and inside the try, so finish_run still releases the lock",
       _run.index("try:") < _run.index("retry_pending()"))
+check("the down-alert lives in the finally, so early returns cannot skip it",
+      "_maybe_alert_classifier_down" in _run.split("finally:", 1)[1],
+      "a quiet outage run (no new jobs) must still announce the outage")
 
 print(f"\n{_pass} passed, {_fail} failed")
 sys.exit(1 if _fail else 0)
