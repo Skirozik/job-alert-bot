@@ -87,13 +87,10 @@ async function fetchPaged(url: string, key: string, query: string, personaId: st
 /**
  * Exact row count for a filter, without downloading the rows.
  *
- * The ineligible query is deliberately capped at 500 (see HomePage), which is
- * right — nobody needs 48k rejected postings in the browser. But the sidebar
- * rendered that 500 as if it were the total, and Ineligible is precisely where
- * a wrongly-rejected job would be sitting. Searching that view filters only
- * what was loaded, so a job rejected three weeks ago returns nothing and looks
- * like it was never scraped. Knowing the real total is what lets the UI say
- * "500 of 48,863" instead of quietly implying 500 is all there is.
+ * Used by fetchPaged to learn how many pages to request up front, so they can
+ * be fetched concurrently rather than discovered by walking. Returns null when
+ * the server declines to count, which is a valid response and must not be
+ * mistaken for zero — fetchPaged falls back to the serial walk on null.
  */
 async function fetchCount(url: string, key: string, filter: string, personaId: string): Promise<number | null> {
   try {
@@ -171,21 +168,23 @@ export default async function HomePage() {
   const persona = await requirePersonaPage()
   const { supabaseUrl: url, serviceKey: key, id } = persona
 
-  // Only the low-priority SKIP backlog is capped by recency — everything
-  // else must load in full regardless of how many jobs pile up over time:
+  // Two buckets, both loaded in full:
   //   - status != 'new' (applied/saved/dismissed): jobs you've acted on
   //   - tier APPLY/APPLY_CAVEAT + status = 'new': jobs awaiting your decision
-  //   - tier INELIGIBLE + status = 'new': hard-blocked, fine to trim by age
-  const [tracked, activeReview, skipRecent, ineligibleTotal] = await Promise.all([
+  //
+  // INELIGIBLE is deliberately NOT fetched. It used to load the 500 most
+  // recent for an Archive view — 0.52 MB of a 5.38 MB refresh, on every load
+  // and every poll — to browse 518 of 51,151 rows with search running
+  // client-side over just that slice. It looked like a way to catch a
+  // wrongly-rejected job and could not be one. Auditing that pile wants a
+  // query against Supabase, not a truncated browse list.
+  const [tracked, activeReview] = await Promise.all([
     fetchPaged(url, key, 'select=*&status=neq.new&order=found_at.desc', id),
     fetchPaged(url, key, 'select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', id),
-    fetchJobs(url, key, 'select=*&status=eq.new&tier=eq.INELIGIBLE&order=found_at.desc&limit=500', id),
-    // The true size of the bucket the line above caps at 500.
-    fetchCount(url, key, 'status=eq.new&tier=eq.INELIGIBLE', id),
   ])
 
   const seen = new Set<string>()
-  const jobs: Job[] = [...tracked, ...activeReview, ...skipRecent]
+  const jobs: Job[] = [...tracked, ...activeReview]
     .filter((j) => (seen.has(j.id) ? false : (seen.add(j.id), true)))
     .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
 
@@ -202,7 +201,6 @@ export default async function HomePage() {
       initialJobs={stripForClient(grouped)}
       personaLabel={persona.label}
       personaSub={persona.username}
-      ineligibleTotal={ineligibleTotal}
     />
   )
 }

@@ -17,7 +17,7 @@ import {
 
 const POLL_MS = 5 * 60_000
 
-const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed','ineligible','all']
+const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed']
 
 const EMPTY: Record<ViewKey, string> = {
   'to-apply':  'Nothing clean to apply to right now.',
@@ -26,18 +26,14 @@ const EMPTY: Record<ViewKey, string> = {
   'applied':   "You haven't marked anything as applied yet.",
   'saved':     'Nothing saved yet.',
   'dismissed': 'Nothing dismissed.',
-  'ineligible':'Nothing ruled ineligible.',
-  'all':       'No postings stored yet.',
 }
 
 export function JobList({
-  initialJobs, personaLabel, personaSub, ineligibleTotal,
+  initialJobs, personaLabel, personaSub,
 }: {
   initialJobs: Grouped[]
   personaLabel?: string
   personaSub?: string
-  /** True number of ineligible rows; the loaded set is capped at 500. */
-  ineligibleTotal?: number | null
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -208,7 +204,6 @@ export function JobList({
         onSelect={v => patch({ view: v, job: null })}
         personaLabel={personaLabel}
         personaSub={personaSub}
-        ineligibleTotal={ineligibleTotal}
         onSignOut={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); router.refresh() }}
       />
 
