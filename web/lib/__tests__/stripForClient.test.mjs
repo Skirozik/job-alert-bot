@@ -29,13 +29,14 @@ const check = (name, cond, detail = '') => {
   else { fail++; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ''}`) }
 }
 
-// Pull the real function out of the file and strip the TS annotations, so the
-// behaviour under test is the shipped behaviour.
 const start = src.indexOf('function stripForClient')
 check('stripForClient exists in app/page.tsx', start !== -1)
+
+// Strip TS annotations so plain node can evaluate it. Covers the signature
+// (": Grouped[]") AND parameter annotations ("(d: Job)") — an earlier version
+// handled only the first and broke the moment the second was added.
 const body = src.slice(start, src.indexOf('\n}', start) + 2)
-  .replace(/: Grouped\[\]/g, '')
-  .replace(/\(j\)/, '(j)')
+  .replace(/:\s*[A-Z][A-Za-z0-9_]*(\[\])?/g, '')
 const stripForClient = new Function(`${body}; return stripForClient`)()
 
 const input = [
