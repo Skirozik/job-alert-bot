@@ -7,7 +7,6 @@ import type { Job } from '@/types/job'
 export type ViewKey =
   | 'to-apply' | 'caveat' | 'my-list'          // REVIEW
   | 'applied' | 'saved' | 'dismissed'          // TRACKING
-  | 'ineligible' | 'all'                       // ARCHIVE
 
 export type RoleFilter = 'all' | 'internships' | 'entry-level'
 export type SourceFilter = 'all' | 'direct' | 'linkedin'
@@ -22,7 +21,11 @@ export const isActive = (j: Job) => {
 
 /** The view predicate. REVIEW views are implicitly active-only — a job you've
  *  already acted on is not still "to apply". TRACKING views are status lookups.
- *  ARCHIVE is reference. */
+ *
+ *  There is deliberately no INELIGIBLE or ALL view. The Ineligible one could
+ *  only ever show 518 of 51,151 rows, with search running client-side over
+ *  just those — it looked like a way to catch a wrongly-rejected job and was
+ *  not one. Removing both also drops a 0.52 MB fetch from every refresh. */
 export function matchesView(j: Job, v: ViewKey): boolean {
   switch (v) {
     case 'to-apply':   return j.tier === 'APPLY' && isActive(j)
@@ -31,8 +34,6 @@ export function matchesView(j: Job, v: ViewKey): boolean {
     case 'applied':    return j.status === 'applied'
     case 'saved':      return j.status === 'saved'
     case 'dismissed':  return j.status === 'dismissed'
-    case 'ineligible': return j.tier === 'INELIGIBLE'
-    case 'all':        return true
   }
 }
 
