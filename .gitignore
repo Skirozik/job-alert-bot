@@ -37,3 +37,7 @@ node_modules/
 
 .vercel
 .env*
+
+# Claude Code local settings — machine-specific paths and tool permissions,
+# not project config.
+.claude/
