@@ -2,12 +2,14 @@
 
 import type { ViewKey } from '@/lib/jobView'
 
-/* Three groups, in the order the work actually flows:
+/* Two groups, in the order the work actually flows:
      REVIEW   — the queue being worked
      TRACKING — where things go once acted on
-     ARCHIVE  — reference, rarely opened
-   Previously all eight of these were one flat band of identical chips, which
-   is why nothing read as prioritised. */
+   The old ARCHIVE group (Ineligible, All postings) is gone. It browsed 518 of
+   51,151 rows with search running client-side over only that slice, so it
+   could not actually find a wrongly-rejected job — which was the only reason
+   to have it. Dropping it also stops fetching 500 ineligible rows on every
+   refresh (0.52 MB of 5.38 MB). */
 const GROUPS: { label: string; items: { key: ViewKey; label: string }[] }[] = [
   { label: 'Review', items: [
     { key: 'to-apply', label: 'To apply' },
@@ -19,21 +21,10 @@ const GROUPS: { label: string; items: { key: ViewKey; label: string }[] }[] = [
     { key: 'saved',     label: 'Saved' },
     { key: 'dismissed', label: 'Dismissed' },
   ]},
-  { label: 'Archive', items: [
-    { key: 'ineligible', label: 'Ineligible' },
-    { key: 'all',        label: 'All postings' },
-  ]},
 ]
 
-/** 48863 -> "48.9k". Keeps the rail's number column narrow. */
-function compact(n: number): string {
-  if (n < 1000) return String(n)
-  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
-  return `${Math.round(n / 1000)}k`
-}
-
 export function Sidebar({
-  view, counts, onSelect, personaLabel, personaSub, onSignOut, ineligibleTotal,
+  view, counts, onSelect, personaLabel, personaSub, onSignOut,
 }: {
   view: ViewKey
   counts: Record<ViewKey, number>
@@ -41,14 +32,6 @@ export function Sidebar({
   personaLabel?: string
   personaSub?: string
   onSignOut: () => void
-  /**
-   * True number of ineligible rows. The page loads only the 500 most recent,
-   * so without this the rail printed that 500 as though it were the total —
-   * and Ineligible is exactly where a wrongly-rejected job sits. Search
-   * filters only what was loaded, so an older mistake returns nothing and
-   * reads as "never scraped" rather than "not loaded".
-   */
-  ineligibleTotal?: number | null
 }) {
   const initial = (personaLabel || '?').charAt(0).toUpperCase()
 
@@ -81,23 +64,11 @@ export function Sidebar({
             </div>
             {group.items.map(item => {
               const on = view === item.key
-              // Only Ineligible is a partial view. Show "505 / 48.9k" so the
-              // number never claims to be the whole bucket.
-              const truncated =
-                item.key === 'ineligible' &&
-                typeof ineligibleTotal === 'number' &&
-                ineligibleTotal > counts[item.key]
               return (
                 <button
                   key={item.key}
                   onClick={() => onSelect(item.key)}
                   aria-current={on ? 'page' : undefined}
-                  title={
-                    truncated
-                      ? `Showing the ${counts[item.key]} most recent of ${ineligibleTotal!.toLocaleString()} ineligible postings. ` +
-                        `Search only covers what is loaded, so older rejections will not appear here.`
-                      : undefined
-                  }
                   className="w-full flex items-center justify-between text-left"
                   style={{
                     height: '32px',
@@ -116,9 +87,6 @@ export function Sidebar({
                     style={{ color: 'var(--fg-subtle)', fontVariantNumeric: 'tabular-nums' }}
                   >
                     {counts[item.key]}
-                    {truncated && (
-                      <span style={{ opacity: 0.65 }}> / {compact(ineligibleTotal!)}</span>
-                    )}
                   </span>
                 </button>
               )
