@@ -21,6 +21,34 @@ export const dynamic = 'force-dynamic'
 // accident.
 const PAGE = 1000
 
+/**
+ * The columns the dashboard actually renders — everything EXCEPT description.
+ *
+ * description is up to 12,000 chars and is 90% of the compressed bytes leaving
+ * Supabase: 4.38 MB of a 4.86 MB refresh. Nothing displays it. Its only
+ * consumer was containment() in lib/dupes.ts, which grouped near-identical
+ * postings; that grouping is deliberately switched off until it can be
+ * precomputed rather than recalculated from full text on every single load.
+ * The visible cost is that a job posted to two sources now shows as two rows.
+ *
+ * norm_key, search_term and posted_at are omitted too — nothing reads them.
+ *
+ * NOT a single fixed list, because the personas' schemas differ: only the
+ * original has suggested_resume (scraper_beyonce/schema.sql and
+ * scraper_hassan/schema.sql omit it). PostgREST answers a request for a
+ * missing column with a hard 400, not a silent omission — verified — and
+ * fetchJobs returns [] on a failed response, so one wrong column name would
+ * render an entire persona's dashboard empty. Hence the fallback below rather
+ * than a list that has to be kept in sync by hand.
+ */
+const COLS_BASE = 'id,title,company,location,url,tier,reason,status,found_at,apply_url,is_easy_apply,salary,logo_url'
+const COLS_FULL = `${COLS_BASE},suggested_resume`
+
+/** Swap `select=*` for the explicit list, leaving every other param alone. */
+function slimSelect(query: string, cols: string): string {
+  return query.replace(/(^|&)select=\*/, `$1select=${cols}`)
+}
+
 async function fetchPagedSerial(url: string, key: string, query: string, personaId: string): Promise<Job[]> {
   const all: Job[] = []
   for (let offset = 0; ; offset += PAGE) {
@@ -113,7 +141,19 @@ async function fetchCount(url: string, key: string, filter: string, personaId: s
   }
 }
 
-async function fetchJobs(url: string, key: string, query: string, personaId: string): Promise<Job[]> {
+/**
+ * One request. `retryOnMissingColumn` handles the persona-schema difference:
+ * only the original project has suggested_resume, and PostgREST answers a
+ * request for a missing column with a 400 rather than omitting it. On that
+ * specific failure the query is retried with the base column list, so a
+ * persona whose schema lacks the column degrades to a missing Resume badge —
+ * which types/job.ts already models as optional — instead of an empty
+ * dashboard.
+ */
+async function fetchJobs(
+  url: string, key: string, query: string, personaId: string,
+  retryOnMissingColumn = true,
+): Promise<Job[]> {
   const res = await fetch(`${url}/rest/v1/jobs?${query}`, {
     headers: {
       apikey: key,
@@ -122,6 +162,9 @@ async function fetchJobs(url: string, key: string, query: string, personaId: str
     cache: 'no-store',
   })
   if (!res.ok) {
+    if (retryOnMissingColumn && res.status === 400 && query.includes(',suggested_resume')) {
+      return fetchJobs(url, key, query.replace(',suggested_resume', ''), personaId, false)
+    }
     // Previously this returned [] silently. With one known-good credential
     // that was survivable; with several, a wrong service key or URL renders an
     // indistinguishable "No jobs here" empty state. Log it.
@@ -179,8 +222,8 @@ export default async function HomePage() {
   // wrongly-rejected job and could not be one. Auditing that pile wants a
   // query against Supabase, not a truncated browse list.
   const [tracked, activeReview] = await Promise.all([
-    fetchPaged(url, key, 'select=*&status=neq.new&order=found_at.desc', id),
-    fetchPaged(url, key, 'select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', id),
+    fetchPaged(url, key, slimSelect('select=*&status=neq.new&order=found_at.desc', COLS_FULL), id),
+    fetchPaged(url, key, slimSelect('select=*&status=eq.new&tier=in.(APPLY,APPLY_CAVEAT)&order=found_at.desc', COLS_FULL), id),
   ])
 
   const seen = new Set<string>()
