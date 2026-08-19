@@ -15,6 +15,8 @@ import {
   type SortKey, type SortDir,
 } from '@/lib/jobView'
 
+const POLL_MS = 5 * 60_000
+
 const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed','ineligible','all']
 
 const EMPTY: Record<ViewKey, string> = {
@@ -113,9 +115,23 @@ export function JobList({
 
   // Poll instead of subscribing: NEXT_PUBLIC_* is build-time-inlined and so
   // single-valued, which cannot work on a multi-tenant deployment.
+  //
+  // 5 minutes, not 60 seconds. Each refresh re-runs the full server fetch,
+  // which pulls 14.09 MB out of Supabase — measured, not estimated. At 60s
+  // that is 845 MB/hour with the tab open, and it put the project 192% over
+  // its 5 GB egress quota; the arithmetic said 23 minutes of daily use
+  // explains the whole 9.6 GB bill.
+  //
+  // Costs almost nothing in freshness, because the interval is the LEAST
+  // important of three refresh paths: the focus listener below fires the
+  // moment you look at the tab, the toolbar has a manual Refresh, and the
+  // scrapers only produce new rows every 5-20 minutes anyway — so a 5-minute
+  // poll now roughly matches the rate at which data can actually change.
+  // Notifications are unaffected either way: ntfy pushes at classification
+  // time and never waits on the dashboard.
   useEffect(() => {
     const tick = () => { if (document.visibilityState === 'visible') router.refresh() }
-    const id = setInterval(tick, 60_000)
+    const id = setInterval(tick, POLL_MS)
     window.addEventListener('focus', tick)
     return () => { clearInterval(id); window.removeEventListener('focus', tick) }
   }, [router])
