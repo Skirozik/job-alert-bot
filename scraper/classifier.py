@@ -258,7 +258,7 @@ _CLASSIFY_TOOL = {
             "reason": {
                 "type": "string",
                 "description": (
-                    "For APPLY: one short sentence on the match. For APPLY_CAVEAT: the caveat itself, under 12 words, naming the specific reservation (e.g. 'strong C++ + Unreal, no game projects' or 'prefers 3.5 GPA'). For INELIGIBLE: one sentence naming which hard block applies."
+                    "For APPLY: one short sentence on the match. GROUNDING RULE — name only technologies, tools, or responsibilities that appear VERBATIM in this posting's text. Do not infer a stack from the company, the job title, or what a role like this usually involves, and never restate the candidate's own skills as though the posting asked for them. If the posting names no specific technology, say 'title-level match only' rather than inventing one. A reason that names a technology absent from the posting is a failure even when the tier is right. For APPLY_CAVEAT: the caveat itself, under 12 words, naming the specific reservation (e.g. 'strong C++ + Unreal, no game projects' or 'prefers 3.5 GPA'). For INELIGIBLE: one sentence naming which hard block applies."
                 ),
             },
             "suggested_resume": {
@@ -363,6 +363,7 @@ Description: {job.get("description") or "(not available — classify on title/co
             result = _apply_non_us_override(job, result)
             result = _apply_salary_fallback(job, result)
             result = _never_skip_github_sourced(job, result)
+            result = _apply_title_only_override(job, result)
 
             return result
 
@@ -1061,6 +1062,47 @@ def _apply_non_us_override(job: dict, result: dict) -> dict:
         f"Overridden: this role is based in {m.group(0).title()} with no US or US-remote "
         f"option stated; candidate is a US citizen without the right to work there."
     )
+    return result
+
+
+# A description this short is not a description. Matches the >200 bar that
+# _fetch_generic and _fetch_icims already use to decide whether a fetch
+# returned real content or an empty SPA shell.
+_MIN_REAL_DESCRIPTION = 200
+
+
+def _apply_title_only_override(job: dict, result: dict) -> dict:
+    """A job classified without a description can never be a clean APPLY.
+
+    Some sources structurally carry no description: SmartRecruiters' and
+    Workday's listing endpoints don't include one (ats_sources.py), and the
+    external fetch returns None for any unrecognized ATS. Those rows were
+    labelled APPLY on the title alone and looked identical, in the queue, to a
+    posting the classifier had read in full — so a guess and a verified match
+    were indistinguishable at exactly the moment the user is deciding where to
+    spend an evening.
+
+    Downgrade to APPLY_CAVEAT, never lower. The profile's stated asymmetry is
+    that hiding a job costs a real opportunity while a caveat costs ten
+    seconds, so this keeps the job on the list and just tells the truth about
+    what is known. INELIGIBLE is left alone: a hard block established from the
+    title is still a hard block.
+
+    Deterministic rather than prompted, like every other override here — 5e525a8
+    recorded that prompting alone did not hold for the non-US rule.
+
+    Runs LAST so it sees the tier the whole chain settled on.
+    """
+    if result.get("tier") != "APPLY":
+        return result
+
+    desc = (job.get("description") or "").strip()
+    if len(desc) >= _MIN_REAL_DESCRIPTION:
+        return result
+
+    log.info("  Title-only override: job %s has %d chars of description", job.get("id"), len(desc))
+    result["tier"] = "APPLY_CAVEAT"
+    result["reason"] = "Classified on title only — no description available"
     return result
 
 
