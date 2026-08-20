@@ -167,6 +167,71 @@ def _fetch_icims(apply_url: str) -> Optional[str]:
     return text[:MAX_LEN] if len(text) > 200 else None
 
 
+# Containers career sites actually wrap a posting in, most specific first. The
+# generic path used to skip this and take the whole body, which is how cookie
+# banners and department menus ended up as "descriptions": decompose() only
+# removes <nav>/<header>/<footer>, and these sites use plain <div>s. Measured on
+# 124 live rows, 6 were affected and the real job text did not start until char
+# 1,725-5,096 — on a 12,000-char budget whose tail is where eligibility rules
+# live, that is up to half the window spent on boilerplate.
+_JOB_CONTENT_SELECTORS = (
+    '[data-automation-id*="jobPostingDescription"]',
+    '[class*="job-description"]',
+    '[class*="jobDescription"]',
+    '[id*="job-description"]',
+    '[id*="jobDescription"]',
+    '[class*="job-details"]',
+    '[class*="jobDetail"]',
+    '[class*="posting-description"]',
+    "article",
+    '[role="main"]',
+    "main",
+)
+
+
+# Site furniture, matched on a node's id/class. Subtractive cleanup, because
+# the selector list above cannot reach every site: SAP SuccessFactors boards
+# (Grainger, WEC Energy) render the posting body in bare <div>s with no id or
+# class at all, so there is no container to select.
+_CHROME_IDENT = re.compile(
+    r"cookie|consent|gdpr|privacy|nav|menu|dropdown|breadcrumb|footer"
+    r"|search-?(?:bar|box|form|widget)|job-?alert|alert-?(?:box|signup)"
+    r"|social|share|skip-?link|banner|masthead|sidebar|toolbar",
+    re.I,
+)
+
+
+def _strip_chrome(soup: BeautifulSoup) -> None:
+    """Drop nodes whose id/class marks them as site furniture, in place."""
+    # Collect before decomposing: mutating during find_all's iteration leaves
+    # later tags detached, and tag.get() on a decomposed node raises.
+    doomed = []
+    for tag in soup.find_all(["div", "section", "aside", "ul", "form", "span"]):
+        ident = f"{tag.get('id') or ''} {' '.join(tag.get('class') or [])}"
+        if ident.strip() and _CHROME_IDENT.search(ident):
+            doomed.append(tag)
+    for tag in doomed:
+        if not tag.decomposed:
+            tag.decompose()
+
+
+def _extract_job_content(soup: BeautifulSoup) -> Optional[str]:
+    """Return just the posting's own content, or None if no container matched.
+
+    Deliberately extraction, not rejection. A reject-the-page heuristic was
+    tried against the 6 real chrome dumps and caught only 2 of them while
+    wrongly rejecting 5 good descriptions — these pages DO contain genuine job
+    vocabulary, just several kilobytes down. Finding the container works;
+    scoring the text does not.
+    """
+    for selector in _JOB_CONTENT_SELECTORS:
+        for node in soup.select(selector):
+            text = node.get_text(separator=" ", strip=True)
+            if len(text) > 200:
+                return text[:MAX_LEN]
+    return None
+
+
 def _fetch_generic(apply_url: str) -> Optional[str]:
     """Best-effort fallback for ATS platforms without a known public API."""
     resp = requests.get(apply_url, headers=HEADERS, timeout=15)
@@ -175,6 +240,23 @@ def _fetch_generic(apply_url: str) -> Optional[str]:
     soup = BeautifulSoup(resp.text, "lxml")
     for tag in soup(["script", "style", "nav", "header", "footer"]):
         tag.decompose()
+    _strip_chrome(soup)
+
+    scoped = _extract_job_content(soup)
+    if scoped:
+        return scoped
+
+    # No recognizable container — fall back to the whole page, which is what
+    # this function always did. Sites that work today keep working; the log
+    # line is so the gap is visible in Actions output instead of silent.
+    #
+    # HONEST LIMIT: _strip_chrome measurably shrinks these pages (Grainger
+    # 10,467 -> ~6,500, WEC 8,602 -> ~7,000, both verified live) but does NOT
+    # fully clean the head on SuccessFactors — a job-alert widget without a
+    # matching id/class still leads. That is a budget improvement, not a
+    # guarantee the first line is job text. It is worth having because the
+    # 12,000-char cap truncates from the END, where eligibility rules live.
+    log.info("No job-content container matched, using whole-page text: %s", apply_url)
     text = soup.get_text(separator=" ", strip=True)
     # A too-short result usually means the real content is client-rendered
     # (SPA) and we only got an empty shell — not worth passing to the
