@@ -15,12 +15,12 @@ name: ATS Fast-Path Watcher
 
 on:
   schedule:
-    # GitHub's minimum granularity is 5 minutes and scheduled runs are
-    # frequently delayed under load, so Modal's 3-minute cadence is not
-    # reproducible here. 15 minutes still beats LinkedIn syndication by hours,
-    # which is the entire point of this path.
-    # 10-min, off-herd; affordable since fetch_all_listings was parallelized.
-    # The external pinger is the real cadence — see FAST_PINGS_SETUP.md.
+    # This cron is the FALLBACK, not the real cadence. GitHub runs scheduled
+    # workflows best-effort: this 10-minute cron measured a 32.4-minute median
+    # gap over 200 runs, and offsetting off the herd minute did not help.
+    # The external pinger drives the real 5-minute cadence by POSTing to the
+    # workflow-dispatch API, which is not deferred — see FAST_PINGS_SETUP.md.
+    # Affordable at 5 min since fetch_all_listings was parallelized (3.0-min runs).
     - cron: '4,14,24,34,44,54 * * * *'
   workflow_dispatch:
 
