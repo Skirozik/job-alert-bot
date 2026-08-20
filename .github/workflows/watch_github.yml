@@ -16,8 +16,12 @@ name: GitHub Tracker Fast-Path Watcher
 
 on:
   schedule:
-    # GitHub's floor is 5 minutes; Modal's 2-minute cadence isn't reproducible.
-    # Offset off the herd minute; the external pinger is the real cadence — see FAST_PINGS_SETUP.md.
+    # This cron is the FALLBACK, not the real cadence. GitHub's floor is 5
+    # minutes and it does not honour even that: this cron measured a 29.1-minute
+    # median gap over 200 runs. The external pinger restores Modal's original
+    # 2-minute cadence via the workflow-dispatch API, which is not deferred and
+    # has no 5-minute floor — see FAST_PINGS_SETUP.md. Safe at 2 min because a
+    # run takes 0.6 min, so pings cannot stack.
     - cron: '3-58/5 * * * *'
   workflow_dispatch:
 
