@@ -1,6 +1,16 @@
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 lxml>=5.1.0
-anthropic>=0.40.0
+# Upper bound is load-bearing, not cosmetic. anthropic 1.0.0 (PyPI
+# 2026-08-20 19:58:58Z) removed `temperature` from messages.create();
+# classifier.py pins temperature=0 because identical input otherwise
+# produced different verdicts ~20-30% of the time on borderline jobs.
+# With this requirement unpinned, the very next Actions run (20:00:16Z,
+# 78 seconds later) installed 1.0.0 and every classification began
+# failing with a TypeError -- silently, because a failed classification
+# parks the job as PENDING and the run still exits 0. Lift this bound
+# only together with removing temperature=0; see Step 6 of the SDK
+# 0.x->1.x migration guide.
+anthropic>=0.40.0,<1
 supabase>=2.4.0
 python-dotenv>=1.0.0
