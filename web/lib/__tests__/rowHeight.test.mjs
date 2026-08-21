@@ -15,6 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(join(here, '../../app/globals.css'), 'utf8')
 const table = readFileSync(join(here, '../../components/JobTable.tsx'), 'utf8')
 const toolbar = readFileSync(join(here, '../../components/Toolbar.tsx'), 'utf8')
+const list = readFileSync(join(here, '../../components/JobList.tsx'), 'utf8')
 
 let pass = 0, fail = 0
 const check = (name, cond, detail = '') => {
@@ -41,12 +42,21 @@ const WINDOW_H = 900            // reported only, never used in the maths
 
 const rowH = num(/--row-h:\s*(\d+)px/, css)
 const headerH = num(/gridTemplateColumns: grid, height: (\d+)/, table)
-const toolbarH = num(/height: (\d+), padding: '0 var\(--s4\)'/, toolbar)
+// Toolbar is fixed-height on desktop and auto-height on mobile. The mobile
+// work made that choice explicit in the component, so keep this density guard
+// tied to the desktop branch rather than looking for the old unconditional
+// `height: 40` declaration.
+const toolbarH = num(
+  /height:\s*isMobile\s*\?\s*'auto'\s*:\s*(\d+),\s*\n\s*padding:/,
+  toolbar,
+)
 
 check(`--row-h is defined`, Number.isFinite(rowH), 'not found in globals.css')
 check(`row height ${rowH}px <= ${ROW_MAX}px`, rowH <= ROW_MAX, `got ${rowH}px`)
 check(`table header height ${headerH}px is defined`, Number.isFinite(headerH))
 check(`toolbar height ${toolbarH}px is defined`, Number.isFinite(toolbarH))
+check('app root is viewport-height so the table, not body, scrolls',
+  /className="flex h-dvh overflow-hidden"/.test(list))
 
 // Rows fit in the viewport after the chrome above them. The sidebar is a
 // left rail and costs no vertical space, so only the toolbar and the sticky
