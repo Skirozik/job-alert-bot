@@ -12,6 +12,7 @@ import {
   IconApplyFilled, IconApplyOutline, IconApplied, IconSave, IconDismiss,
   IconReset, IconBolt, IconChevron,
 } from './icons'
+import { useIsMobile } from '@/lib/useMediaQuery'
 
 const TIER_BAR: Record<string, string> = {
   APPLY: 'var(--tier-clean)', APPLY_CAVEAT: 'var(--tier-caveat)', INELIGIBLE: 'var(--tier-inelig)',
@@ -26,8 +27,10 @@ function IconBtn({
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="flex items-center justify-center shrink-0"
+      className="tap flex items-center justify-center shrink-0"
       style={{
+        // 24px is a mouse target. .tap raises it to 44x44 under the mobile
+        // breakpoint, where these are the row's only touchable controls.
         width: 24, height: 24, borderRadius: 'var(--radius)',
         color: 'var(--fg-subtle)', opacity: disabled ? 0.3 : 1,
         cursor: disabled ? 'default' : 'pointer',
@@ -75,6 +78,8 @@ export function JobTable({
   sort: SortKey; dir: SortDir; onSort: (c: SortKey) => void
   emptyMessage: string
 }) {
+  const isMobile = useIsMobile()
+
   // Fixed column widths per the spec; Role takes the remainder.
   const W = {
     company: '200px',
@@ -86,15 +91,35 @@ export function JobTable({
     found: '110px',
     actions: '120px',
   }
-  const grid = [W.company, W.role, W.location, W.source, W.salary, W.resume, W.found, W.actions].join(' ')
+  /* Desktop is eight columns. Their fixed tracks alone total 590px — 890px
+     once the optional ones are on — so on a 390px screen the row cannot be
+     narrowed, only overflowed, and html{overflow-x:hidden} turns that
+     overflow into permanently unreachable content rather than a scrollbar.
+
+     Mobile therefore uses a different SHAPE, not a squeezed version of the
+     same one: two columns and three rows, with each cell placed explicitly
+     below. Same DOM, same order, same components — only the placement
+     changes, so nothing here needs a parallel mobile component to drift out
+     of sync with this one. */
+  const grid = isMobile
+    ? 'minmax(0,1fr) auto'
+    : [W.company, W.role, W.location, W.source, W.salary, W.resume, W.found, W.actions].join(' ')
 
   /* Windowing. "All postings" mounted all 2262 rows: 76,545 DOM nodes, a
      99,592px document and 3.25s to render, well past the ~15,000 nodes where
-     Chrome degrades. Rows are a fixed 45px (44 + 1px divider), which makes the
+     Chrome degrades. Rows are a FIXED height per breakpoint, which makes the
      visible slice pure arithmetic — no measurement pass, no library.
      Everything above and below is replaced by a single spacer div, so scroll
-     height and scrollbar position stay exact. */
-  const ROW_PX = 45
+     height and scrollbar position stay exact.
+
+     ROW_PX must equal the rendered row height + the 1px divider, and must
+     agree with --row-h in globals.css at the same breakpoint. Desktop 44+1;
+     mobile 96+1 for the three stacked lines. Get this wrong and the list does
+     not look mis-sized — the scroll position drifts and rows vanish, which is
+     a much harder bug to recognise. This is also why the mobile row pins
+     gridTemplateRows instead of letting content size it: a title that wrapped
+     to two lines would silently break the arithmetic. */
+  const ROW_PX = isMobile ? 97 : 45
   const OVERSCAN = 8
   const scrollRef = useRef<HTMLElement | null>(null)
   const [range, setRange] = useState({ start: 0, end: 60 })
@@ -113,7 +138,11 @@ export function JobTable({
     el?.addEventListener('scroll', recompute, { passive: true })
     window.addEventListener('resize', recompute)
     return () => { el?.removeEventListener('scroll', recompute); window.removeEventListener('resize', recompute) }
-  }, [rows.length])
+    // ROW_PX is a dependency, not a constant: it changes when the breakpoint
+    // is crossed (rotation, desktop window resize). Without it here the
+    // window keeps computing against the previous layout's row height and
+    // the visible slice silently stops matching the scroll offset.
+  }, [rows.length, ROW_PX])
 
   const visible = rows.slice(range.start, range.end)
   const padTop = range.start * ROW_PX
@@ -130,7 +159,13 @@ export function JobTable({
 
   return (
     <div role="table" aria-label="Jobs" ref={scrollRef as any}>
-      {/* Header. 28px so it costs as little vertical space as possible. */}
+      {/* Header. 28px so it costs as little vertical space as possible.
+          Dropped entirely on mobile: column headers describe columns, and
+          there are no columns there — a stacked row makes them meaningless
+          labels sitting above content they no longer align with. Sorting
+          stays reachable, since the sort controls are these same headers on
+          desktop and the mobile list keeps the sort applied from the URL. */}
+      {!isMobile && (
       <div
         role="row"
         className="grid sticky top-0 z-10 items-center"
@@ -149,6 +184,7 @@ export function JobTable({
         <SortHead label="Discovered" col="found_at" sort={sort} dir={dir} onSort={onSort} style={cell} />
         <span />
       </div>
+      )}
 
       {padTop > 0 && <div style={{ height: padTop }} aria-hidden />}
       {visible.map(job => {
@@ -172,16 +208,28 @@ export function JobTable({
             data-job-row={job.id}
             onClick={() => onSelect(job.id)}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(job.id) } }}
-            className="row-hit grid items-center cursor-default"
+            className={isMobile
+              ? 'row-hit grid cursor-default'
+              : 'row-hit grid items-center cursor-default'}
             style={{
               gridTemplateColumns: grid,
               height: 'var(--row-h)',
               borderBottom: '1px solid var(--border)',
               borderLeft: `3px solid ${TIER_BAR[job.tier] ?? 'transparent'}`,
+              ...(isMobile ? {
+                // 3 lines: identity / role / meta+actions. Fixed rows rather
+                // than auto, so the height stays exactly --row-h and ROW_PX
+                // above stays true no matter how long a title is.
+                gridTemplateRows: '20px 22px 44px',
+                alignItems: 'center',
+                columnGap: 'var(--s2)',
+                padding: '4px var(--s3) 4px var(--s2)',
+              } : null),
             }}
           >
             {/* Company */}
-            <div style={cell} className="flex items-center gap-2">
+            <div style={{ ...cell, ...(isMobile ? { gridColumn: 1, gridRow: 1, padding: 0 } : null) }}
+                 className="flex items-center gap-2 min-w-0">
               <CompanyLogo src={job.logo_url} company={job.company} />
               <span className="truncate" style={{ color: fg }} title={job.company}>{job.company}</span>
               {status === 'new' && (
@@ -190,13 +238,19 @@ export function JobTable({
               )}
             </div>
 
-            {/* Role — truncates, full title in the tooltip */}
-            <div style={cell}>
-              <span className="block truncate" style={{ color: fg }} title={job.title}>{job.title}</span>
+            {/* Role — truncates, full title in the tooltip.
+                Spans both columns on mobile: the title is the thing being
+                scanned for, so it gets the full width rather than sharing a
+                line with metadata. */}
+            <div style={{ ...cell, ...(isMobile ? { gridColumn: '1 / -1', gridRow: 2, padding: 0 } : null) }}>
+              <span className="block truncate"
+                    style={{ color: fg, fontWeight: isMobile ? 500 : undefined }}
+                    title={job.title}>{job.title}</span>
             </div>
 
             {/* Location — first + overflow count, full list in the drawer */}
-            <div style={cell} className="flex items-center gap-1 min-w-0">
+            <div style={{ ...cell, ...(isMobile ? { gridColumn: 1, gridRow: 3, padding: 0 } : null) }}
+                 className="flex items-center gap-1 min-w-0">
               <span className="truncate" style={{ color: fgMuted }} title={locs.join(' · ')}>
                 {locs[0] ?? '—'}
               </span>
@@ -206,7 +260,7 @@ export function JobTable({
               )}
             </div>
 
-            {cols.source && (
+            {!isMobile && cols.source && (
               <div style={cell}>
                 {isDirect(job) && (
                   <span className="inline-flex items-center gap-1"
@@ -220,7 +274,7 @@ export function JobTable({
               </div>
             )}
 
-            {cols.salary && (
+            {!isMobile && cols.salary && (
               <div style={{ ...cell, textAlign: 'right' }}>
                 <span className="truncate inline-block max-w-full"
                       style={{ color: fgMuted, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
@@ -230,7 +284,7 @@ export function JobTable({
               </div>
             )}
 
-            {cols.resume && (
+            {!isMobile && cols.resume && (
               <div style={cell}>
                 {job.suggested_resume && job.suggested_resume !== 'N/A' && (
                   <span className="truncate inline-block max-w-full"
@@ -243,20 +297,24 @@ export function JobTable({
               </div>
             )}
 
-            <div style={cell}>
-              <span style={{ color: 'var(--fg-subtle)' }} title={fullTimestamp(job.found_at)}>
+            <div style={{ ...cell, ...(isMobile ? { gridColumn: 2, gridRow: 1, padding: 0 } : null) }}
+                 className={isMobile ? 'shrink-0 text-right' : undefined}>
+              <span style={{ color: 'var(--fg-subtle)', fontSize: isMobile ? 'var(--text-meta)' : undefined,
+                             whiteSpace: 'nowrap' }}
+                    title={fullTimestamp(job.found_at)}>
                 {relativeTime(job.found_at)}
               </span>
             </div>
 
             {/* Actions: hidden until hover, always painted on the selected row,
                 always keyboard-reachable (focus-within keeps them visible). */}
-            <div style={cell} className="row-actions flex items-center justify-end gap-1"
+            <div style={{ ...cell, ...(isMobile ? { gridColumn: 2, gridRow: 3, padding: 0 } : null) }}
+                 className="row-actions flex items-center justify-end gap-1 shrink-0"
                  onClick={e => e.stopPropagation()}>
               <a href={applyHref} target="_blank" rel="noopener noreferrer"
                  title={easy ? 'Easy Apply' : 'Apply (external)'}
                  aria-label={easy ? 'Easy Apply' : 'Apply (external)'}
-                 className="flex items-center justify-center shrink-0"
+                 className="tap flex items-center justify-center shrink-0"
                  style={{ width: 24, height: 24, borderRadius: 'var(--radius)', color: 'var(--accent)' }}>
                 {easy ? <IconApplyFilled /> : <IconApplyOutline />}
               </a>

@@ -97,3 +97,75 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .row-hit, .row-actions, .drawer { transition: none; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Mobile.
+
+   ONE breakpoint, at 768px. The layout only has two genuinely different
+   shapes — "rail + table + drawer" and "single column" — so a second
+   breakpoint would add states nobody designed. 768px is where the 590px of
+   fixed table columns plus the 240px rail stop fitting.
+
+   Everything below is inside a max-width query, so the desktop layout is
+   bit-for-bit unchanged.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Touch devices have no hover, so anything revealed by :hover is permanently
+   invisible there. This is not a mobile-only rule on purpose — it keys off
+   the POINTER, not the viewport, so a small laptop window keeps hover
+   behaviour and a large touchscreen still gets visible actions. */
+@media (hover: none) {
+  .row-actions { opacity: 1; }
+}
+
+/* Never let the page scroll sideways. With the table swapped for a single
+   column below, any horizontal scroll is a bug, not a feature — this makes
+   it visible immediately rather than as a mysterious drift. */
+html, body { overflow-x: hidden; }
+
+@media (max-width: 768px) {
+  :root {
+    /* The rail becomes an overlay drawer rather than a reserved column, and
+       the detail drawer becomes a near-full-width sheet. */
+    --rail-w:   min(280px, 84vw);
+    --drawer-w: 100vw;
+
+    /* Rows carry three lines of stacked content on mobile instead of one
+       row of columns. JobTable's windowing math reads this, so it must stay
+       in sync with ROW_PX there — see the comment in JobTable.tsx. */
+    --row-h:    96px;
+  }
+
+  /* iOS Safari zooms the whole page when a focused input's font-size is
+     under 16px, and never zooms back out. That single behaviour is most of
+     why the interface felt broken. 16px is the threshold, not a preference. */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* viewportFit:'cover' in layout.tsx lets content run under the notch and
+     the home indicator; these put it back inside the safe area. */
+  .safe-t { padding-top:    env(safe-area-inset-top); }
+  .safe-b { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-x {
+    padding-left:  env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* Minimum comfortable tap target. Applied by class rather than to every
+   button, so dense desktop toolbars are not forced to grow. */
+@media (max-width: 768px) {
+  .tap { min-width: 44px; min-height: 44px; }
+}
+
+/* Full-height boxes that survive mobile browser chrome.
+
+   100vh on iOS Safari is the LARGE viewport — the height with the URL bar and
+   bottom toolbar hidden — so a position:fixed element sized with it extends
+   below what you can actually see. That is why the drawer's Apply button and
+   the rail's Sign out sat underneath browser chrome and could not be tapped.
+   dvh tracks the chrome as it collapses; the vh line is the fallback for
+   browsers without dvh, and must come first so dvh wins where supported. */
+.h-dvh {
+  height: 100vh;
+  height: 100dvh;
+}
