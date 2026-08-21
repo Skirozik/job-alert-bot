@@ -92,6 +92,37 @@ def fetch_greenhouse_listings(company: str, token: str) -> list[dict]:
         return []
 
 
+def _epoch_ms_posted_at(created_at: int | float | str | None) -> str | None:
+    """Convert Lever's epoch-millisecond createdAt to an ISO timestamp.
+
+    Lever's /v0/postings/ API reports createdAt as an integer number of
+    milliseconds since the epoch (1692651521922), where Greenhouse
+    (updated_at) and Ashby (publishedAt) both return ISO-8601 strings.
+    posted_at is a Postgres timestamp column, so the raw integer was
+    rejected with `22008 date/time field value out of range` on EVERY Lever
+    row -- 789 failed inserts per sweep, meaning no posting from a Lever
+    board was ever stored. The type hint on _make_job said `str | None` all
+    along; nothing enforced it.
+
+    Seconds-precision epochs are accepted too: Lever documents milliseconds,
+    but a value small enough to be seconds would otherwise land in 1970
+    rather than failing loudly.
+    """
+    if created_at is None or isinstance(created_at, str):
+        return created_at
+    try:
+        seconds = float(created_at)
+    except (TypeError, ValueError):
+        return None
+    if seconds > 1e11:  # milliseconds; 1e11 s is year 5138, so no real epoch-seconds value reaches it
+        seconds /= 1000
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        log.warning("Lever createdAt out of range: %r", created_at)
+        return None
+
+
 def fetch_lever_listings(company: str, token: str) -> list[dict]:
     try:
         resp = requests.get(
@@ -106,7 +137,7 @@ def fetch_lever_listings(company: str, token: str) -> list[dict]:
         for j in jobs:
             job = _make_job(
                 company, j.get("text", ""), j.get("categories", {}).get("location", ""),
-                j.get("hostedUrl", ""), j.get("descriptionPlain"), j.get("createdAt"),
+                j.get("hostedUrl", ""), j.get("descriptionPlain"), _epoch_ms_posted_at(j.get("createdAt")),
             )
             if job:
                 result.append(job)
