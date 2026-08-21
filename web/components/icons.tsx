@@ -59,3 +59,10 @@ export const IconChevron = ({ dir = 'down' }: { dir?: 'up' | 'down' }) => (
 export const IconClose = () => (
   <svg {...P} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
 )
+/** Opens the view rail on mobile, where the rail is an overlay rather than a
+ *  column. Never rendered on desktop — the rail is already on screen there. */
+export const IconMenu = () => (
+  <svg {...P} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+    <path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>
+  </svg>
+)

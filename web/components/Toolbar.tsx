@@ -1,18 +1,24 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { IconSearch, IconRefresh, IconChevron } from './icons'
+import { IconSearch, IconRefresh, IconChevron, IconMenu } from './icons'
 import type { RoleFilter, SourceFilter, DateFilter } from '@/lib/jobView'
+import { useIsMobile } from '@/lib/useMediaQuery'
 
 function Dropdown<T extends string>({
   label, value, options, onChange,
 }: { label: string; value: T; options: { key: T; label: string }[]; onChange: (v: T) => void }) {
   const [open, setOpen] = useState(false)
+  const isMobile = useIsMobile()
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
+    // pointerdown, not mousedown: it fires for mouse, touch and pen alike.
+    // iOS Safari does not reliably synthesise mouse events for taps on
+    // non-interactive elements (the page background, the table body), so the
+    // mousedown version left filter menus stuck open on a phone.
+    const h = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('pointerdown', h)
+    return () => document.removeEventListener('pointerdown', h)
   }, [])
   const active = options.find(o => o.key === value)
   const isDefault = value === options[0].key
@@ -22,9 +28,15 @@ function Dropdown<T extends string>({
         onClick={() => setOpen(v => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center gap-1"
+        className="tap flex items-center gap-1 shrink-0"
         style={{
-          height: 28, padding: '0 var(--s2)', fontSize: 'var(--text-data)',
+          minHeight: isMobile ? 44 : 28, height: isMobile ? undefined : 28,
+          padding: isMobile ? '0 var(--s3)' : '0 var(--s2)',
+          fontSize: 'var(--text-data)',
+          // An active filter swaps the short label for the full option text
+          // ("Past 30 days"), which otherwise widens the bar and can wrap
+          // inside the button.
+          whiteSpace: 'nowrap', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis',
           color: isDefault ? 'var(--fg-muted)' : 'var(--fg)',
           background: 'var(--bg-input)', border: '1px solid var(--border)',
           borderRadius: 'var(--radius)',
@@ -38,7 +50,9 @@ function Dropdown<T extends string>({
           role="listbox"
           className="absolute right-0 z-30"
           style={{
-            top: 'calc(100% + var(--s1))', minWidth: 160,
+            top: 'calc(100% + var(--s1))',
+            minWidth: 'min(160px, calc(100vw - var(--s5)))',
+            maxWidth: 'calc(100vw - var(--s5))',
             background: 'var(--bg-raised)', border: '1px solid var(--border-strong)',
             borderRadius: 'var(--radius)', padding: 'var(--s1)',
           }}
@@ -51,7 +65,9 @@ function Dropdown<T extends string>({
               onClick={() => { onChange(o.key); setOpen(false) }}
               className="w-full text-left"
               style={{
-                height: 28, padding: '0 var(--s2)', fontSize: 'var(--text-data)',
+                display: 'flex', alignItems: 'center',
+                minHeight: isMobile ? 44 : 28,
+                padding: '0 var(--s2)', fontSize: 'var(--text-data)',
                 color: o.key === value ? 'var(--fg)' : 'var(--fg-muted)',
                 background: o.key === value ? 'var(--bg-active)' : 'transparent',
                 borderRadius: 'var(--radius)',
@@ -68,7 +84,7 @@ function Dropdown<T extends string>({
 
 export function Toolbar({
   search, onSearch, role, onRole, source, onSource, date, onDate,
-  onRefresh, lastSynced, showSource,
+  onRefresh, lastSynced, showSource, onMenu,
 }: {
   search: string; onSearch: (v: string) => void
   role: RoleFilter; onRole: (v: RoleFilter) => void
@@ -77,8 +93,12 @@ export function Toolbar({
   onRefresh: () => void
   lastSynced: string
   showSource: boolean
+  /* Opens the view rail. Mobile only — on desktop the rail is always on
+     screen, so the button is not rendered at all. */
+  onMenu?: () => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const isMobile = useIsMobile()
 
   // "/" focuses search, unless the user is already typing somewhere.
   useEffect(() => {
@@ -95,13 +115,45 @@ export function Toolbar({
 
   return (
     <div
-      className="flex items-center gap-2 shrink-0"
+      /* Desktop keeps one fixed-height row. Mobile wraps, because search plus
+         three dropdowns plus refresh cannot share 390px on one line — without
+         wrapping they either overflow or crush the search box to nothing. */
+      className={
+        isMobile
+          ? 'flex items-center gap-2 shrink-0 flex-wrap safe-x'
+          : 'flex items-center gap-2 shrink-0'
+      }
       style={{
-        height: 40, padding: '0 var(--s4)',
+        height: isMobile ? 'auto' : 40,
+        padding: isMobile ? 'var(--s2) var(--s3)' : '0 var(--s4)',
         borderBottom: '1px solid var(--border)', background: 'var(--bg)',
       }}
     >
-      <div className="relative flex-1 max-w-md">
+      {/* Mobile row 1: menu + search, claiming the full width via basis-full so
+          the three shrink-0 dropdowns are forced to wrap onto row 2. Without
+          this they win the space and the search field collapses to about the
+          width of its own icon. On desktop this wrapper is transparent —
+          `contents` makes its children lay out as direct flex items of the
+          toolbar, exactly as they did before. */}
+      <div className={isMobile ? 'flex items-center gap-2 basis-full min-w-0' : 'contents'}>
+        {isMobile && onMenu && (
+          <button
+            onClick={onMenu}
+            aria-label="Open views menu"
+            title="Views"
+            className="tap flex items-center justify-center shrink-0"
+            style={{
+              color: 'var(--fg-muted)', background: 'var(--bg-input)',
+              border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+            }}
+          >
+            <IconMenu />
+          </button>
+        )}
+
+        {/* max-w-md is a desktop constraint; on mobile the field should use
+            whatever width is left after the menu button. */}
+        <div className={isMobile ? 'relative flex-1 min-w-0' : 'relative flex-1 max-w-md'}>
         <span
           className="absolute inset-y-0 left-0 flex items-center pointer-events-none"
           style={{ paddingLeft: 'var(--s2)', color: 'var(--fg-subtle)' }}
@@ -113,16 +165,19 @@ export function Toolbar({
           value={search}
           onChange={e => onSearch(e.target.value)}
           onKeyDown={e => { if (e.key === 'Escape') { onSearch(''); e.currentTarget.blur() } }}
-          placeholder="Search company or role…    /"
+          placeholder={isMobile ? 'Search company or role…' : 'Search company or role…    /'}
           aria-label="Search company or role"
           className="w-full"
           style={{
-            height: 28, paddingLeft: 28, paddingRight: 'var(--s2)',
+            height: isMobile ? 44 : 28, paddingLeft: 28, paddingRight: 'var(--s2)',
+            // globals.css forces 16px on inputs under the breakpoint; without
+            // it iOS Safari zooms the page on focus and never zooms back.
             fontSize: 'var(--text-data)', color: 'var(--fg)',
             background: 'var(--bg-input)', border: '1px solid var(--border)',
             borderRadius: 'var(--radius)',
           }}
         />
+        </div>
       </div>
 
       {showSource && (
@@ -144,21 +199,31 @@ export function Toolbar({
         { key: '30d', label: 'Past 30 days' },
       ]} />
 
-      <div className="flex items-center gap-2" style={{ marginLeft: 'auto' }}>
-        <span style={{ fontSize: 'var(--text-meta)', color: 'var(--fg-subtle)' }}>
+      <div className="flex items-center gap-2 shrink-0" style={{ marginLeft: 'auto' }}>
+        <span style={{
+          // 11px --fg-subtle on --bg is marginal on a phone; and this label is
+          // the widest optional thing in the bar, so it is what pushes Refresh
+          // off the edge. Bigger and non-wrapping on mobile.
+          fontSize: isMobile ? 'var(--text-data)' : 'var(--text-meta)',
+          color: 'var(--fg-subtle)', whiteSpace: 'nowrap',
+        }}>
           Synced {lastSynced}
         </span>
         <button
           onClick={onRefresh}
-          title="Refresh now — also refreshes automatically every 60s"
-          className="flex items-center gap-1"
+          title="Refresh now — also refreshes automatically every 5 min"
+          aria-label="Refresh now"
+          className="tap flex items-center justify-center gap-1 shrink-0"
           style={{
-            height: 28, padding: '0 var(--s2)', fontSize: 'var(--text-data)',
+            minHeight: isMobile ? 44 : 28, height: isMobile ? undefined : 28,
+            padding: '0 var(--s2)', fontSize: 'var(--text-data)',
             color: 'var(--fg-muted)', background: 'var(--bg-input)',
             border: '1px solid var(--border)', borderRadius: 'var(--radius)',
           }}
         >
-          <IconRefresh /> Refresh
+          {/* The word is dropped on mobile — the glyph plus aria-label carry
+              it, and the row is already the tightest thing on the screen. */}
+          <IconRefresh />{!isMobile && ' Refresh'}
         </button>
       </div>
     </div>

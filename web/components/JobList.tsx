@@ -40,6 +40,10 @@ export function JobList({
   const params = useSearchParams()
 
   const [jobs, setJobs] = useState<Grouped[]>(initialJobs)
+  /* Mobile nav. Lives here rather than in Sidebar because the toggle that
+     opens it sits in the Toolbar — two siblings, so the state has to be
+     above both. Always false on desktop, where Sidebar ignores it. */
+  const [navOpen, setNavOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState(() => new Date().toISOString())
@@ -119,17 +123,38 @@ export function JobList({
   // explains the whole 9.6 GB bill.
   //
   // Costs almost nothing in freshness, because the interval is the LEAST
-  // important of three refresh paths: the focus listener below fires the
-  // moment you look at the tab, the toolbar has a manual Refresh, and the
+  // important of three refresh paths: the focus listener below fires when you
+  // return to the tab (rate-limited — see below), the toolbar has a manual
+  // Refresh, and the
   // scrapers only produce new rows every 5-20 minutes anyway — so a 5-minute
   // poll now roughly matches the rate at which data can actually change.
   // Notifications are unaffected either way: ntfy pushes at classification
   // time and never waits on the dashboard.
+  /* The focus path is rate-limited to the same POLL_MS as the interval.
+     On a desktop that listener fires when you come back to the tab, which is
+     what it was written for. On a phone it fires on every app switch, every
+     lock and unlock, and every return from the browser's own UI — and each
+     one is another 14.09 MB server fetch. A minute of switching between this
+     and an email client was pulling tens of MB over cellular and stalling a
+     mobile CPU that is already holding every row in memory.
+
+     Rate-limiting rather than dropping the listener: coming back to the tab
+     after a while should still refresh immediately, which is the behaviour
+     the 5-minute interval above is explicitly relying on. Within the poll
+     window the interval has it covered anyway, so the suppressed calls cost
+     no freshness at all. */
+  const lastRefresh = useRef(Date.now())
   useEffect(() => {
-    const tick = () => { if (document.visibilityState === 'visible') router.refresh() }
+    const refresh = () => { lastRefresh.current = Date.now(); router.refresh() }
+    const tick = () => { if (document.visibilityState === 'visible') refresh() }
+    const onFocus = () => {
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - lastRefresh.current < POLL_MS) return
+      refresh()
+    }
     const id = setInterval(tick, POLL_MS)
-    window.addEventListener('focus', tick)
-    return () => { clearInterval(id); window.removeEventListener('focus', tick) }
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
   }, [router])
 
   const counts = useMemo(() => {
@@ -205,6 +230,8 @@ export function JobList({
         personaLabel={personaLabel}
         personaSub={personaSub}
         onSignOut={async () => { await fetch('/api/auth/logout', { method: 'POST' }); router.push('/login'); router.refresh() }}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
       />
 
       <main className="flex-1 min-w-0 flex flex-col">
@@ -216,6 +243,7 @@ export function JobList({
           onRefresh={() => router.refresh()}
           lastSynced={relativeTime(lastSynced)}
           showSource={jobs.some(j => j.id.startsWith('ats:'))}
+          onMenu={() => setNavOpen(true)}
         />
 
         {saveError && (
@@ -246,7 +274,11 @@ export function JobList({
 
       {toast && (
         <div role="status" className="fixed left-1/2 -translate-x-1/2 z-50"
-             style={{ bottom: 'var(--s6)', padding: 'var(--s2) var(--s4)', fontSize: 'var(--text-data)',
+             style={{ // iOS Safari's bottom toolbar overlays ~50-90px, which is
+                      // where this 1.2s confirmation was being painted — so
+                      // Save/Dismiss appeared to do nothing on a phone.
+                      bottom: 'calc(var(--s6) + env(safe-area-inset-bottom))',
+                      padding: 'var(--s2) var(--s4)', fontSize: 'var(--text-data)',
                       color: 'var(--fg)', background: 'var(--bg-raised)',
                       border: '1px solid var(--border-strong)', borderRadius: 'var(--radius)' }}>
           {toast}

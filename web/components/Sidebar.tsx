@@ -1,6 +1,8 @@
 'use client'
 
+import { useEffect } from 'react'
 import type { ViewKey } from '@/lib/jobView'
+import { useIsMobile } from '@/lib/useMediaQuery'
 
 /* Two groups, in the order the work actually flows:
      REVIEW   — the queue being worked
@@ -25,6 +27,7 @@ const GROUPS: { label: string; items: { key: ViewKey; label: string }[] }[] = [
 
 export function Sidebar({
   view, counts, onSelect, personaLabel, personaSub, onSignOut,
+  open = false, onClose,
 }: {
   view: ViewKey
   counts: Record<ViewKey, number>
@@ -32,19 +35,75 @@ export function Sidebar({
   personaLabel?: string
   personaSub?: string
   onSignOut: () => void
+  /* Mobile only. On desktop the rail is always present and these are ignored,
+     which is why they default to a closed/no-op pair — the desktop call site
+     does not have to know this component has an open state at all. */
+  open?: boolean
+  onClose?: () => void
 }) {
   const initial = (personaLabel || '?').charAt(0).toUpperCase()
+  const isMobile = useIsMobile()
 
-  return (
-    <nav
-      aria-label="Views"
-      className="flex flex-col shrink-0 h-screen sticky top-0"
-      style={{
+  // Escape closes the drawer, matching the drawer and dropdown behaviour
+  // elsewhere in the app. Bound only while it is actually open so it cannot
+  // swallow Escape from anything else.
+  useEffect(() => {
+    if (!isMobile || !open) return
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [isMobile, open, onClose])
+
+  // Stop the page behind the overlay from scrolling under the finger.
+  useEffect(() => {
+    if (!isMobile || !open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [isMobile, open])
+
+  /* Desktop: an in-flow sticky column. Mobile: an overlay that slides in over
+     the content, so it costs zero horizontal space when closed. Transform
+     rather than width/display so it animates on the compositor and so the
+     nav stays in the DOM (and thus focusable/measurable) either way. */
+  const shell: React.CSSProperties = isMobile
+    ? {
+        position: 'fixed', insetBlock: 0, left: 0, zIndex: 60,
+        width: 'var(--rail-w)',
+        transform: open ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform var(--dur) ease',
+        background: 'var(--bg-rail)',
+        borderRight: '1px solid var(--border)',
+      }
+    : {
         width: 'var(--rail-w)',
         background: 'var(--bg-rail)',
         borderRight: '1px solid var(--border)',
-      }}
-    >
+      }
+
+  return (
+    <>
+      {/* Backdrop. Mobile-only, and only while open, so it can never
+          intercept clicks on desktop. */}
+      {isMobile && open && (
+        <div
+          onClick={onClose}
+          aria-hidden
+          className="fixed inset-0"
+          style={{ zIndex: 55, background: 'rgba(0,0,0,0.6)' }}
+        />
+      )}
+
+      <nav
+        aria-label="Views"
+        aria-hidden={isMobile && !open}
+        className={
+          isMobile
+            ? 'flex flex-col safe-t safe-b'
+            : 'flex flex-col shrink-0 h-dvh sticky top-0'
+        }
+        style={shell}
+      >
       <div style={{ padding: 'var(--s5) var(--s4) var(--s4)' }}>
         <h1 style={{ fontSize: 'var(--text-head)', fontWeight: 600, color: 'var(--fg)' }}>
           Job Dashboard
@@ -67,11 +126,12 @@ export function Sidebar({
               return (
                 <button
                   key={item.key}
-                  onClick={() => onSelect(item.key)}
+                  onClick={() => { onSelect(item.key); if (isMobile) onClose?.() }}
                   aria-current={on ? 'page' : undefined}
                   className="w-full flex items-center justify-between text-left"
                   style={{
-                    height: '32px',
+                    // 32px is a fine mouse target and a poor thumb one.
+                    height: isMobile ? '44px' : '32px',
                     padding: '0 var(--s4)',
                     fontSize: 'var(--text-data)',
                     color: on ? 'var(--fg)' : 'var(--fg-muted)',
@@ -126,11 +186,13 @@ export function Sidebar({
           onClick={onSignOut}
           title="Sign out"
           aria-label="Sign out"
+          className="tap shrink-0 flex items-center justify-center"
           style={{ fontSize: 'var(--text-meta)', color: 'var(--fg-subtle)', padding: 'var(--s1)' }}
         >
           Sign out
         </button>
       </div>
-    </nav>
+      </nav>
+    </>
   )
 }
