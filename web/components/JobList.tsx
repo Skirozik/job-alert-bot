@@ -222,7 +222,13 @@ export function JobList({
   }, [rows, selectedId, patch])
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
+    /* This must be a HEIGHT, not a minimum height. With min-h-screen the
+       flex column grows to the full table, so [data-scroll-root] never
+       overflows and JobTable's windowing silently renders the whole data set.
+       On the live-sized list that means thousands of mounted rows and body
+       scrolling; on iOS it also puts the bottom rows behind browser chrome.
+       .h-dvh supplies the 100vh -> 100dvh fallback used by the two drawers. */
+    <div className="flex h-dvh overflow-hidden" style={{ background: 'var(--bg)' }}>
       <Sidebar
         view={view}
         counts={counts}
