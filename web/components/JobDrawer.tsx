@@ -22,7 +22,10 @@ function Action({
       disabled={disabled}
       className="w-full"
       style={{
-        height: 32, fontSize: 'var(--text-data)', borderRadius: 'var(--radius)',
+        // minHeight, not height: 32px is under the 44px touch floor, and a
+        // label that wraps must grow the button instead of spilling out of it.
+        minHeight: 44, padding: '0 var(--s2)',
+        fontSize: 'var(--text-data)', borderRadius: 'var(--radius)',
         // The primary action is one of the three sanctioned accent uses.
         color: primary ? 'var(--accent)' : 'var(--fg-muted)',
         background: primary ? 'var(--accent-bg)' : 'var(--bg-active)',
@@ -64,9 +67,16 @@ export function JobDrawer({
       ref={ref}
       role="complementary"
       aria-label="Job detail"
-      className="drawer fixed right-0 top-0 h-screen z-40 flex flex-col"
+      className="drawer h-dvh fixed right-0 top-0 z-40 flex flex-col safe-b"
       style={{
-        width: 'var(--drawer-w)',
+        // Never wider than the viewport. --drawer-w is 100vw under the mobile
+        // breakpoint, but min() also covers the desktop window being dragged
+        // narrower than 420px, which had the same clipping bug.
+        width: 'min(var(--drawer-w), 100vw)',
+        maxWidth: '100vw',
+        // Height comes from .h-dvh in globals.css, not from here: it needs the
+        // two-declaration vh -> dvh fallback, and a TS object literal cannot
+        // carry the same key twice.
         background: 'var(--bg-raised)',
         borderLeft: '1px solid var(--border-strong)',
         // The one shadow in the app. It floats; nothing else does.
@@ -94,13 +104,21 @@ export function JobDrawer({
             {job.title}
           </h2>
         </div>
-        <button onClick={onClose} aria-label="Close" title="Close (Esc)" style={{ color: 'var(--fg-subtle)', padding: 'var(--s1)' }}>
+        <button onClick={onClose} aria-label="Close" title="Close (Esc)"
+                className="tap shrink-0 flex items-center justify-center"
+                style={{ color: 'var(--fg-subtle)', padding: 'var(--s1)',
+                         // Pull the enlarged box back so the glyph stays
+                         // optically aligned with the title on desktop.
+                         margin: 'calc(var(--s1) * -1)' }}>
           <IconClose />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto" style={{ padding: 'var(--s4)' }}>
-        <dl className="grid grid-cols-[92px_1fr]" style={{ gap: 'var(--s2) var(--s3)', fontSize: 'var(--text-data)' }}>
+      <div className="flex-1 overflow-y-auto"
+           style={{ padding: 'var(--s4)', overscrollBehavior: 'contain' }}>
+        <dl className="grid grid-cols-[92px_minmax(0,1fr)]"
+            style={{ gap: 'var(--s2) var(--s3)', fontSize: 'var(--text-data)',
+                     overflowWrap: 'anywhere' }}>
           <dt style={{ color: 'var(--fg-subtle)' }}>
             {locations.length > 1 ? `Locations (${locations.length})` : 'Location'}
           </dt>
@@ -162,8 +180,12 @@ export function JobDrawer({
             </div>
             {job.duplicates.map(d => (
               <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" title={d.title}
-                 className="block truncate"
-                 style={{ fontSize: 'var(--text-data)', color: 'var(--fg-muted)', padding: '2px 0' }}>
+                 className="flex items-center truncate"
+                 style={{ fontSize: 'var(--text-data)', color: 'var(--fg-muted)',
+                          // Each of these opens a DIFFERENT external posting,
+                          // so adjacent 22px strips 4px apart are a mis-tap
+                          // that cannot be undone in place.
+                          minHeight: 44 }}>
                 {d.id.startsWith('gh:') ? 'GitHub tracker' : d.id.startsWith('ats:') ? 'company ATS' : 'LinkedIn'} version
               </a>
             ))}
@@ -178,7 +200,7 @@ export function JobDrawer({
           rel="noopener noreferrer"
           className="w-full flex items-center justify-center gap-2"
           style={{
-            height: 34, fontSize: 'var(--text-data)', borderRadius: 'var(--radius)',
+            minHeight: 44, fontSize: 'var(--text-data)', borderRadius: 'var(--radius)',
             color: 'var(--accent)', background: 'var(--accent-bg)',
             border: '1px solid var(--accent-border)', marginBottom: 'var(--s2)',
           }}
