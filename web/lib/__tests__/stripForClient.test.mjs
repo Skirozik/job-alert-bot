@@ -2,8 +2,8 @@
  * Guards the payload strip in app/page.tsx.
  *
  * Descriptions are up to 12,000 chars each and nothing on the client reads
- * them — the only consumer is groupNearDuplicates, which runs server-side and
- * has already finished by the time this is called. Measured on real data: a
+ * them. Duplicate grouping uses compact metadata and descriptions never need
+ * to leave Supabase. Measured on real data: a
  * 300-row slice is 1,739,434 B with descriptions and 276,390 B without.
  *
  * The two failure modes worth a test:
@@ -68,7 +68,7 @@ check('nested duplicate keeps its other fields',
 check('row count is unchanged', out.length === input.length)
 
 check('the INPUT is not mutated', JSON.stringify(input) === before,
-  'the server still holds this array; blanking it would break grouping on re-render')
+  'callers may retain the unstripped records for other server-side work')
 check('...including nested duplicates', input[0].duplicates[0].description.length === 9000)
 check('the returned objects are new', out[0] !== input[0])
 
