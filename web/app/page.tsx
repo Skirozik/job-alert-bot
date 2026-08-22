@@ -25,11 +25,9 @@ const PAGE = 1000
  * The columns the dashboard actually renders — everything EXCEPT description.
  *
  * description is up to 12,000 chars and is 90% of the compressed bytes leaving
- * Supabase: 4.38 MB of a 4.86 MB refresh. Nothing displays it. Its only
- * consumer was containment() in lib/dupes.ts, which grouped near-identical
- * postings; that grouping is deliberately switched off until it can be
- * precomputed rather than recalculated from full text on every single load.
- * The visible cost is that a job posted to two sources now shows as two rows.
+ * Supabase: 4.38 MB of a 4.86 MB refresh. Nothing displays it. Duplicate
+ * grouping uses canonical application targets plus compact company/title/
+ * location guards, so descriptions stay out of both the query and payload.
  *
  * norm_key, search_term and posted_at are omitted too — nothing reads them.
  *
@@ -183,9 +181,8 @@ async function fetchJobs(
  *
  * Descriptions are up to 12,000 chars each (scraper/linkedin.py MAX_LEN) and
  * NOTHING on the client reads them: not JobTable, not JobDrawer, not the
- * jobView filters (search matches company + title only). The sole consumer is
- * groupNearDuplicates in lib/dupes.ts, which shingles them SERVER-side and has
- * already run by the time this is called.
+ * jobView filters (search matches company + title only). Duplicate grouping
+ * deliberately uses compact fields instead.
  *
  * Measured on this data: a 300-row slice is 1,739,434 B with descriptions and
  * 276,390 B without — 6.3x. That weight was being serialised twice, once into
@@ -231,10 +228,10 @@ export default async function HomePage() {
     .filter((j) => (seen.has(j.id) ? false : (seen.add(j.id), true)))
     .sort((a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime())
 
-  // Collapse near-identical postings into one card. The same job arrives from
-  // up to three sources with different title wording, which the scrapers'
-  // exact norm_key dedup cannot catch. This GROUPS rather than hides — see
-  // lib/dupes.ts for why auto-merging was backtested and rejected.
+  // Collapse high-confidence duplicate postings into one row. The same job
+  // arrives from up to three sources with different ids and title wording,
+  // which the scrapers' per-source norm_key cannot catch. This GROUPS rather
+  // than deletes: every source stays reachable from the drawer.
   const grouped = groupNearDuplicates(jobs)
 
   return (

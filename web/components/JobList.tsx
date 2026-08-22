@@ -181,12 +181,19 @@ export function JobList({
   async function onStatus(id: string, status: Status) {
     setSaveError(null)
     const prev = jobs
-    setJobs(js => js.map(j => (j.id === id ? { ...j, status } : j)))
+    const group = jobs.find(j => j.id === id || j.duplicates?.some(d => d.id === id))
+    const ids = group ? [group.id, ...(group.duplicates ?? []).map(d => d.id)] : [id]
+    const memberIds = new Set(ids)
+    setJobs(js => js.map(j => memberIds.has(j.id) ? {
+      ...j,
+      status,
+      duplicates: j.duplicates?.map(d => memberIds.has(d.id) ? { ...d, status } : d),
+    } : j))
     try {
       const res = await fetch(`/api/jobs/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ids }),
       })
       if (!res.ok) throw new Error(String(res.status))
       setToast(status === 'applied' ? 'Marked as applied'
