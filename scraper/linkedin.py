@@ -88,6 +88,21 @@ HEADERS = {
 
 MAX_RETRIES = 2  # on a 429, retry with backoff this many times before giving up
 
+# Detail requests stay 2-3.5 seconds apart, but the first one in a process can
+# start immediately. The old implementation slept before every request,
+# including the first and including retries that had already backed off. A
+# start-to-start limiter preserves the same sustained request rate without
+# adding dead time to the first notification in a run.
+_DETAIL_NEXT_REQUEST_AT = 0.0
+
+
+def _wait_for_detail_slot() -> None:
+    global _DETAIL_NEXT_REQUEST_AT
+    now = time.monotonic()
+    if _DETAIL_NEXT_REQUEST_AT > now:
+        time.sleep(_DETAIL_NEXT_REQUEST_AT - now)
+    _DETAIL_NEXT_REQUEST_AT = time.monotonic() + random.uniform(2.0, 3.5)
+
 
 def fetch_listings(
     keyword: str, location: str, lookback_seconds: int = 7200, start: int = 0
@@ -185,12 +200,12 @@ def fetch_description(job_id: str) -> tuple[Optional[str], Optional[str], Option
     """Fetch job description, logo, apply URL, Easy Apply flag, and salary.
 
     Returns (description, logo_url, apply_url, is_easy_apply, salary).
-    Always sleeps before the request to avoid rate limiting; retries with
-    backoff on a 429 before giving up.
+    Spaces request starts to avoid rate limiting; retries with backoff on a 429
+    before giving up. The first request in a process does not sleep.
     """
     resp = None
     for attempt in range(MAX_RETRIES + 1):
-        time.sleep(random.uniform(2.0, 3.5))
+        _wait_for_detail_slot()
         try:
             resp = requests.get(
                 DETAIL_URL.format(job_id), headers=HEADERS, timeout=15

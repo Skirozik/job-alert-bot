@@ -456,3 +456,42 @@ export function groupNearDuplicates(jobs: Job[]): Grouped[] {
       return { ...leader, status: effectiveStatus(members), duplicates }
     })
 }
+
+/** Merge a tiny live-update batch back into the already-grouped dashboard.
+ *
+ * Existing groups are flattened first so a new LinkedIn row can group with an
+ * ATS/tracker row that is currently tucked inside ``duplicates``. For the same
+ * id, the more advanced local status wins: an in-flight delta response that
+ * still says ``new`` must never undo an optimistic Applied click.
+ */
+export function mergeGroupedJobs(current: Grouped[], incoming: Job[]): Grouped[] {
+  if (!incoming.length) return current
+
+  const byId = new Map<string, Job>()
+  for (const group of current) {
+    const { duplicates = [], ...leader } = group
+    byId.set(leader.id, leader as Job)
+    for (const job of duplicates) byId.set(job.id, job)
+  }
+
+  for (const job of incoming) {
+    const existing = byId.get(job.id)
+    if (!existing) {
+      byId.set(job.id, job)
+      continue
+    }
+    const oldStatus = existing.status ?? 'new'
+    const newStatus = job.status ?? 'new'
+    byId.set(job.id, {
+      ...existing,
+      ...job,
+      status: STATUS_RANK[oldStatus] >= STATUS_RANK[newStatus] ? oldStatus : newStatus,
+    })
+  }
+
+  return groupNearDuplicates(
+    [...byId.values()].sort(
+      (a, b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime(),
+    ),
+  )
+}

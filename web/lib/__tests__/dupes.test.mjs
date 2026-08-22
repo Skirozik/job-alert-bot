@@ -19,7 +19,7 @@ const compiled = ts.transpileModule(src, {
   },
 }).outputText
 const mod = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
-const { canonicalTargetKey, groupNearDuplicates } = mod
+const { canonicalTargetKey, groupNearDuplicates, mergeGroupedJobs } = mod
 
 let pass = 0, fail = 0
 const check = (name, condition, detail = '') => {
@@ -100,6 +100,19 @@ check('same Greenhouse target collapses across sections', generalGroup.length ==
 check('Applied wins over New so the group cannot reappear in To apply',
   generalGroup[0]?.status === 'applied')
 check('both source rows remain reachable', generalGroup[0]?.duplicates?.[0]?.id === generalApplied.id)
+
+const liveMerge = mergeGroupedJobs(groupNearDuplicates([generalApplied]), [generalNew])
+check('a live LinkedIn duplicate merges into the existing group',
+  liveMerge.length === 1 && liveMerge[0]?.duplicates?.length === 1)
+check('a live update cannot move an applied group back to To apply',
+  liveMerge[0]?.status === 'applied')
+
+const staleSameId = mergeGroupedJobs(
+  groupNearDuplicates([{ ...generalApplied, status: 'applied' }]),
+  [{ ...generalApplied, status: 'new', title: 'Updated title from stale response' }],
+)
+check('a stale response for the same id cannot undo Applied',
+  staleSameId[0]?.status === 'applied')
 
 check('Continental Workday variants group', grouped(
   job({ ...continentalA, company: 'Continental Resources', title: 'Data Analyst Intern - Summer 2027', location: 'Oklahoma City, OK' }),

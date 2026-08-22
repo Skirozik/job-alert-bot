@@ -77,6 +77,7 @@ create index jobs_found_at_idx on jobs (found_at desc);
 ```sql
 create table scrape_runs (
   id           bigint generated always as identity primary key,
+  source       text not null default 'linkedin',
   started_at   timestamptz not null default now(),
   finished_at  timestamptz,
   total_raw    int,
@@ -84,6 +85,10 @@ create table scrape_runs (
   notified     int,
   rate_limited int
 );
+
+create index scrape_runs_active_source_idx
+  on scrape_runs (source, started_at desc)
+  where finished_at is null;
 
 create table bot_state (
   key   text primary key,

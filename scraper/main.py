@@ -4,19 +4,18 @@ Run:  cd LinkedIn_Job_Bot/scraper && python main.py
 Env:  set variables in ../.env (local) or GitHub repo secrets (CI).
 
 Flow per run:
-  0. Acquire a run-lock in Supabase (guards against two schedulers overlapping)
-  1. Fetch + process the tracked GitHub internship-list repos FIRST (one
-     README fetch each, no rate limiting) so their pushes never wait behind
-     LinkedIn pagination sleeps, then search LinkedIn (5 terms × 2 locations),
-     paginating up to MAX_PAGES per search.
-     Dedup runs against an in-memory index loaded once at the start of the run
-     (LinkedIn returns newest-first, so once a full page is all true DB
-     duplicates, nothing deeper can be new either).
-  2. Canary check — 0 raw LinkedIn results across all searches = something is broken
-  3. Fetch description for each new job (separate detail request)
-  4. Classify with Claude Haiku against Candidate_Profile_and_Filters.md
-  5. Store all results in Supabase (including SKIP — so they're never re-classified)
-  6. ntfy.sh push for APPLY and MAYBE, only once storage succeeded
+  0. Acquire the LinkedIn source lock in Supabase (the full and fast passes
+     cannot overlap; ATS/GitHub use independent locks)
+  1. Search LinkedIn (7 terms × 2 locations), paginating up to MAX_PAGES per
+     search. Dedup queries only each candidate page, and every new page is
+     processed before the next search begins.
+  2. Run the tracked GitHub internship-list fallback (its dedicated watcher is
+     the fast path), then recover parked classifications.
+  3. Canary check — 0 raw LinkedIn results across all searches = something is broken
+  4. Fetch description for each new job (separate, rate-spaced detail request)
+  5. Classify with Claude Haiku against Candidate_Profile_and_Filters.md
+  6. Store all results in Supabase (including SKIP — so they're never re-classified)
+  7. ntfy.sh push for APPLY and MAYBE, only once storage succeeded
 """
 
 import logging
@@ -46,7 +45,7 @@ from external_descriptions import fetch_external_description
 from classifier import classify
 from notifier import push_job, push_canary
 from db import (
-    load_dedup_index, make_norm_key, insert_job, start_run, finish_run,
+    find_known_candidates, make_norm_key, insert_job, start_run, finish_run,
     fetch_pending_jobs, count_pending_jobs, update_job_classification,
     get_state, set_state, clear_state,
 )
@@ -314,12 +313,162 @@ def _freshest_first(jobs: list[dict]) -> list[dict]:
     return sorted(jobs, key=lambda j: j.get("posted_at") or "", reverse=True)
 
 
+def _process_linkedin_candidate(job: dict) -> bool:
+    """Apply cheap title gates, then run the full LinkedIn job pipeline."""
+    if _is_senior_role(job["title"]):
+        log.info("  Pre-filter SKIP (senior title)")
+        job["tier"] = "INELIGIBLE"
+        job["reason"] = "Pre-filtered: seniority keyword in title"
+        job["suggested_resume"] = "General"
+        insert_job(job)
+        return False
+
+    if _is_new_grad_role(job["title"]):
+        log.info("  Pre-filter SKIP (new grad / full-time role)")
+        job["tier"] = "INELIGIBLE"
+        job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
+        job["suggested_resume"] = "General"
+        insert_job(job)
+        return False
+
+    if _is_non_internship_title(job["title"]):
+        log.info("  Pre-filter SKIP (no internship marker in title)")
+        job["tier"] = "INELIGIBLE"
+        job["reason"] = "Pre-filtered: no internship marker in title"
+        job["suggested_resume"] = "General"
+        insert_job(job)
+        return False
+
+    return process_job(job)
+
+
+def scan_linkedin(max_pages_per_search: int = MAX_PAGES_PER_SEARCH) -> tuple[int, int, int, int]:
+    """Search LinkedIn and process each new page immediately.
+
+    Returns ``(total_raw, new_jobs, rate_limited_searches, notified)``.
+
+    Candidate-scoped DB lookups replace the old 64k-row startup download. New
+    jobs are classified after their page, not after every term/location has
+    finished, so a page-zero match can push roughly a minute earlier while the
+    remaining searches continue in the background.
+    """
+    seen_ids: set[str] = set()
+    seen_norm_keys: set[str] = set()
+    total_raw = 0
+    new_jobs = 0
+    rate_limited_count = 0
+    notified = 0
+
+    for term in SEARCH_TERMS:
+        for location in LOCATIONS:
+            log.info("Searching: '%s' in %s", term, location)
+
+            for page in range(max_pages_per_search):
+                start = page * 10
+                jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS, start=start)
+
+                if err == "rate_limited":
+                    rate_limited_count += 1
+                    log.warning("  p%d: rate limited — stopping pagination", page)
+                    break
+                if err:
+                    log.error("  p%d: error — %s", page, err)
+                    break
+                if not jobs:
+                    # The guest endpoint intermittently returns an empty page
+                    # for an identical request that succeeds seconds later.
+                    time.sleep(random.uniform(1.5, 2.5))
+                    jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS, start=start)
+                    if err or not jobs:
+                        log.info("  p%d: 0 listings on retry too — done", page)
+                        break
+                    log.info("  p%d: 0 listings on first try, %d on retry — continuing",
+                             page, len(jobs))
+
+                total_raw += len(jobs)
+                for job in jobs:
+                    job["norm_key"] = make_norm_key(job["company"], job["title"])
+                db_ids, db_norm_keys = find_known_candidates(jobs)
+
+                all_db_duplicate = True
+                page_new: list[dict] = []
+                for job in jobs:
+                    nk = job["norm_key"]
+                    is_db_dup = job["id"] in db_ids or nk in db_norm_keys
+                    if not is_db_dup:
+                        all_db_duplicate = False
+
+                    if job["id"] in seen_ids or nk in seen_norm_keys:
+                        continue
+                    seen_ids.add(job["id"])
+                    seen_norm_keys.add(nk)
+
+                    if not is_db_dup:
+                        job["search_term"] = term
+                        page_new.append(job)
+
+                log.info("  p%d (start=%d): %d listings, %d new",
+                         page, start, len(jobs), len(page_new))
+
+                # This is the latency-critical change: do not make a page-zero
+                # internship wait behind the other thirteen searches.
+                for job in _freshest_first(page_new):
+                    new_jobs += 1
+                    log.info("Processing: '%s' @ %s [%s]",
+                             job["title"], job["company"], job["id"])
+                    if _process_linkedin_candidate(job):
+                        notified += 1
+
+                if all_db_duplicate:
+                    log.info("  All duplicates in DB — stopping pagination")
+                    break
+                if len(jobs) < 10:
+                    break
+
+                time.sleep(random.uniform(2.0, 3.5))
+
+            # Keep search requests paced even when page processing was a cheap
+            # title rejection rather than a description/classifier call.
+            time.sleep(random.uniform(2.0, 3.5))
+
+    log.info("Total raw: %d | New: %d | Rate limited: %d/%d searches",
+             total_raw, new_jobs, rate_limited_count, len(SEARCH_TERMS) * len(LOCATIONS))
+    return total_raw, new_jobs, rate_limited_count, notified
+
+
+def scan_github_fallback() -> tuple[int, int]:
+    """Run the tracker fallback without downloading the lifetime dedup index."""
+    candidates = fetch_github_listings()
+    for job in candidates:
+        job["norm_key"] = make_norm_key(job["company"], job["title"])
+    known_ids, known_norm_keys = find_known_candidates(candidates)
+
+    batch: list[dict] = []
+    seen_ids: set[str] = set()
+    seen_norms: set[str] = set()
+    for job in candidates:
+        nk = job["norm_key"]
+        if job["id"] in seen_ids or nk in seen_norms:
+            continue
+        seen_ids.add(job["id"])
+        seen_norms.add(nk)
+        if job["id"] not in known_ids and nk not in known_norm_keys:
+            batch.append(job)
+
+    notified = 0
+    for job in _freshest_first(batch):
+        if process_job(job):
+            notified += 1
+    return len(batch), notified
+
+
 def retry_pending() -> int:
     """Classify jobs parked by an earlier run. Returns the number of push
     notifications sent, which run() folds into its notified stat.
 
-    Runs before the LinkedIn search so the backlog drains even if the search
-    half later fails. Nothing here re-fetches a description: the parked row
+    Runs after fresh-source work so a recovery backlog cannot delay a new job.
+    It still executes on a LinkedIn-blocked full run. Nothing here re-fetches a
+    description: the parked row
     already carries whatever was fetched at discovery, and classify() handles a
     NULL description through its "(not available…)" prompt branch. That keeps
     this pass API-only and fast.
@@ -434,134 +583,40 @@ def run():
     log.info("=== Job scraper starting — %d terms × %d locations ===",
              len(SEARCH_TERMS), len(LOCATIONS))
 
-    # ── 0. Run-lock: skip if another scheduler's run looks still in progress ──
-    run_id = start_run()
+    # The full sweep and LinkedIn fast watcher share this source lock. ATS and
+    # GitHub use their own locks, so they can no longer cancel a LinkedIn scan.
+    run_id = start_run("linkedin")
     if run_id is None:
-        log.warning("Another run appears to be in progress (started <20 min ago, "
-                     "unfinished) — skipping to avoid double-processing.")
+        log.warning("Another LinkedIn run appears to be in progress — skipping "
+                    "to avoid double-processing.")
         return
 
-    new_jobs: list[dict] = []
-    seen_in_run: set[str] = set()
+    linkedin_new = 0
     total_raw = 0
     rate_limited_count = 0
     notified = 0
     gh_new = 0
 
     try:
-        # ── 0.5 Drain the parked backlog first ──────────────────────────────
-        # Before the search, so a backlog still drains on a run where the
-        # LinkedIn half later fails. Inside the try, so finish_run() in the
-        # finally still releases the run-lock.
+        # ── 1. LinkedIn: each page is processed before the next search ──────
+        # LinkedIn goes first in the main process. GitHub already has a
+        # dedicated two-minute watcher; its fallback pass below must not add
+        # even a few seconds to a fresh LinkedIn posting.
+        total_raw, linkedin_new, rate_limited_count, linkedin_notified = scan_linkedin()
+        notified += linkedin_notified
+
+        # ── 2. GitHub-tracker fallback pass ─────────────────────────────────
+        # Still runs even when LinkedIn returned zero, before the canary return.
+        gh_new, gh_notified = scan_github_fallback()
+        notified += gh_notified
+
+        # ── 3. Recover parked classifications after fresh-source work ───────
+        # A large recovery queue must never hold a brand-new LinkedIn posting
+        # behind minutes of old Claude calls. It still drains on every full run,
+        # including a LinkedIn-blocked run, just after the latency-critical work.
         notified += retry_pending()
 
-        # ── 1. Fetch + dedup, paginating until an all-duplicate page ────────
-        # Dedup index is loaded once (one bulk query) instead of 2 Supabase
-        # calls per listing. LinkedIn returns newest-first, so once a full
-        # page is all *true DB duplicates*, everything deeper is older and
-        # already stored — stop paginating. (Distinct from "already queued
-        # this run under another search term", which used to be conflated
-        # with a DB duplicate and could cut pagination short too early.)
-        known_ids, known_norm_keys = load_dedup_index()
-
-        # ── 1a. GitHub-tracker sources FIRST (no rate limiting) ─────────────
-        # One README fetch per repo, and the most time-sensitive jobs in the
-        # pipeline — a popular tracker row draws hundreds of applicants within
-        # the hour. This block used to run AFTER every LinkedIn search, which
-        # parked its pushes behind 1-2 minutes of deliberate anti-rate-limit
-        # pagination sleeps for no benefit; it also meant a LinkedIn-side
-        # failure or the 0-results canary return took the gh: path down with
-        # it. Deliberately NOT counted into total_raw — the canary exists to
-        # detect LinkedIn-specific blocking, and mixing in another source
-        # would mask it.
-        gh_batch: list[dict] = []
-        for j in fetch_github_listings():
-            if j["id"] in seen_in_run:
-                continue
-            seen_in_run.add(j["id"])
-            nk = make_norm_key(j["company"], j["title"])
-            if j["id"] in known_ids or nk in known_norm_keys:
-                continue
-            known_ids.add(j["id"])
-            known_norm_keys.add(nk)
-            j["norm_key"] = nk
-            gh_batch.append(j)
-        for j in _freshest_first(gh_batch):
-            gh_new += 1
-            if process_job(j):
-                notified += 1
-
-        for term in SEARCH_TERMS:
-            for location in LOCATIONS:
-                log.info("Searching: '%s' in %s", term, location)
-
-                for page in range(MAX_PAGES_PER_SEARCH):
-                    start = page * 10
-                    jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS, start=start)
-
-                    if err == "rate_limited":
-                        rate_limited_count += 1
-                        log.warning("  p%d: rate limited — stopping pagination", page)
-                        break
-                    if err:
-                        log.error("  p%d: error — %s", page, err)
-                        break
-                    if not jobs:
-                        # Confirmed live: this endpoint is flaky, not just
-                        # exhausted — the identical request (same term/
-                        # location/start) returned 10 results, then 10, then
-                        # 0 across back-to-back attempts seconds apart. A
-                        # single empty page isn't reliable evidence pagination
-                        # is done, so retry once before treating it that way —
-                        # otherwise a transient glitch silently truncates the
-                        # search and can delay catching a job an entire extra
-                        # scan cycle for no real reason.
-                        time.sleep(random.uniform(1.5, 2.5))
-                        jobs, err = fetch_listings(term, location, LOOKBACK_SECONDS, start=start)
-                        if err or not jobs:
-                            log.info("  p%d: 0 listings on retry too — done", page)
-                            break
-                        log.info("  p%d: 0 listings on first try, %d on retry — continuing", page, len(jobs))
-
-                    total_raw += len(jobs)
-                    new_on_page = 0
-                    all_db_duplicate = True
-
-                    for j in jobs:
-                        nk = make_norm_key(j["company"], j["title"])
-                        is_db_dup = j["id"] in known_ids or nk in known_norm_keys
-                        if not is_db_dup:
-                            all_db_duplicate = False
-
-                        if j["id"] in seen_in_run:
-                            continue
-                        seen_in_run.add(j["id"])
-
-                        if not is_db_dup:
-                            j["search_term"] = term
-                            j["norm_key"] = nk
-                            new_jobs.append(j)
-                            new_on_page += 1
-                            known_ids.add(j["id"])
-                            known_norm_keys.add(nk)
-
-                    log.info("  p%d (start=%d): %d listings, %d new", page, start, len(jobs), new_on_page)
-
-                    if all_db_duplicate:
-                        log.info("  All duplicates in DB — stopping pagination")
-                        break
-
-                    if len(jobs) < 10:
-                        break  # partial page = last page
-
-                    time.sleep(random.uniform(2.0, 3.5))
-
-                time.sleep(random.uniform(2.0, 3.5))
-
-        log.info("Total raw: %d | New: %d | Rate limited: %d/%d searches",
-                 total_raw, len(new_jobs), rate_limited_count, len(SEARCH_TERMS) * len(LOCATIONS))
-
-        # ── 2. Canary: 0 raw LinkedIn results across ALL searches = likely blocked ──
+        # ── 4. Canary: 0 raw LinkedIn results across all searches ───────────
         if total_raw == 0:
             msg = (
                 "Scraper returned 0 results across all searches.\n"
@@ -572,59 +627,18 @@ def run():
             push_canary(msg)
             return
 
-        if not new_jobs:
+        if not linkedin_new:
             log.info("No new LinkedIn jobs this run — done.")
             return
 
-        # ── 3–6. Per-job: describe → classify → notify → store ──────────────
-        for job in _freshest_first(new_jobs):
-            log.info("Processing: '%s' @ %s [%s]",
-                     job["title"], job["company"], job["id"])
-
-            # 3a. Pre-filter: skip senior/non-intern titles without hitting Claude.
-            # GitHub-tracker sources are curated, internship-only lists the
-            # user trusts completely — every one should reach APPLY/MAYBE for
-            # a human decision, never get auto-SKIPped by a title heuristic.
-            # (The "never SKIP" policy for gh: jobs is also enforced at the
-            # classifier level — see _never_skip_github_sourced in
-            # classifier.py — so it holds even if a description reveals a
-            # mismatch Claude would otherwise SKIP for.)
-            if not job["id"].startswith("gh:"):
-                if _is_senior_role(job["title"]):
-                    log.info("  Pre-filter SKIP (senior title)")
-                    job["tier"] = "INELIGIBLE"
-                    job["reason"] = "Pre-filtered: seniority keyword in title"
-                    job["suggested_resume"] = "General"
-                    insert_job(job)
-                    continue
-
-                if _is_new_grad_role(job["title"]):
-                    log.info("  Pre-filter SKIP (new grad / full-time role)")
-                    job["tier"] = "INELIGIBLE"
-                    job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
-                    job["suggested_resume"] = "General"
-                    insert_job(job)
-                    continue
-
-                if _is_non_internship_title(job["title"]):
-                    log.info("  Pre-filter SKIP (no internship marker in title)")
-                    job["tier"] = "INELIGIBLE"
-                    job["reason"] = "Pre-filtered: no internship marker in title"
-                    job["suggested_resume"] = "General"
-                    insert_job(job)
-                    continue
-
-            if process_job(job):
-                notified += 1
-
         log.info("=== Run complete: %d new jobs (%d gh-tracker), %d notified ===",
-                 len(new_jobs) + gh_new, gh_new, notified)
+                 linkedin_new + gh_new, gh_new, notified)
 
     finally:
         finish_run(
             run_id,
             total_raw=total_raw,
-            new_jobs=len(new_jobs) + gh_new,
+            new_jobs=linkedin_new + gh_new,
             notified=notified,
             rate_limited=rate_limited_count,
         )

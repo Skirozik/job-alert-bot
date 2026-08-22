@@ -1,0 +1,44 @@
+name: LinkedIn Fast-Path Watcher
+
+# Page-zero fast lane. The full scrape.yml sweep remains the 15-minute
+# completeness path because LinkedIn's guest endpoint is not reliably sorted.
+on:
+  schedule:
+    # Fallback only. For punctual five-minute dispatches, add this workflow to
+    # the external pinger documented in FAST_PINGS_SETUP.md.
+    - cron: '1-56/5 * * * *'
+  workflow_dispatch:
+
+# Shared with scrape.yml, so a shallow pass queues behind a full LinkedIn pass
+# instead of racing it. ATS/GitHub use different groups and different DB locks.
+concurrency:
+  group: linkedin-ifiok
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Poll LinkedIn page zero
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python linkedin_watch.py

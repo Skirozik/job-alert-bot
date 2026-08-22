@@ -16,10 +16,8 @@ changed since the last check does it do real work: fetch, dedup, classify,
 store, and notify — via process_job(), the exact same logic the main scan
 uses, not a second copy of it.
 
-Uses the same run-lock as the main scan (db.start_run/finish_run) so the
-two can never process the same freshly-added job concurrently — a fast
-check with nothing new to do finishes in a couple seconds, so this doesn't
-meaningfully compete with the main scan's own cadence.
+Uses a GitHub-specific run lock (db.start_run/finish_run), so two changed-feed
+passes cannot overlap without making a GitHub update cancel LinkedIn or ATS.
 """
 
 import logging
@@ -110,10 +108,9 @@ def run():
 
     log.info("New commit(s) detected: %s — processing immediately", ", ".join(changed))
 
-    run_id = start_run()
+    run_id = start_run("github")
     if run_id is None:
-        log.warning("Main scan appears to be in progress — skipping this fast-check pass "
-                     "(it'll pick up the same commit(s) on its own next cycle regardless).")
+        log.warning("Another GitHub fast-check appears to be in progress — skipping this pass.")
         return
 
     notified = 0
