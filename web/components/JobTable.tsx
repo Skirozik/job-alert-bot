@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { CompanyLogo } from './CompanyLogo'
 import type { Job, Status } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
+import { hasPendingMutation } from '@/lib/statusMutations'
 import {
   compactSalary, splitLocations, relativeTime, fullTimestamp, isDirect,
   type SortKey, type SortDir, type OptionalCol,
@@ -68,11 +69,12 @@ function SortHead({
 }
 
 export function JobTable({
-  rows, cols, selectedId, onSelect, onStatus, sort, dir, onSort, emptyMessage,
+  rows, cols, selectedId, pendingIds, onSelect, onStatus, sort, dir, onSort, emptyMessage,
 }: {
   rows: Grouped[]
   cols: Record<OptionalCol, boolean>
   selectedId: string | null
+  pendingIds: ReadonlySet<string>
   onSelect: (id: string) => void
   onStatus: (id: string, s: Status) => void
   sort: SortKey; dir: SortDir; onSort: (c: SortKey) => void
@@ -193,6 +195,7 @@ export function JobTable({
         const easy = job.is_easy_apply
         const applyHref = easy ? job.url : (job.apply_url ?? job.url)
         const inelig = job.tier === 'INELIGIBLE'
+        const pending = hasPendingMutation(job, pendingIds)
         // Muted FOREGROUND, not an opacity filter — 40% opacity on a dark
         // theme is close to unreadable, and these rows still need to be
         // readable when deliberately opened.
@@ -318,14 +321,15 @@ export function JobTable({
                  style={{ width: 24, height: 24, borderRadius: 'var(--radius)', color: 'var(--accent)' }}>
                 {easy ? <IconApplyFilled /> : <IconApplyOutline />}
               </a>
-              <IconBtn label="Mark applied" disabled={status === 'applied'}
+              <IconBtn label={pending ? 'Saving status' : 'Mark applied'} disabled={pending || status === 'applied'}
                        onClick={() => onStatus(job.id, 'applied')}><IconApplied /></IconBtn>
-              <IconBtn label="Save" disabled={status === 'saved'}
+              <IconBtn label={pending ? 'Saving status' : 'Save'} disabled={pending || status === 'saved'}
                        onClick={() => onStatus(job.id, 'saved')}><IconSave /></IconBtn>
-              <IconBtn label="Dismiss" disabled={status === 'dismissed'}
+              <IconBtn label={pending ? 'Saving status' : 'Dismiss'} disabled={pending || status === 'dismissed'}
                        onClick={() => onStatus(job.id, 'dismissed')}><IconDismiss /></IconBtn>
               {status !== 'new' && (
-                <IconBtn label="Reset to new" onClick={() => onStatus(job.id, 'new')}><IconReset /></IconBtn>
+                <IconBtn label={pending ? 'Saving status' : 'Reset to new'} disabled={pending}
+                         onClick={() => onStatus(job.id, 'new')}><IconReset /></IconBtn>
               )}
             </div>
           </div>
