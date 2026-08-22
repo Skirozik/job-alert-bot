@@ -7,8 +7,8 @@ on:
     - cron: '7,27,47 * * * *'
   workflow_dispatch:
 
-# Never let two runs of this workflow overlap. The in-DB run-lock in
-# db.start_run() only treats a run as active if it began less than 20 minutes
+# Never let the full and fast LinkedIn workflows overlap. The in-DB source lock
+# in db.start_run() only treats a run as active if it began less than 20 minutes
 # ago, so a run that legitimately takes longer stops holding the lock and the
 # next scheduled run starts alongside it. Both then hold divergent in-memory
 # dedup indexes, which produces duplicate rows and duplicate push
@@ -17,7 +17,7 @@ on:
 # existing norm_key (17 of them notified) against a baseline of 0-1 on every
 # other day.
 concurrency:
-  group: scrape-ifiok
+  group: linkedin-ifiok
   cancel-in-progress: false
 
 jobs:

@@ -6,7 +6,7 @@ Dedup normalization is adapted from the existing dedup.py in the cowork folder.
 import re
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
@@ -137,14 +137,96 @@ def load_dedup_index() -> tuple[set[str], set[str]]:
     return ids, norm_keys
 
 
-def start_run() -> Optional[int]:
-    """Record the start of a scrape run and acquire a simple run-lock.
+def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[set[str], set[str]]:
+    """Return stored ids/norm_keys for only the supplied candidate rows.
 
-    Guards against two schedulers (e.g. GitHub Actions + Modal) firing within
-    the same window and double-processing/double-notifying. Returns the new
-    run's id, -1 if the scrape_runs table doesn't exist yet (proceeds without
-    locking/stats — see README for the migration), or None if another run
-    looks to still be in progress and this run should be skipped.
+    LinkedIn normally gives us roughly ten cards per page. Downloading the
+    entire jobs table before checking those ten cards grew to 64,000 rows and
+    ~16 seconds per run. Both columns are indexed, so two small ``IN`` lookups
+    per batch stay proportional to what LinkedIn returned instead of to the
+    lifetime size of the database.
+
+    The two-query shape is intentional. PostgREST's ``or`` expression requires
+    hand-escaping arbitrary norm_key text; supabase-py's ``in_`` builder safely
+    quotes it for us. A transient lookup failure keeps the scraper available by
+    treating the batch as unknown, matching load_dedup_index's existing
+    fail-open behavior. The primary-key upsert remains the final backstop.
+    """
+    rows = list(jobs)
+    ids = list(dict.fromkeys(str(j.get("id", "")) for j in rows if j.get("id")))
+    norm_keys = list(dict.fromkeys(
+        str(j.get("norm_key") or make_norm_key(j.get("company", ""), j.get("title", "")))
+        for j in rows
+    ))
+    known_ids: set[str] = set()
+    known_norm_keys: set[str] = set()
+
+    try:
+        client = get_client()
+        for offset in range(0, len(ids), batch_size):
+            result = (
+                client.table("jobs")
+                .select("id,norm_key")
+                .in_("id", ids[offset:offset + batch_size])
+                .execute()
+            )
+            for row in result.data or []:
+                known_ids.add(row["id"])
+                if row.get("norm_key"):
+                    known_norm_keys.add(row["norm_key"])
+
+        for offset in range(0, len(norm_keys), batch_size):
+            result = (
+                client.table("jobs")
+                .select("id,norm_key")
+                .in_("norm_key", norm_keys[offset:offset + batch_size])
+                .execute()
+            )
+            for row in result.data or []:
+                known_ids.add(row["id"])
+                if row.get("norm_key"):
+                    known_norm_keys.add(row["norm_key"])
+    except Exception as exc:
+        log.error("Failed to check candidate dedup keys: %s — treating this batch as new", exc)
+        return set(), set()
+
+    return known_ids, known_norm_keys
+
+
+def _start_run_legacy() -> Optional[int]:
+    """Acquire the original global lock for databases not migrated yet."""
+    client = get_client()
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    active = (
+        client.table("scrape_runs")
+        .select("id")
+        .gte("started_at", cutoff)
+        .is_("finished_at", "null")
+        .execute()
+    )
+    if active.data:
+        return None
+    result = (
+        client.table("scrape_runs")
+        .insert({"started_at": datetime.now(timezone.utc).isoformat()})
+        .execute()
+    )
+    return result.data[0]["id"] if result.data else -1
+
+
+def start_run(source: str = "linkedin") -> Optional[int]:
+    """Record a run and acquire a source-specific lock.
+
+    LinkedIn, ATS, and GitHub polling are independent. A global lock caused the
+    punctual LinkedIn dispatch to lose a race with the five-minute ATS watcher
+    and exit without searching at all. Locks are now scoped by source, while
+    the main and fast LinkedIn workflows both use ``source="linkedin"`` so two
+    LinkedIn passes still cannot overlap.
+
+    Existing databases without scrape_runs.source fall back to the legacy
+    global lock until the migration in migrations/ is applied. Returns the new
+    run id, -1 when stats/locking are unavailable, or None when this source is
+    already active.
     """
     try:
         client = get_client()
@@ -152,6 +234,7 @@ def start_run() -> Optional[int]:
         active = (
             client.table("scrape_runs")
             .select("id")
+            .eq("source", source)
             .gte("started_at", cutoff)
             .is_("finished_at", "null")
             .execute()
@@ -160,11 +243,25 @@ def start_run() -> Optional[int]:
             return None
         result = (
             client.table("scrape_runs")
-            .insert({"started_at": datetime.now(timezone.utc).isoformat()})
+            .insert({
+                "source": source,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            })
             .execute()
         )
         return result.data[0]["id"] if result.data else -1
     except Exception as exc:
+        # PostgREST reports a missing column through its schema-cache error.
+        # Keep old deployments safe until their one-line migration is run.
+        message = str(exc).lower()
+        if "source" in message and ("column" in message or "schema cache" in message):
+            log.warning("scrape_runs.source is not migrated yet — using the legacy global lock")
+            try:
+                return _start_run_legacy()
+            except Exception as legacy_exc:
+                log.warning("scrape_runs table unavailable (%s) — proceeding without run-lock/stats",
+                            legacy_exc)
+                return -1
         log.warning("scrape_runs table unavailable (%s) — proceeding without run-lock/stats", exc)
         return -1
 

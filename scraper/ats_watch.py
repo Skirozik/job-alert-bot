@@ -15,8 +15,8 @@ multi-hundred-row README) — every poll just re-fetches all ~50 boards and
 diffs the returned job ids against the in-memory dedup index, same as the
 GitHub-tracker step in main.py's own run() does.
 
-Uses the same run-lock as the other two scan paths (db.start_run/finish_run)
-so none of the three can double-process the same freshly-added job.
+Uses an ATS-specific run lock (db.start_run/finish_run). LinkedIn and GitHub
+have their own locks, so a long ATS sweep cannot cancel a punctual source pass.
 """
 
 import logging
@@ -44,10 +44,9 @@ log = logging.getLogger(__name__)
 
 
 def run():
-    run_id = start_run()
+    run_id = start_run("ats")
     if run_id is None:
-        log.warning("Another run appears to be in progress — skipping this ATS-watch pass "
-                     "(the main scan or GitHub watcher will pick up the same job(s) regardless).")
+        log.warning("Another ATS pass appears to be in progress — skipping this one.")
         return
 
     new_jobs = 0

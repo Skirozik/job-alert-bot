@@ -7,7 +7,7 @@ import { Toolbar } from './Toolbar'
 import { JobTable } from './JobTable'
 import { JobDrawer } from './JobDrawer'
 import type { Job, Status } from '@/types/job'
-import type { Grouped } from '@/lib/dupes'
+import { mergeGroupedJobs, type Grouped } from '@/lib/dupes'
 import {
   matchesView, matchesRole, matchesSource, matchesDate, matchesSearch,
   visibleOptionalColumns, sortJobs, relativeTime,
@@ -15,7 +15,8 @@ import {
   type SortKey, type SortDir,
 } from '@/lib/jobView'
 
-const POLL_MS = 5 * 60_000
+const FULL_POLL_MS = 5 * 60_000
+const LINKEDIN_POLL_MS = 15_000
 
 const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed']
 
@@ -47,6 +48,7 @@ export function JobList({
   const [toast, setToast] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState(() => new Date().toISOString())
+  const linkedinCursor = useRef(new Date(Date.now() - 60_000).toISOString())
 
   /* ── View state ───────────────────────────────────────────────────────
      LOCAL STATE is the source of truth; the URL is a mirror written after the
@@ -111,7 +113,50 @@ export function JobList({
     return () => window.removeEventListener('popstate', h)
   }, [readUrl])
 
-  useEffect(() => { setJobs(initialJobs); setLastSynced(new Date().toISOString()) }, [initialJobs])
+  useEffect(() => {
+    const now = new Date()
+    setJobs(initialJobs)
+    setLastSynced(now.toISOString())
+    // Deliberate overlap closes the server-render/hydration race. Re-seeing an
+    // id is cheap because mergeGroupedJobs keys by id.
+    linkedinCursor.current = new Date(now.getTime() - 60_000).toISOString()
+  }, [initialJobs])
+
+  // LinkedIn-only delta polling. A full router.refresh() is far too expensive
+  // to run every few seconds; this endpoint returns only newly-actionable
+  // LinkedIn rows and merges them into the current duplicate groups. Applied
+  // state wins during merging, so an in-flight "new" response cannot resurrect
+  // a job the user just marked Applied.
+  useEffect(() => {
+    let cancelled = false
+    let inFlight = false
+
+    const pollLinkedIn = async () => {
+      if (cancelled || inFlight || document.visibilityState !== 'visible') return
+      inFlight = true
+      try {
+        const res = await fetch(
+          `/api/jobs/linkedin-updates?after=${encodeURIComponent(linkedinCursor.current)}`,
+          { cache: 'no-store' },
+        )
+        if (!res.ok) return
+        const body = await res.json() as { checkedAt: string, jobs: Job[] }
+        if (cancelled) return
+        if (body.jobs.length) setJobs(current => mergeGroupedJobs(current, body.jobs))
+        linkedinCursor.current = body.checkedAt
+        setLastSynced(body.checkedAt)
+      } catch {
+        // The five-minute full refresh remains the reconciliation path. A
+        // transient delta failure should not flash an error or disturb rows.
+      } finally {
+        inFlight = false
+      }
+    }
+
+    void pollLinkedIn()
+    const id = window.setInterval(() => { void pollLinkedIn() }, LINKEDIN_POLL_MS)
+    return () => { cancelled = true; window.clearInterval(id) }
+  }, [])
 
   // Poll instead of subscribing: NEXT_PUBLIC_* is build-time-inlined and so
   // single-valued, which cannot work on a multi-tenant deployment.
@@ -130,7 +175,7 @@ export function JobList({
   // poll now roughly matches the rate at which data can actually change.
   // Notifications are unaffected either way: ntfy pushes at classification
   // time and never waits on the dashboard.
-  /* The focus path is rate-limited to the same POLL_MS as the interval.
+  /* The focus path is rate-limited to the same FULL_POLL_MS as the interval.
      On a desktop that listener fires when you come back to the tab, which is
      what it was written for. On a phone it fires on every app switch, every
      lock and unlock, and every return from the browser's own UI — and each
@@ -149,10 +194,10 @@ export function JobList({
     const tick = () => { if (document.visibilityState === 'visible') refresh() }
     const onFocus = () => {
       if (document.visibilityState !== 'visible') return
-      if (Date.now() - lastRefresh.current < POLL_MS) return
+      if (Date.now() - lastRefresh.current < FULL_POLL_MS) return
       refresh()
     }
-    const id = setInterval(tick, POLL_MS)
+    const id = setInterval(tick, FULL_POLL_MS)
     window.addEventListener('focus', onFocus)
     return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
   }, [router])

@@ -15,13 +15,15 @@ Offsetting the cron minutes off the herd (2026-08-18) did **not** help: median
 gap was 39.2 min before and 40.3 min after, 72% vs 73% of gaps over 30 minutes.
 GitHub defers regardless of which minute you request.
 
-**The delay is GitHub's trigger latency, not the work.** Measured run durations:
-`watch_github` **0.6 min**, `watch_ats` **3.0 min**, `scrape` 1.5-4.8 min. The
-shared run-lock is not a factor either — zero skips across 12 consecutive ATS
-runs. Everything downstream is already fast; only the trigger is slow.
+Measured run durations were `watch_github` **0.6 min**, `watch_ats` **3.0 min**,
+and `scrape` 1.5-4.8 min. After punctual external dispatches were enabled, a
+second bottleneck became visible: ATS and LinkedIn were launched on the same
+minute and competed for the old global DB lock. Recent LinkedIn runs repeatedly
+exited without searching. The source-lock migration below is therefore part of
+the fast-ping setup, not an optional tuning step.
 
 `workflow_dispatch` events don't get that treatment: an API-triggered run starts
-within seconds. All six workflows already declare `workflow_dispatch:`, so
+within seconds. All workflows declare `workflow_dispatch:`, so
 nothing in the repo needs to change — an external free cron service just has to
 POST to GitHub on a reliable clock. The `schedule:` blocks stay as a fallback;
 the concurrency groups and the in-DB run-lock make an occasional double-fire
@@ -41,17 +43,18 @@ harmless.
 
 ## Step 2 — create the pinger jobs on cron-job.org (3 min)
 
-Free account at cron-job.org. Create **three cron jobs**, identical except for
+Free account at cron-job.org. Create **four cron jobs**, identical except for
 URL and schedule. The URL uses the workflow's **filename**, not its display name.
 
 | Workflow          | URL to POST                                                                                        | Schedule       |
 |-------------------|----------------------------------------------------------------------------------------------------|----------------|
 | GitHub watcher    | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/watch_github.yml/dispatches` | every **2 min**  |
 | ATS watcher       | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/watch_ats.yml/dispatches`    | every **5 min**  |
+| LinkedIn fast path| `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/watch_linkedin.yml/dispatches` | every **5 min** |
 | Main scrape       | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/scrape.yml/dispatches`       | every **15 min** |
 
 These are deliberately *faster than GitHub's own 5-minute schedule floor* on the
-two watchers — an external pinger is the only way to get there. It is safe
+fast watchers — an external pinger is the only way to get there. It is safe
 because the runs are short: a 0.6-min `watch_github` run cannot stack against a
 2-minute ping, and the ATS sweep is parallelized.
 
@@ -90,9 +93,10 @@ wait (interval / 2) + ~0.2 min dispatch + measured run duration:
 |----------------|----------|--------------|
 | GitHub tracker | ~30 min  | **~1.8 min** |
 | Company ATS    | ~35 min  | **~5.5 min** |
-| LinkedIn       | ~43 min  | **~11 min**  |
+| LinkedIn       | ~43 min  | **~3-4 min typical** |
 
-The floor is ~1.3 min even at a 1-minute ping — the run still has to execute.
+The fast LinkedIn path is shallow by design. The full 15-minute sweep remains
+the coverage backstop for jobs LinkedIn ranks below page zero.
 
 ## Notes
 
@@ -104,14 +108,13 @@ The floor is ~1.3 min even at a 1-minute ping — the run still has to execute.
   rows carry real timestamps and are the ones to measure against.
 - If LinkedIn 429s tick up in the logs (`rate_limited` in `scrape_runs`), back
   the scrape pinger off to 20 min — punctual-20 still beats drifting-40.
-- `scrape.yml` at 15 min holds the shared run-lock ~3 min per run, so some ATS
-  passes may skip and wait for the next one. At a 5-minute cadence a skip costs
-  5 minutes, versus 32 today — not a regression.
-- `start_run()`'s check-then-insert is not atomic (`scraper/db.py`). Concurrency
-  groups prevent same-workflow overlap but not cross-workflow. Higher ping rates
-  make a same-instant collision marginally likelier; the consequence is a
-  duplicate pass, which `norm_key` dedup absorbs.
-- Cost: $0. ~1,100 dispatches/day against a 5,000/hour PAT limit, and Actions
+- Apply `migrations/20260822_source_specific_scrape_runs.sql` before enabling
+  the LinkedIn fast pinger. Until then the code safely falls back to the legacy
+  global lock, which means ATS can still make a LinkedIn pass skip.
+- `start_run()`'s check-then-insert is not atomic (`scraper/db.py`). Shared
+  workflow concurrency groups serialize the full and fast LinkedIn workflows;
+  each other source also has its own workflow concurrency guard.
+- Cost: $0. ~1,400 dispatches/day against a 5,000/hour PAT limit, and Actions
   minutes are free on public repos.
 - If this repo ever goes **private**, Actions minutes start metering — revisit
   cadence then.

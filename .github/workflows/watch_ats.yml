@@ -24,10 +24,9 @@ on:
     - cron: '4,14,24,34,44,54 * * * *'
   workflow_dispatch:
 
-# Shares db.start_run()/finish_run() with the main scraper and the GitHub
-# watcher, so none of the three can double-process the same freshly-added job.
-# This guard is the second layer: it stops two runs of THIS workflow overlapping
-# when a slow poll outlives its schedule slot.
+# The DB lock is scoped to ATS, so this watcher no longer cancels LinkedIn or
+# GitHub. This workflow-level guard stops two ATS runs overlapping when a slow
+# poll outlives its schedule slot.
 concurrency:
   group: watch-ats-ifiok
   cancel-in-progress: false
