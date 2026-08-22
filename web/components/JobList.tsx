@@ -9,6 +9,10 @@ import { JobDrawer } from './JobDrawer'
 import type { Job, Status } from '@/types/job'
 import { mergeGroupedJobs, type Grouped } from '@/lib/dupes'
 import {
+  applyGroupStatus, groupMemberIds, overlayStatusMutations,
+  reconcileServerJobs, type StatusMutation,
+} from '@/lib/statusMutations'
+import {
   matchesView, matchesRole, matchesSource, matchesDate, matchesSearch,
   visibleOptionalColumns, sortJobs, relativeTime,
   type ViewKey, type RoleFilter, type SourceFilter, type DateFilter,
@@ -41,6 +45,10 @@ export function JobList({
   const params = useSearchParams()
 
   const [jobs, setJobs] = useState<Grouped[]>(initialJobs)
+  const jobsRef = useRef<Grouped[]>(initialJobs)
+  const statusLedger = useRef(new Map<string, StatusMutation>())
+  const mutationSequence = useRef(0)
+  const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set())
   /* Mobile nav. Lives here rather than in Sidebar because the toggle that
      opens it sits in the Toolbar — two siblings, so the state has to be
      above both. Always false on desktop, where Sidebar ignores it. */
@@ -49,6 +57,15 @@ export function JobList({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState(() => new Date().toISOString())
   const linkedinCursor = useRef(new Date(Date.now() - 60_000).toISOString())
+
+  // Every producer of client job state goes through one synchronous ref. This
+  // prevents two rapid actions from both reading the same pre-click render and
+  // lets async poll/refresh responses reconcile against the newest local list.
+  const updateJobs = useCallback((updater: (current: Grouped[]) => Grouped[]) => {
+    const next = updater(jobsRef.current)
+    jobsRef.current = next
+    setJobs(next)
+  }, [])
 
   /* ── View state ───────────────────────────────────────────────────────
      LOCAL STATE is the source of truth; the URL is a mirror written after the
@@ -115,12 +132,20 @@ export function JobList({
 
   useEffect(() => {
     const now = new Date()
-    setJobs(initialJobs)
+    const reconciled = reconcileServerJobs(initialJobs, statusLedger.current)
+    if (reconciled.acknowledgedMutationIds.size) {
+      statusLedger.current.forEach((mutation, id) => {
+        if (reconciled.acknowledgedMutationIds.has(mutation.mutationId)) {
+          statusLedger.current.delete(id)
+        }
+      })
+    }
+    updateJobs(() => reconciled.jobs)
     setLastSynced(now.toISOString())
     // Deliberate overlap closes the server-render/hydration race. Re-seeing an
     // id is cheap because mergeGroupedJobs keys by id.
     linkedinCursor.current = new Date(now.getTime() - 60_000).toISOString()
-  }, [initialJobs])
+  }, [initialJobs, updateJobs])
 
   // LinkedIn-only delta polling. A full router.refresh() is far too expensive
   // to run every few seconds; this endpoint returns only newly-actionable
@@ -142,7 +167,12 @@ export function JobList({
         if (!res.ok) return
         const body = await res.json() as { checkedAt: string, jobs: Job[] }
         if (cancelled) return
-        if (body.jobs.length) setJobs(current => mergeGroupedJobs(current, body.jobs))
+        if (body.jobs.length) {
+          updateJobs(current => overlayStatusMutations(
+            mergeGroupedJobs(current, body.jobs),
+            statusLedger.current,
+          ))
+        }
         linkedinCursor.current = body.checkedAt
         setLastSynced(body.checkedAt)
       } catch {
@@ -156,7 +186,7 @@ export function JobList({
     void pollLinkedIn()
     const id = window.setInterval(() => { void pollLinkedIn() }, LINKEDIN_POLL_MS)
     return () => { cancelled = true; window.clearInterval(id) }
-  }, [])
+  }, [updateJobs])
 
   // Poll instead of subscribing: NEXT_PUBLIC_* is build-time-inlined and so
   // single-valued, which cannot work on a multi-tenant deployment.
@@ -225,29 +255,77 @@ export function JobList({
 
   async function onStatus(id: string, status: Status) {
     setSaveError(null)
-    const prev = jobs
-    const group = jobs.find(j => j.id === id || j.duplicates?.some(d => d.id === id))
-    const ids = group ? [group.id, ...(group.duplicates ?? []).map(d => d.id)] : [id]
-    const memberIds = new Set(ids)
-    setJobs(js => js.map(j => memberIds.has(j.id) ? {
-      ...j,
-      status,
-      duplicates: j.duplicates?.map(d => memberIds.has(d.id) ? { ...d, status } : d),
-    } : j))
+    const group = jobsRef.current.find(j => groupMemberIds(j).includes(id))
+    const ids = group ? groupMemberIds(group) : [id]
+
+    // The ref is updated before React paints the disabled controls, closing
+    // the tiny double-click window where two writes for one group could race
+    // and reach Supabase out of order.
+    if (ids.some((memberId) => statusLedger.current.get(memberId)?.phase === 'pending')) return
+
+    const mutation: StatusMutation = {
+      mutationId: ++mutationSequence.current,
+      ids,
+      desiredStatus: status,
+      previousStatus: group?.status ?? 'new',
+      phase: 'pending',
+    }
+    ids.forEach((memberId) => statusLedger.current.set(memberId, mutation))
+    setPendingIds(current => {
+      const next = new Set(current)
+      ids.forEach((memberId) => next.add(memberId))
+      return next
+    })
+    updateJobs(current => applyGroupStatus(current, ids, status))
+
+    const settlePending = () => setPendingIds(current => {
+      const next = new Set(current)
+      ids.forEach((memberId) => {
+        if (statusLedger.current.get(memberId)?.phase !== 'pending') next.delete(memberId)
+      })
+      return next
+    })
+
     try {
       const res = await fetch(`/api/jobs/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status, ids }),
       })
-      if (!res.ok) throw new Error(String(res.status))
+      const body = await res.json().catch(() => null) as {
+        error?: string
+        updatedRows?: Array<{ id: string, status: Status }>
+      } | null
+      if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+
+      const actual = new Map((body?.updatedRows ?? []).map(row => [row.id, row.status]))
+      if (ids.some((memberId) => actual.get(memberId) !== status)) {
+        throw new Error('The database response did not confirm every duplicate')
+      }
+
+      // A newer mutation would own these ids. This should be unreachable
+      // because pending controls are disabled, but retaining the sequence
+      // check makes late network responses harmless.
+      if (ids.some((memberId) => statusLedger.current.get(memberId)?.mutationId !== mutation.mutationId)) {
+        return
+      }
+      const confirmed = { ...mutation, phase: 'confirmed' as const }
+      ids.forEach((memberId) => statusLedger.current.set(memberId, confirmed))
+      settlePending()
       setToast(status === 'applied' ? 'Marked as applied'
              : status === 'saved' ? 'Saved'
              : status === 'dismissed' ? 'Dismissed' : 'Reset')
       setTimeout(() => setToast(null), 1200)
-    } catch {
-      setJobs(prev)   // roll the optimistic update back
-      setSaveError('Failed to save — check the dashboard service key')
+    } catch (error) {
+      // Roll back this group only, and only if this request is still its newest
+      // mutation. One failed job can no longer resurrect other successful
+      // actions by restoring a captured whole-list snapshot.
+      if (ids.every((memberId) => statusLedger.current.get(memberId)?.mutationId === mutation.mutationId)) {
+        ids.forEach((memberId) => statusLedger.current.delete(memberId))
+        updateJobs(current => applyGroupStatus(current, ids, mutation.previousStatus))
+      }
+      settlePending()
+      setSaveError(`Failed to save: ${error instanceof Error ? error.message : 'unknown error'}`)
     }
   }
 
@@ -316,6 +394,7 @@ export function JobList({
             rows={rows}
             cols={cols}
             selectedId={selectedId}
+            pendingIds={pendingIds}
             onSelect={id => patch({ job: id === selectedId ? null : id })}
             onStatus={onStatus}
             sort={sort}
@@ -327,7 +406,12 @@ export function JobList({
       </main>
 
       {selected && (
-        <JobDrawer job={selected} onClose={() => patch({ job: null })} onStatus={onStatus} />
+        <JobDrawer
+          job={selected}
+          pending={groupMemberIds(selected).some(id => pendingIds.has(id))}
+          onClose={() => patch({ job: null })}
+          onStatus={onStatus}
+        />
       )}
 
       {toast && (

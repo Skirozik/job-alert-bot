@@ -187,6 +187,13 @@ set the root directory to `web/`), with these environment variables:
 | `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role key |
 | `DASHBOARD_PASSWORD` | Any password you choose — gates the whole dashboard |
 
+For an existing Supabase project, also run
+[`migrations/20260822_atomic_job_status_updates.sql`](migrations/20260822_atomic_job_status_updates.sql)
+in the Supabase SQL Editor. It makes Applied, Save, Dismiss, and Reset update every
+member of a collapsed duplicate group in one transaction. The dashboard has a
+verified compatibility fallback while this migration is being rolled out, but
+the migration is required for fully atomic group updates.
+
 ---
 
 ## Testing the canary alert
