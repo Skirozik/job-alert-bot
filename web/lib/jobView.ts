@@ -16,7 +16,10 @@ const INTERN_RE = /intern|internship|co[\s-]?op|apprentice|summer analyst|summer
 
 export const isActive = (j: Job) => {
   const s = j.status ?? 'new'
-  return s !== 'applied' && s !== 'dismissed'
+  // Review and Tracking are mutually exclusive queues. Saving is an action,
+  // not a second badge layered onto To Apply; a saved job stays reachable in
+  // Saved and returns to review only through Reset to new.
+  return s === 'new'
 }
 
 /** The view predicate. REVIEW views are implicitly active-only — a job you've

@@ -40,9 +40,10 @@ function Action({
 }
 
 export function JobDrawer({
-  job, onClose, onStatus, resumeHref,
+  job, pending = false, onClose, onStatus, resumeHref,
 }: {
   job: Grouped
+  pending?: boolean
   onClose: () => void
   onStatus: (id: string, s: Status) => void
   resumeHref?: string
@@ -209,13 +210,17 @@ export function JobDrawer({
           {easy ? 'Easy Apply on LinkedIn' : 'Open original posting'}
         </a>
         <div className="grid grid-cols-3" style={{ gap: 'var(--s2)' }}>
-          <Action label="Applied"  onClick={() => onStatus(job.id, 'applied')}   disabled={status === 'applied'} />
-          <Action label="Save"     onClick={() => onStatus(job.id, 'saved')}     disabled={status === 'saved'} />
-          <Action label="Dismiss"  onClick={() => onStatus(job.id, 'dismissed')} disabled={status === 'dismissed'} />
+          <Action label={pending ? 'Saving…' : 'Applied'} onClick={() => onStatus(job.id, 'applied')}
+                  disabled={pending || status === 'applied'} />
+          <Action label={pending ? 'Saving…' : 'Save'} onClick={() => onStatus(job.id, 'saved')}
+                  disabled={pending || status === 'saved'} />
+          <Action label={pending ? 'Saving…' : 'Dismiss'} onClick={() => onStatus(job.id, 'dismissed')}
+                  disabled={pending || status === 'dismissed'} />
         </div>
         {status !== 'new' && (
           <div style={{ marginTop: 'var(--s2)' }}>
-            <Action label="Reset to new" onClick={() => onStatus(job.id, 'new')} />
+            <Action label={pending ? 'Saving…' : 'Reset to new'}
+                    onClick={() => onStatus(job.id, 'new')} disabled={pending} />
           </div>
         )}
       </div>
