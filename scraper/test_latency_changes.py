@@ -1,4 +1,4 @@
-"""Guards the ping-time changes — parallel ATS sweep, gh-first, freshest-first.
+"""Guards the ping-time changes — parallel ATS, streaming LinkedIn, fresh-first.
 
 Offline: no network, no keys. Stubs by module-attribute assignment, same as
 test_pending_queue.py.
@@ -8,10 +8,10 @@ What is being protected:
   1. The ATS sweep runs the ~100 boards CONCURRENTLY (sequential took minutes
      and held the run-lock long enough to skip github_watch passes), while one
      broken board still never blocks the others.
-  2. main.run() processes the GitHub-tracker sources BEFORE the LinkedIn
-     search loop, so a gh: push never waits behind pagination sleeps — and
-     still goes out even when LinkedIn is blocked and the canary fires.
-  3. Batches are processed newest-posting-first.
+  2. main.run() keeps the GitHub fallback alive, but LinkedIn candidates are
+     processed page-by-page instead of waiting for all searches to finish.
+  3. Batches are processed newest-posting-first and the pending backlog runs
+     only after fresh-source work.
 
 Run:  cd scraper && python test_latency_changes.py
 """
@@ -96,26 +96,67 @@ check("missing posted_at sorts last", set(ordered[3:]) == {"b", "e"}, f"got {ord
 check("input list is not mutated", [j["id"] for j in batch] == ["a", "b", "c", "d", "e"])
 
 
-# ── 3. Source order in run() ─────────────────────────────────────────────
-print("\n-- run(): gh-tracker block sits before the LinkedIn loop --")
+# ── 3. Source order and LinkedIn streaming ───────────────────────────────
+print("\n-- run(): fresh work precedes backlog, LinkedIn pages stream --")
 
 import inspect
 
 _run = inspect.getsource(main.run)
-check("retry_pending still runs first",
-      _run.index("retry_pending()") < _run.index("fetch_github_listings"))
-check("gh-tracker fetch runs before the LinkedIn search loop",
-      _run.index("fetch_github_listings") < _run.index("for term in SEARCH_TERMS"),
-      "gh pushes must not wait behind 1-2 min of pagination sleeps")
-check("gh batch is processed freshest-first", "_freshest_first(gh_batch)" in _run)
-check("LinkedIn batch is processed freshest-first", "_freshest_first(new_jobs)" in _run)
+_scan = inspect.getsource(main.scan_linkedin)
+check("fresh LinkedIn work runs before retry_pending",
+      _run.index("scan_linkedin()") < _run.index("retry_pending()"),
+      "a parked backlog must not delay a newly-posted job")
+check("LinkedIn runs before the GitHub fallback",
+      _run.index("scan_linkedin()") < _run.index("scan_github_fallback()"),
+      "the tracker already has a two-minute watcher and must not delay LinkedIn")
+check("gh batch is processed freshest-first",
+      "_freshest_first(batch)" in inspect.getsource(main.scan_github_fallback))
+check("LinkedIn page is processed freshest-first", "_freshest_first(page_new)" in _scan)
+check("LinkedIn page is processed inside the pagination loop",
+      _scan.index("_freshest_first(page_new)") < _scan.index("if all_db_duplicate"),
+      "a new page-zero job must push before the next search starts")
+
+
+print("\n-- scan_linkedin(): a page-zero match processes before the next query --")
+_orig_stream = {k: getattr(main, k) for k in (
+    "SEARCH_TERMS", "LOCATIONS", "fetch_listings", "find_known_candidates",
+    "_process_linkedin_candidate", "time",
+)}
+_events = []
+main.SEARCH_TERMS = ["first", "second"]
+main.LOCATIONS = ["United States"]
+
+
+def _stream_fetch(term, location, lookback, start=0):
+    _events.append(f"fetch:{term}")
+    if term == "first":
+        return ([{
+            "id": "100", "title": "Software Engineer Intern", "company": "Acme",
+            "location": location, "url": "https://linkedin.test/100",
+            "posted_at": "2026-08-22", "description": None, "is_easy_apply": False,
+        }], None)
+    return ([], "blocked-for-test")
+
+
+main.fetch_listings = _stream_fetch
+main.find_known_candidates = lambda jobs: (set(), set())
+main._process_linkedin_candidate = lambda job: (_events.append(f"process:{job['id']}"), True)[1]
+main.time = types.SimpleNamespace(sleep=lambda seconds: None)
+stream_stats = main.scan_linkedin(max_pages_per_search=1)
+check("first page was processed before the second search",
+      _events.index("process:100") < _events.index("fetch:second"), f"events={_events}")
+check("streamed job contributes to new/notified stats",
+      stream_stats[1:] == (1, 0, 1), f"got {stream_stats}")
+
+for k, v in _orig_stream.items():
+    setattr(main, k, v)
 
 
 # ── 4. gh jobs survive a LinkedIn-blocked run ────────────────────────────
 print("\n-- run() end-to-end with stubs: gh job pushes even when LinkedIn is blocked --")
 
 _orig = {k: getattr(main, k) for k in (
-    "start_run", "finish_run", "load_dedup_index", "fetch_pending_jobs",
+    "start_run", "finish_run", "find_known_candidates", "fetch_pending_jobs",
     "fetch_github_listings", "fetch_listings", "fetch_external_description",
     "classify", "insert_job", "push_job", "push_canary", "time",
 )}
@@ -128,9 +169,9 @@ GH_JOB = {"id": "gh:abc123", "title": "SWE Intern", "company": "Acme",
           "is_easy_apply": False, "posted_at": "2026-08-17T00:00:00+00:00",
           "search_term": "github:test"}
 
-main.start_run = lambda: 1
+main.start_run = lambda source="linkedin": 1
 main.finish_run = lambda run_id, **kw: _state.__setitem__("finish", kw)
-main.load_dedup_index = lambda: (set(), set())
+main.find_known_candidates = lambda jobs: (set(), set())
 main.fetch_pending_jobs = lambda limit: []
 main.fetch_github_listings = lambda: [dict(GH_JOB)]
 main.fetch_listings = lambda *a, **kw: ([], None)          # LinkedIn: nothing, every page

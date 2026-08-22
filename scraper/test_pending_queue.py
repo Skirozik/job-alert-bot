@@ -330,8 +330,9 @@ check("finish_run receives exactly its four existing stat keys",
       _kwargs == {"total_raw", "new_jobs", "notified", "rate_limited"},
       f"got {sorted(_kwargs) if _kwargs else None} — an unknown column leaves the "
       f"run-lock held for 20 minutes")
-check("retry_pending runs before the search loop",
-      _run.index("retry_pending()") < _run.index("for term in SEARCH_TERMS"))
+check("retry_pending runs after fresh LinkedIn work",
+      _run.index("retry_pending()") > _run.index("scan_linkedin()"),
+      "an old recovery queue must not delay a new LinkedIn push")
 check("...and inside the try, so finish_run still releases the lock",
       _run.index("try:") < _run.index("retry_pending()"))
 check("the down-alert lives in the finally, so early returns cannot skip it",
