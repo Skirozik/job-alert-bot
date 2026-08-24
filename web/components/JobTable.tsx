@@ -289,7 +289,7 @@ export function JobTable({
 
             {!isMobile && cols.resume && (
               <div style={cell}>
-                {job.suggested_resume && job.suggested_resume !== 'N/A' && (
+                {job.suggested_resume && (
                   <span className="truncate inline-block max-w-full"
                         style={{ fontSize: 'var(--text-meta)', color: 'var(--fg-muted)',
                                  background: 'var(--bg-active)', border: '1px solid var(--border)',

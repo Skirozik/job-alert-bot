@@ -77,11 +77,23 @@ const SPECIALIZATIONS: Array<[string, RegExp]> = [
   ['strategy', /\bstrategy\b/i],
 ]
 
+// Which status represents a duplicate group when its members disagree: highest
+// rank wins. The outcome states all sit past `applied`, ordered by how far the
+// application actually got. `rejected` ranks just above `applied` because it
+// does mean somebody replied, but it is the least advanced way that can happen.
+//
+// Divergence inside a group should be rare -- setWholeGroupStatus writes every
+// member at once -- so this only decides the tie when server rows for the same
+// group arrive carrying different statuses.
 const STATUS_RANK: Record<Status, number> = {
   new: 0,
   saved: 1,
   dismissed: 2,
   applied: 3,
+  rejected: 4,
+  heard_back: 5,
+  interview: 6,
+  offer: 7,
 }
 
 function plain(raw: string | null | undefined): string {

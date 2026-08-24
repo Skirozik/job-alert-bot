@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { Job, Status } from '@/types/job'
+import { APPLIED_OR_LATER } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
 import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect } from '@/lib/jobView'
 import { IconApplyFilled, IconApplyOutline, IconClose, IconBolt } from './icons'
@@ -148,7 +149,7 @@ export function JobDrawer({
             <dd style={{ color: 'var(--fg)' }}>{job.salary}</dd>
           </>)}
 
-          {job.suggested_resume && job.suggested_resume !== 'N/A' && (<>
+          {job.suggested_resume && (<>
             <dt style={{ color: 'var(--fg-subtle)' }}>Resume</dt>
             <dd>
               {resumeHref
@@ -217,6 +218,33 @@ export function JobDrawer({
           <Action label={pending ? 'Saving…' : 'Dismiss'} onClick={() => onStatus(job.id, 'dismissed')}
                   disabled={pending || status === 'dismissed'} />
         </div>
+        {/* Outcomes appear only once something actually went out. Showing
+            "Interview" on a job you have not applied to is noise, and it would
+            make outcome buttons the bulk of this panel for every job in the
+            queue -- which is nearly all of them. */}
+        {APPLIED_OR_LATER.includes(status) && (
+          <div style={{ marginTop: 'var(--s3)' }}>
+            <div style={{ fontSize: 'var(--text-meta)', letterSpacing: '0.06em',
+                          textTransform: 'uppercase', color: 'var(--fg-subtle)',
+                          marginBottom: 'var(--s2)' }}>
+              What happened
+            </div>
+            <div className="grid grid-cols-2" style={{ gap: 'var(--s2)' }}>
+              <Action label={pending ? 'Saving…' : 'Heard back'}
+                      onClick={() => onStatus(job.id, 'heard_back')}
+                      disabled={pending || status === 'heard_back'} />
+              <Action label={pending ? 'Saving…' : 'Interview'}
+                      onClick={() => onStatus(job.id, 'interview')}
+                      disabled={pending || status === 'interview'} />
+              <Action label={pending ? 'Saving…' : 'Offer'}
+                      onClick={() => onStatus(job.id, 'offer')}
+                      disabled={pending || status === 'offer'} />
+              <Action label={pending ? 'Saving…' : 'Rejected'}
+                      onClick={() => onStatus(job.id, 'rejected')}
+                      disabled={pending || status === 'rejected'} />
+            </div>
+          </div>
+        )}
         {status !== 'new' && (
           <div style={{ marginTop: 'var(--s2)' }}>
             <Action label={pending ? 'Saving…' : 'Reset to new'}

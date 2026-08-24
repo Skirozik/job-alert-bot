@@ -7,6 +7,7 @@ import type { Job } from '@/types/job'
 export type ViewKey =
   | 'to-apply' | 'caveat' | 'my-list'          // REVIEW
   | 'applied' | 'saved' | 'dismissed'          // TRACKING
+  | 'heard-back' | 'interview' | 'offer' | 'rejected'   // OUTCOMES
 
 export type RoleFilter = 'all' | 'internships' | 'entry-level'
 export type SourceFilter = 'all' | 'direct' | 'linkedin'
@@ -37,6 +38,12 @@ export function matchesView(j: Job, v: ViewKey): boolean {
     case 'applied':    return j.status === 'applied'
     case 'saved':      return j.status === 'saved'
     case 'dismissed':  return j.status === 'dismissed'
+    // 'applied' above is the still-waiting bucket, not every application ever.
+    // Once something progresses it belongs in its own view, not both.
+    case 'heard-back': return j.status === 'heard_back'
+    case 'interview':  return j.status === 'interview'
+    case 'offer':      return j.status === 'offer'
+    case 'rejected':   return j.status === 'rejected'
   }
 }
 
@@ -154,7 +161,10 @@ export type OptionalCol = 'source' | 'resume' | 'salary'
 export function visibleOptionalColumns(rows: Job[]): Record<OptionalCol, boolean> {
   return {
     source: rows.some(isDirect),
-    resume: rows.some(j => j.suggested_resume && j.suggested_resume !== 'N/A'),
+    // No 'N/A' check: classifier.py coerces anything outside
+    // Mobile/AI/Frontend/General to General, so the only case left is the
+    // column being absent on a persona whose schema omits it.
+    resume: rows.some(j => !!j.suggested_resume),
     salary: rows.some(j => !!j.salary),
   }
 }
