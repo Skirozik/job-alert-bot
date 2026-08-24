@@ -242,6 +242,12 @@ MAX_TOKENS = 400
 
 _VALID_TIERS = ("APPLY", "APPLY_CAVEAT", "INELIGIBLE")
 
+# The tool schema declares this enum, but Anthropic tool enums are guidance, not
+# a hard constraint -- the live DB held "N/A" (39 rows) and "1Password" (1 row,
+# the model echoing the company name straight into the field). `tier` was already
+# validated on the way out; this was not.
+_VALID_RESUMES = ("Mobile", "AI", "Frontend", "General")
+
 _CLASSIFY_TOOL = {
     "name": "classify_job",
     "description": "Record the classification of an internship job posting against the candidate profile.",
@@ -355,6 +361,11 @@ Description: {job.get("description") or "(not available — classify on title/co
             if result.get("tier") not in _VALID_TIERS:
                 log.warning("Unexpected tier '%s' for job %s — defaulting to APPLY_CAVEAT", result.get("tier"), job.get("id"))
                 result["tier"] = "APPLY_CAVEAT"
+
+            if result.get("suggested_resume") not in _VALID_RESUMES:
+                log.warning("Unexpected suggested_resume %r for job %s — defaulting to General",
+                            result.get("suggested_resume"), job.get("id"))
+                result["suggested_resume"] = "General"
 
             result = _apply_returning_intern_override(job, result)
             result = _apply_full_time_override(job, result)

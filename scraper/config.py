@@ -6,12 +6,28 @@ REPO_ROOT = Path(__file__).parent.parent
 
 SEARCH_TERMS = [
     "software engineer intern",
-    "iOS developer intern",
     "AI engineer intern",
     "full stack developer intern",
     "python developer intern",
     "frontend developer intern",
     "software development intern",
+    # Mobile was one term against a profile that calls iOS/Mobile target area #1
+    # and a shipped App Store app the standout asset. The result, measured
+    # 2026-08-23: 12 mobile roles across 2,351 actionable jobs ever -- 0.7%.
+    #
+    # It is a SUPPLY problem, not a ranking one. Of those 12 he applied to 3
+    # (Arlo iOS, Ramp Android, AssetWorks React Native) and dismissed 9, six of
+    # which were no-name outfits. That is a healthy accept rate on the real
+    # subset, so the rubric needs no change -- there just have to be more of
+    # them to rank.
+    #
+    # Cost: 7 terms -> 10 is +43% LinkedIn searches per run. Classifier cost
+    # rises far less, since dedup on id/norm_key drops repeats before any
+    # description fetch or Claude call.
+    "iOS developer intern",
+    "iOS engineer intern",
+    "mobile software engineer intern",
+    "Android developer intern",
 ]
 
 LOCATIONS = ["United States", "Atlanta, GA"]

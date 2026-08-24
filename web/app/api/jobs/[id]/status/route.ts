@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server'
 import { requirePersonaApi } from '@/lib/auth'
 
-const VALID_STATUSES = ['new', 'saved', 'applied', 'dismissed']
+const VALID_STATUSES = [
+  'new', 'saved', 'applied', 'dismissed',
+  // Outcome states. set_job_group_status() validates this same list in SQL, so
+  // both lists must move together -- see
+  // migrations/20260823_job_outcome_statuses.sql. The legacyVerifiedUpdate
+  // fallback below writes the column directly, which is plain text and would
+  // accept anything, so this check is the only guard on that path.
+  'heard_back', 'interview', 'offer', 'rejected',
+]
 const JOB_ID = /^[A-Za-z0-9:_-]{1,128}$/
 const MAX_GROUP = 50
 type UpdatedRow = { id: string, status: string }

@@ -23,6 +23,15 @@ const GROUPS: { label: string; items: { key: ViewKey; label: string }[] }[] = [
     { key: 'saved',     label: 'Saved' },
     { key: 'dismissed', label: 'Dismissed' },
   ]},
+  /* OUTCOMES exists because 560 applications had been sent with no record of
+     what came back, which made the only questions worth asking -- does direct-
+     to-ATS beat LinkedIn, does the AI resume convert -- unanswerable. */
+  { label: 'Outcomes', items: [
+    { key: 'heard-back', label: 'Heard back' },
+    { key: 'interview',  label: 'Interview' },
+    { key: 'offer',      label: 'Offer' },
+    { key: 'rejected',   label: 'Rejected' },
+  ]},
 ]
 
 export function Sidebar({

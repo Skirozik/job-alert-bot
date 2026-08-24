@@ -5,6 +5,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { Toolbar } from './Toolbar'
 import { JobTable } from './JobTable'
+import { ApplicationStats } from './ApplicationStats'
 import { JobDrawer } from './JobDrawer'
 import type { Job, Status } from '@/types/job'
 import { mergeGroupedJobs, type Grouped } from '@/lib/dupes'
@@ -22,7 +23,8 @@ import {
 const FULL_POLL_MS = 5 * 60_000
 const LINKEDIN_POLL_MS = 15_000
 
-const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed']
+const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed',
+                          'heard-back','interview','offer','rejected']
 
 const EMPTY: Record<ViewKey, string> = {
   'to-apply':  'Nothing clean to apply to right now.',
@@ -31,7 +33,27 @@ const EMPTY: Record<ViewKey, string> = {
   'applied':   "You haven't marked anything as applied yet.",
   'saved':     'Nothing saved yet.',
   'dismissed': 'Nothing dismissed.',
+  'heard-back': 'No replies recorded yet.',
+  'interview':  'No interviews recorded yet.',
+  'offer':      'No offers recorded yet.',
+  'rejected':   'No rejections recorded yet.',
 }
+
+const TOASTS: Partial<Record<Status, string>> = {
+  applied: 'Marked as applied',
+  saved: 'Saved',
+  dismissed: 'Dismissed',
+  heard_back: 'Marked as heard back',
+  interview: 'Marked as interview',
+  offer: 'Offer recorded',
+  rejected: 'Marked as rejected',
+  new: 'Reset',
+}
+
+/* The views that are ABOUT what has already been sent. The stats block belongs
+   on these and nowhere else -- on to-apply it would push the actual queue down
+   the page to report on work that is already done. */
+const TRACKING_VIEWS: ViewKey[] = ['applied','heard-back','interview','offer','rejected']
 
 export function JobList({
   initialJobs, personaLabel, personaSub,
@@ -312,9 +334,7 @@ export function JobList({
       const confirmed = { ...mutation, phase: 'confirmed' as const }
       ids.forEach((memberId) => statusLedger.current.set(memberId, confirmed))
       settlePending()
-      setToast(status === 'applied' ? 'Marked as applied'
-             : status === 'saved' ? 'Saved'
-             : status === 'dismissed' ? 'Dismissed' : 'Reset')
+      setToast(TOASTS[status] ?? 'Updated')
       setTimeout(() => setToast(null), 1200)
     } catch (error) {
       // Roll back this group only, and only if this request is still its newest
@@ -388,6 +408,8 @@ export function JobList({
             {saveError}
           </div>
         )}
+
+        {TRACKING_VIEWS.includes(view) && <ApplicationStats jobs={jobs} />}
 
         <div data-scroll-root className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-surface)' }}>
           <JobTable

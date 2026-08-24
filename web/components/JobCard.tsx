@@ -131,7 +131,7 @@ export function JobCard({
                 ⚡ Direct
               </span>
             )}
-            {job.suggested_resume && job.suggested_resume !== 'N/A' && (
+            {job.suggested_resume && (
               <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-md">
                 {job.suggested_resume} resume
               </span>

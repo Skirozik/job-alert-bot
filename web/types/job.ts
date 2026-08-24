@@ -10,8 +10,29 @@ export type Tier = 'APPLY' | 'APPLY_CAVEAT' | 'INELIGIBLE'
 
 /** Shown in the main list — never hidden or collapsed. */
 export const ACTIONABLE_TIERS: Tier[] = ['APPLY', 'APPLY_CAVEAT']
-export type Status = 'new' | 'saved' | 'applied' | 'dismissed'
-export type SuggestedResume = 'Mobile' | 'AI' | 'Frontend' | '1Password' | 'General' | 'N/A'
+// The application lifecycle is ORDERED, and a later state implies every
+// earlier one. Outcomes live in `status` rather than a second column because
+// "how many did I apply to" is then "applied or anything after it" -- the 560
+// rows already sitting at 'applied' stay correct and mean "sent, no reply yet".
+export type Status =
+  | 'new' | 'saved' | 'dismissed'
+  | 'applied'                                   // sent, nothing heard back
+  | 'heard_back' | 'interview' | 'offer'        // it progressed
+  | 'rejected'                                  // it ended
+
+/** Every state meaning the application was actually sent. Count these, not
+ *  `status === 'applied'` alone, or moving a job to 'interview' silently
+ *  decrements the applied total. */
+export const APPLIED_OR_LATER: Status[] = ['applied', 'heard_back', 'interview', 'offer', 'rejected']
+
+/** Sent AND resolved either way -- the numerator for a response rate. */
+export const GOT_A_REPLY: Status[] = ['heard_back', 'interview', 'offer', 'rejected']
+
+// '1Password' and 'N/A' used to be members here. They are not resume variants --
+// they were junk the model returned (39 rows of "N/A", one echoing the company
+// name), absorbed into the type instead of fixed, so the type documented the
+// bug. classifier.py now coerces anything outside this set to 'General'.
+export type SuggestedResume = 'Mobile' | 'AI' | 'Frontend' | 'General'
 
 export interface Job {
   id: string
