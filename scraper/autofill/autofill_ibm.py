@@ -393,7 +393,7 @@ def login(url: Optional[str] = None) -> None:
         close_browser(pw, context)
 
 
-def run(job_id: Optional[str] = None, resume_variant: str = "General",
+def run(job_id: Optional[str] = None, resume_variant: str = "IBM",
         dry_run: bool = False, advance: bool = True,
         url: Optional[str] = None, show_options: bool = False,
         stop_at: Optional[str] = None) -> None:
@@ -545,7 +545,7 @@ _USAGE = (
     "                     (e.g. --stop-at 60), so you can inspect the page\n"
     "  --no-advance       stop at the FIRST step that fills something, which\n"
     "                     is usually 40% — use --stop-at to pick a step\n"
-    "  --resume VARIANT   General (default), Mobile, AI, Frontend\n"
+    "  --resume VARIANT   IBM (default), General, Mobile, AI, Frontend\n"
 )
 
 if __name__ == "__main__":
@@ -570,7 +570,10 @@ if __name__ == "__main__":
         del args[i:i + 2]
         return value
 
-    variant = take_value("--resume", "--resume needs a variant (General, Mobile, AI, Frontend)") or "General"
+    # Defaults to the IBM-tailored resume rather than the generic one: every
+    # run of THIS script is an IBM application, so the company-specific resume
+    # is the right default and the generic one is the exception.
+    variant = take_value("--resume", "--resume needs a variant (IBM, General, Mobile, AI, Frontend)") or "IBM"
     target_url = take_value("--url", "--url needs the full application URL")
     stop_at_pct = take_value("--stop-at", "--stop-at needs a progress percent, e.g. --stop-at 60")
 

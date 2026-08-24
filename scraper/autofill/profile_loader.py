@@ -67,7 +67,12 @@ def resolve_resume_path(profile: dict, variant: str) -> Path:
     if not filename:
         raise ProfileError(f"No resume mapped for variant '{variant}' and no General fallback configured.")
 
-    path = Path(resumes["dir"]) / filename
+    # A variant may give an ABSOLUTE path to escape resumes.dir entirely. The
+    # company-tailored resumes live in a different folder from the generic
+    # ones, and there is only one `dir`, so without this an IBM-specific
+    # resume could not be referenced at all.
+    candidate = Path(filename)
+    path = candidate if candidate.is_absolute() else Path(resumes["dir"]) / filename
     if not path.exists():
         raise ProfileError(f"Resume file not found: {path}")
     return path
