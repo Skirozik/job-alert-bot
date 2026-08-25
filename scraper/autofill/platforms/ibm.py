@@ -288,6 +288,13 @@ _LABEL_MAP = [
      Field("dynamic", "ibm.skill_levels.programming_python", "Skill — Python")),
     (re.compile(r"level of experience in Programming in SQL", re.I),
      Field("dynamic", "ibm.skill_levels.programming_sql", "Skill — SQL")),
+    # "Object- or component-oriented programming in C++, C#, Java, Python or
+    # similar". Anchored on "object/component-oriented" rather than on the
+    # language list: a pattern built around "Python" would be shadowed by, or
+    # would shadow, the "Programming in Python" entry above.
+    (re.compile(r"object-?\s*or\s*component[\s-]?oriented", re.I),
+     Field("dynamic", "ibm.skill_levels.oop",
+           "Skill — object/component-oriented programming")),
     (re.compile(r"Requirements analysis|system architecture", re.I),
      Field("dynamic", "ibm.skill_levels.requirements_analysis",
            "Skill — requirements analysis / architecture")),
