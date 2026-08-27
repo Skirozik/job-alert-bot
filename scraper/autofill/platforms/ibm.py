@@ -302,6 +302,32 @@ _LABEL_MAP = [
      Field("dynamic", "ibm.skill_levels.rest_apis", "Skill — REST APIs")),
     (re.compile(r"level of experience in Web services", re.I),
      Field("dynamic", "ibm.skill_levels.web_services", "Skill — web services")),
+
+    # Six labels first seen on jobId 130876. Each is anchored on wording unique
+    # to it; test_ibm_skill_routing.py asserts every known label routes to
+    # exactly one key, and that no pattern claims a label it does not own.
+    #
+    # None of these uses a word-boundary escape, and none needs one: every
+    # pattern is a distinctive multi-word phrase. That is deliberate. This repo
+    # has shipped that escape decaying into a literal control byte six times,
+    # always because a non-raw string somewhere in the authoring chain ate it.
+    # The cheapest defence is to never require it.
+    (re.compile(r"agile software development|level of experience in Agile", re.I),
+     Field("dynamic", "ibm.skill_levels.agile", "Skill — agile")),
+    (re.compile(r"debugging and troubleshooting", re.I),
+     Field("dynamic", "ibm.skill_levels.debugging", "Skill — debugging")),
+    (re.compile(r"linux[ /]*unix", re.I),
+     Field("dynamic", "ibm.skill_levels.linux_unix", "Skill — Linux/Unix")),
+    # Anchored on "UI frameworks", NOT on React: the front-end question below
+    # also names JavaScript, and a framework-name pattern would match both.
+    (re.compile(r"ui frameworks|angular, react", re.I),
+     Field("dynamic", "ibm.skill_levels.ui_frameworks", "Skill — UI frameworks")),
+    # Distinct from the Containers question, which lists Kubernetes and Docker
+    # in the other order and carries its own separate answer.
+    (re.compile(r"microservices", re.I),
+     Field("dynamic", "ibm.skill_levels.microservices", "Skill — microservices")),
+    (re.compile(r"front end development|front-end development|html5", re.I),
+     Field("dynamic", "ibm.skill_levels.frontend_dev", "Skill — front-end development")),
 ]
 
 
