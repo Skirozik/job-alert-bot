@@ -38,7 +38,10 @@ concurrency:
 jobs:
   maintenance:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 63k single-row updates even threaded, plus the dedupe pass over the same
+    # table. 30 minutes was not enough and a timeout leaves a backfill
+    # half-applied.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout

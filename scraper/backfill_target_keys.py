@@ -23,6 +23,7 @@ Run from the scraper directory:
 
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -43,7 +44,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 PAGE = 1000
-BATCH = 500
 
 
 def load_rows(client) -> list[dict]:
@@ -105,17 +105,42 @@ def main() -> int:
             log.info("  would set %s -> %s", job_id, key)
         return 0
 
+    # PostgREST has no bulk "update these N rows to these N different values"
+    # short of an RPC, so this is one request per row -- and there are tens of
+    # thousands. Sequentially that is ~30ms x 63,000 = over half an hour, past
+    # the workflow timeout, which would leave the backfill half-applied.
+    # Threading it is the same shape ats_sources.fetch_all_listings already
+    # uses. Modest pool: these are writes, and the goal is to finish inside the
+    # timeout, not to saturate the database.
+    #
+    # Safe to re-run: the caller only queues rows whose stored target_key
+    # differs from the computed one, so a partial run resumes where it stopped.
     written = 0
-    for i in range(0, len(updates), BATCH):
-        for job_id, key in updates[i:i + BATCH]:
+    failed = 0
+
+    def _write(item):
+        job_id, key = item
+        client.table("jobs").update({"target_key": key}).eq("id", job_id).execute()
+        return job_id
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = {pool.submit(_write, u): u for u in updates}
+        for done in as_completed(futures):
+            job_id, _ = futures[done]
             try:
-                client.table("jobs").update({"target_key": key}).eq("id", job_id).execute()
+                done.result()
                 written += 1
             except Exception as exc:
-                log.error("  failed for %s: %s", job_id, exc)
-        log.info("  written %d/%d", written, len(updates))
+                failed += 1
+                if failed <= 20:
+                    log.error("  failed for %s: %s", job_id, exc)
+            if written % 5000 == 0 and written:
+                log.info("  written %d/%d", written, len(updates))
 
-    log.info("Done: %d target_keys written", written)
+    log.info("Done: %d target_keys written, %d failed", written, failed)
+    if failed:
+        log.warning("Re-run this script to retry the %d that failed — it only "
+                    "queues rows whose stored key still differs.", failed)
     return 0
 
 
