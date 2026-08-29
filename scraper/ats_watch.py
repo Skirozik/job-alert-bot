@@ -31,7 +31,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from ats_config import ATS_COMPANIES
 from ats_sources import fetch_all_listings
-from db import load_dedup_index, make_norm_key, start_run, finish_run, insert_job
+from db import find_unknown_candidates, make_norm_key, start_run, finish_run, insert_job
 from main import process_job, _is_senior_role, _is_new_grad_role, _is_non_internship_title
 
 logging.basicConfig(
@@ -53,18 +53,39 @@ def run():
     notified = 0
     total_raw = 0
     try:
-        known_ids, known_norm_keys = load_dedup_index()
-
         listings = fetch_all_listings(ATS_COMPANIES)
         total_raw = len(listings)
 
+        # norm_key has to exist before the dedup call, because the answer is
+        # computed server-side from both keys.
         for job in listings:
-            nk = make_norm_key(job["company"], job["title"])
-            if job["id"] in known_ids or nk in known_norm_keys:
+            job["norm_key"] = make_norm_key(job["company"], job["title"])
+
+        # One bounded question instead of downloading the answer. The previous
+        # load_dedup_index() pulled the entire jobs(id, norm_key) table -- 73
+        # paginated requests, ~73,000 rows, ~5 MB -- on EVERY pass. At this
+        # watcher's 5-minute cadence that was ~1.4 GB/day against a 5 GB quota,
+        # i.e. roughly 8x the whole monthly allowance from this one line, and
+        # it is what put the project over. Sending the candidates up is ingress
+        # and is not billed; only the genuinely-new ids come back.
+        unknown = find_unknown_candidates(listings)
+
+        # Local sets for WITHIN-THIS-SWEEP duplicates only. This is a different
+        # question from "is it stored", and the old code conflated the two by
+        # mutating the downloaded index: a full board dump can list the same
+        # norm_key twice (two postings of one role) with neither stored yet, and
+        # without this both would be processed.
+        seen_ids: set[str] = set()
+        seen_norm_keys: set[str] = set()
+
+        for job in listings:
+            if job["id"] not in unknown:
                 continue
-            known_ids.add(job["id"])
-            known_norm_keys.add(nk)
-            job["norm_key"] = nk
+            nk = job["norm_key"]
+            if job["id"] in seen_ids or nk in seen_norm_keys:
+                continue
+            seen_ids.add(job["id"])
+            seen_norm_keys.add(nk)
 
             # Same pre-filter as the main LinkedIn scan — a full company
             # board dump includes every level/role, not just internships.

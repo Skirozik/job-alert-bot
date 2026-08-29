@@ -1,0 +1,79 @@
+name: Maintenance (manual)
+
+# One-off maintenance scripts, run here rather than locally.
+#
+# WHY THIS EXISTS: backfill_target_keys.py and dedupe_existing.py need
+# SUPABASE_URL and SUPABASE_SERVICE_KEY. Those already live as repository
+# secrets, so running them here means the service_role key never has to be
+# copied onto a laptop or into a .env -- which matters more than usual for
+# this repo, since the remote is PUBLIC.
+#
+# Every task defaults to a DRY RUN. Nothing writes or deletes unless you
+# explicitly set apply/execute to true when dispatching.
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Which maintenance script to run'
+        required: true
+        type: choice
+        default: backfill_target_keys
+        options:
+          - backfill_target_keys
+          - dedupe_existing
+      confirm:
+        description: 'WRITE for real? Leave false for a dry run you can review first.'
+        required: true
+        type: boolean
+        default: false
+
+# Shares the LinkedIn lock: dedupe_existing deletes rows, and doing that while
+# a scrape holds an in-memory dedup index built from those rows would make the
+# scraper re-insert what was just removed.
+concurrency:
+  group: linkedin-ifiok
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run ${{ inputs.task }}${{ inputs.confirm && ' (WRITING)' || ' (dry run)' }}
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+
+          # The two scripts spell their write flag differently on purpose:
+          # --apply merely fills a column, --execute deletes rows.
+          case "${{ inputs.task }}" in
+            backfill_target_keys) FLAG="--apply"   ;;
+            dedupe_existing)      FLAG="--execute" ;;
+            *) echo "::error::unknown task"; exit 1 ;;
+          esac
+
+          if [ "${{ inputs.confirm }}" = "true" ]; then
+            echo "::warning::Running ${{ inputs.task }} $FLAG — this WRITES to the database"
+            python "${{ inputs.task }}.py" "$FLAG"
+          else
+            echo "Dry run. Re-dispatch with confirm=true to apply."
+            python "${{ inputs.task }}.py"
+          fi

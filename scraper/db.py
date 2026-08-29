@@ -14,6 +14,22 @@ from target_key import definitive_target_key
 
 log = logging.getLogger(__name__)
 
+
+class DedupUnavailable(RuntimeError):
+    """The server-side dedup function is missing. Raised, never swallowed.
+
+    Deliberately NOT folded into the fail-open path. A transient Supabase error
+    is rare and brief, so reporting every candidate as new costs one wasted
+    pass. An unapplied migration is PERSISTENT -- it recurs every run, forever
+    -- and "every candidate is new" at ATS scale means ~30,700 listings each
+    taking an insert_job round trip, every five minutes. That is far worse than
+    the full-table read this replaced, and it would look healthy: runs stay
+    green while the bill climbs.
+
+    So this fails LOUD instead: the run dies, the workflow goes red, and the
+    fix is a one-time migration rather than a silent degradation nobody sees.
+    """
+
 _client: Optional[Client] = None
 
 # Noise words stripped from company names during normalization
@@ -96,55 +112,6 @@ def make_norm_key(company: str, title: str) -> str:
     return f"{norm_company(company)}|{norm_role(title)}"
 
 
-def load_dedup_index() -> tuple[set[str], set[str]]:
-    """Fetch every known job id + norm_key once, for in-memory dedup.
-
-    Replaces the old per-listing "2 Supabase queries per job" approach (up to
-    ~1,400 queries/run across all search terms/pages). One paginated fetch of
-    two narrow columns is far cheaper, and lets the caller distinguish "this
-    listing is a real DB duplicate" from "I've merely already queued it under
-    another search term this run" — the two were conflated before, which
-    could cut pagination short and miss listings.
-
-    On a transient DB error, returns empty sets so every listing is treated
-    as new for this run rather than aborting the whole scrape; duplicates
-    inserted this way are harmlessly caught by Supabase's upsert on job id
-    (norm_key collisions are the only residual risk, and self-heal next run).
-    """
-    ids: set[str] = set()
-    norm_keys: set[str] = set()
-    try:
-        client = get_client()
-        page_size = 1000
-        offset = 0
-        while True:
-            result = (
-                client.table("jobs")
-                .select("id, norm_key")
-                # .order() is not cosmetic. A .range() walk with no ORDER BY is
-                # not a stable enumeration -- Postgres may return a row in two
-                # pages or in none -- so over ~64k rows with three workflows
-                # inserting concurrently, ids could be silently skipped. A
-                # skipped id reads as "new", which re-classifies and re-pushes
-                # a job that was already stored and possibly already applied to.
-                .order("id")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-            rows = result.data or []
-            for row in rows:
-                ids.add(row["id"])
-                if row.get("norm_key"):
-                    norm_keys.add(row["norm_key"])
-            if len(rows) < page_size:
-                break
-            offset += page_size
-    except Exception as exc:
-        log.error("Failed to load dedup index: %s — treating all listings as new this run", exc)
-        return set(), set()
-    return ids, norm_keys
-
-
 def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[set[str], set[str]]:
     """Return stored ids/norm_keys for only the supplied candidate rows.
 
@@ -157,7 +124,7 @@ def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[
     The two-query shape is intentional. PostgREST's ``or`` expression requires
     hand-escaping arbitrary norm_key text; supabase-py's ``in_`` builder safely
     quotes it for us. A transient lookup failure keeps the scraper available by
-    treating the batch as unknown, matching load_dedup_index's existing
+    treating the batch as unknown, matching find_unknown_candidates' existing
     fail-open behavior. The primary-key upsert remains the final backstop.
     """
     rows = list(jobs)
@@ -201,17 +168,90 @@ def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[
     return known_ids, known_norm_keys
 
 
+def find_unknown_candidates(jobs: Iterable[dict], batch_size: int = 5000) -> set[str]:
+    """Return the ids of the supplied candidates that are NOT already stored.
+
+    Replaces load_dedup_index() at the watcher call sites. That function
+    downloaded the whole jobs(id, norm_key) table -- 73 paginated requests,
+    ~73,000 rows, roughly 5 MB -- on EVERY run. At the ATS watcher's 5-minute
+    cadence that is ~1.4 GB/day against a 5 GB quota, which is what put the
+    project over. See migrations/20260829_unknown_candidates.sql for the
+    measurement.
+
+    The inversion: the scraper never wanted the table, it wanted an answer.
+    Sending ~30,700 candidate ids UP is ingress and is not billed; the reply is
+    only the genuinely-new ids, typically single digits. Egress per run drops
+    from megabytes to bytes.
+
+    Fails OPEN, deliberately and unchanged from the function it replaces: on
+    error every candidate is reported unknown, so a Supabase blip costs a
+    re-classification rather than a halted scrape. That is safe in a way it was
+    not before -- claim_notification() now fails CLOSED, so re-processing can
+    no longer turn into a burst of duplicate pushes.
+
+    Answers about STORED rows only. Two listings in the same sweep can share a
+    norm_key without either being stored yet, so callers must still dedup
+    within their own batch.
+    """
+    rows = list(jobs)
+    if not rows:
+        return set()
+
+    ids: list[str] = []
+    norm_keys: list[str] = []
+    for j in rows:
+        job_id = str(j.get("id") or "")
+        if not job_id:
+            continue
+        ids.append(job_id)
+        norm_keys.append(
+            str(j.get("norm_key") or make_norm_key(j.get("company", ""), j.get("title", "")))
+        )
+
+    unknown: set[str] = set()
+    try:
+        client = get_client()
+        for offset in range(0, len(ids), batch_size):
+            result = client.rpc("unknown_candidates", {
+                "p_ids": ids[offset:offset + batch_size],
+                "p_norm_keys": norm_keys[offset:offset + batch_size],
+            }).execute()
+            for row in result.data or []:
+                # A setof text comes back as bare strings; tolerate the wrapped
+                # {"unknown_candidates": "..."} shape too rather than silently
+                # returning an empty set, which would look like "nothing is new".
+                unknown.add(row if isinstance(row, str) else next(iter(row.values())))
+    except Exception as exc:
+        message = str(exc).lower()
+        if ("pgrst202" in message
+                or "could not find the function" in message
+                or ("schema cache" in message and "function" in message)):
+            # Persistent, not transient. See DedupUnavailable.
+            raise DedupUnavailable(
+                "unknown_candidates() is missing — apply "
+                "migrations/20260829_unknown_candidates.sql. Refusing to treat "
+                f"{len(ids)} candidates as new, which would cost one write each, "
+                "every run."
+            ) from exc
+        # Transient: rare and self-correcting, so fail open. A wasted pass is
+        # cheap; skipping a real job is not.
+        log.error("Candidate dedup lookup failed (%s) — treating every candidate as new", exc)
+        return set(ids)
+
+    return unknown
+
+
 def get_job_row(job_id: str) -> Optional[dict]:
     """Point-lookup the fields the notify decision reads, or None if absent.
 
     This is the guard of last resort for re-notification. Every other dedup
-    path in this module fails OPEN by design -- load_dedup_index and
-    find_known_candidates both return empty sets on error so a transient
-    Supabase blip degrades into "do the work again" rather than "stop
+    path in this module fails OPEN by design -- find_unknown_candidates and
+    find_known_candidates both report every candidate as new on error, so a
+    transient Supabase blip degrades into "do the work again" rather than "stop
     scraping". That is the right trade for *work*, and the wrong one for
-    *notifications*: an empty index makes every listing look new, and
-    insert_job's ON CONFLICT DO NOTHING then returns True for rows that
-    already existed, so the caller pushes all of them a second time.
+    *notifications*: treating everything as new makes every listing look
+    unseen, and insert_job's ON CONFLICT DO NOTHING then returns True for rows
+    that already existed, so the caller pushes all of them a second time.
 
     A primary-key lookup of four narrow columns is ~100 bytes on the wire and
     runs only for candidates that already survived dedup -- single digits per

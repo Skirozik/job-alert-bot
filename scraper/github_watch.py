@@ -34,7 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
 import requests
 
 from github_sources import fetch_github_listings, _SOURCES
-from db import get_client, load_dedup_index, make_norm_key, start_run, finish_run
+from db import get_client, find_unknown_candidates, make_norm_key, start_run, finish_run
 from main import process_job
 
 logging.basicConfig(
@@ -116,14 +116,34 @@ def run():
     notified = 0
     new_jobs = 0
     try:
-        known_ids, known_norm_keys = load_dedup_index()
-        for j in fetch_github_listings():
-            nk = make_norm_key(j["company"], j["title"])
-            if j["id"] in known_ids or nk in known_norm_keys:
+        listings = list(fetch_github_listings())
+        # norm_key first: the dedup answer is computed server-side from both
+        # keys, so it has to be on the row before the call.
+        for j in listings:
+            j["norm_key"] = make_norm_key(j["company"], j["title"])
+
+        # Ask which are new rather than downloading the whole table to work it
+        # out locally -- see ats_watch.py for the measurement. This path is
+        # cheaper than the ATS one to begin with (the commit-feed check above
+        # usually short-circuits before we get here), but it used the same
+        # full-table load and the same fix applies.
+        unknown = find_unknown_candidates(listings)
+
+        # Within-this-batch duplicates only; "is it stored" is answered above.
+        # The tracked lists overlap heavily -- SimplifyJobs and speedyapply
+        # carry many of the same postings -- so this is a real case here, not a
+        # theoretical one.
+        seen_ids: set[str] = set()
+        seen_norm_keys: set[str] = set()
+
+        for j in listings:
+            if j["id"] not in unknown:
                 continue
-            known_ids.add(j["id"])
-            known_norm_keys.add(nk)
-            j["norm_key"] = nk
+            nk = j["norm_key"]
+            if j["id"] in seen_ids or nk in seen_norm_keys:
+                continue
+            seen_ids.add(j["id"])
+            seen_norm_keys.add(nk)
             new_jobs += 1
             if process_job(j):
                 notified += 1
