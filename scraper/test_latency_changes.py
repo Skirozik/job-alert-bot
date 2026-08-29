@@ -159,6 +159,7 @@ _orig = {k: getattr(main, k) for k in (
     "start_run", "finish_run", "find_known_candidates", "fetch_pending_jobs",
     "fetch_github_listings", "fetch_listings", "fetch_external_description",
     "classify", "insert_job", "push_job", "push_canary", "time",
+    "get_job_row", "claim_notification",
 )}
 
 _state = {"pushed": [], "canaries": [], "finish": None}
@@ -178,10 +179,18 @@ main.fetch_listings = lambda *a, **kw: ([], None)          # LinkedIn: nothing, 
 main.fetch_external_description = lambda url: "a description"
 main.classify = lambda job: {"tier": "APPLY", "reason": "fit", "suggested_resume": "General"}
 main.insert_job = lambda job: True
+# Both are new gates on the push path and both must be stubbed here, or this
+# test exercises their error branches instead of the behaviour it is about:
+# get_job_row would report every job as unseen (fail open, harmless), while
+# claim_notification fails CLOSED by design and would silently suppress every
+# push, failing the assertions below for entirely the wrong reason.
+main.get_job_row = lambda _id: None
+main.claim_notification = lambda _id: (True, "claimed")
 main.push_job = lambda job: _state["pushed"].append(dict(job))
 main.push_canary = lambda msg: _state["canaries"].append(msg)
 main.time = types.SimpleNamespace(sleep=lambda s: None)     # skip the pacing sleeps
 main._PARKED_THIS_RUN.clear()
+main._SUPPRESSED_THIS_RUN.clear()
 
 main.run()
 

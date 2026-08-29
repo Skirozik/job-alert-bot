@@ -10,6 +10,7 @@ from typing import Iterable, Optional
 
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_SERVICE_KEY
+from target_key import definitive_target_key
 
 log = logging.getLogger(__name__)
 
@@ -350,6 +351,12 @@ def insert_job(job: dict) -> bool:
         "description": job.get("description"),
         "logo_url": job.get("logo_url"),
         "norm_key": make_norm_key(job.get("company", ""), job.get("title", "")),
+        # Identity is a property of FIRST SIGHT, like norm_key and found_at:
+        # update_job_classification deliberately never touches it. None is the
+        # honest value for an apply URL we cannot positively identify, and the
+        # SQL sibling check relies on that -- `= NULL` never matches, so an
+        # unidentifiable row can never suppress another row's notification.
+        "target_key": definitive_target_key(job),
         "tier": job.get("tier", "APPLY_CAVEAT"),
         "reason": job.get("reason", ""),
         "suggested_resume": job.get("suggested_resume", "General"),
@@ -365,6 +372,44 @@ def insert_job(job: dict) -> bool:
     except Exception as exc:
         log.error("DB insert failed for job %s: %s", job.get("id"), exc)
         return False
+
+
+def claim_notification(job_id: str) -> tuple[bool, str]:
+    """Claim the exclusive right to push about this row. Returns (allowed, why).
+
+    This is the ONE decision in the scraper that fails CLOSED, and the asymmetry
+    is deliberate. Everywhere else a Supabase error degrades into "do the work
+    again", which is merely expensive. Here it must degrade into silence: an
+    error that made this return True is exactly how a blip turns into a burst of
+    duplicate notifications, which is the failure the user actually feels.
+
+    Postgres, not Python, makes the call -- see
+    migrations/20260829_notification_ledger.sql. It takes advisory locks on
+    every identity the row participates in, so three concurrent workflows
+    racing on one posting produce three rows and ONE push, without depending on
+    the GitHub Actions concurrency groups or on scrape_runs' 20-minute
+    staleness window being correct.
+    """
+    try:
+        result = get_client().rpc("claim_job_notification", {"p_id": job_id}).execute()
+        rows = result.data or []
+        row = rows[0] if isinstance(rows, list) and rows else rows
+        if not isinstance(row, dict) or "should_notify" not in row:
+            log.error("claim_job_notification returned %r for %s — not notifying", result.data, job_id)
+            return False, "claim-malformed"
+        return bool(row["should_notify"]), str(row.get("reason") or "")
+    except Exception as exc:
+        # PGRST202 is "function does not exist": the migration has not been
+        # applied yet. Fall open ONLY here, so deploy order is free and a
+        # code-before-migration rollout keeps notifying as it does today rather
+        # than going silent. Mirrors start_run()'s migration tolerance and the
+        # dashboard's identical fallback in web/app/api/jobs/[id]/status/route.ts.
+        if "PGRST202" in str(exc):
+            log.warning("claim_job_notification missing — apply "
+                        "migrations/20260829_notification_ledger.sql; notifying unguarded")
+            return True, "rpc-missing"
+        log.error("Notification claim failed for %s (%s) — NOT notifying", job_id, exc)
+        return False, "claim-failed"
 
 
 # ── Pending-classification queue ─────────────────────────────────────────

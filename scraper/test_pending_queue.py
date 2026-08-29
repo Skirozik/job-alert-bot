@@ -144,10 +144,11 @@ print("\n-- process_job parks instead of dropping --")
 
 _m = {}
 _orig = {k: getattr(main, k) for k in
-         ("classify", "insert_job", "push_job", "fetch_description", "get_job_row")}
+         ("classify", "insert_job", "push_job", "fetch_description", "get_job_row",
+          "claim_notification")}
 
 
-def _stub_main(classify_result, insert_ok=True, existing_row=None):
+def _stub_main(classify_result, insert_ok=True, existing_row=None, claim_ok=True):
     _m.clear()
     _m["inserted"], _m["pushed"] = [], []
     main.classify = lambda job: dict(classify_result)
@@ -160,7 +161,9 @@ def _stub_main(classify_result, insert_ok=True, existing_row=None):
     # error path rather than the one they mean to exercise, and would start
     # making live calls the moment a .env appeared.
     main.get_job_row = lambda _id: existing_row
+    main.claim_notification = lambda _id: (claim_ok, "claimed" if claim_ok else "sibling:notified")
     main._PARKED_THIS_RUN.clear()
+    main._SUPPRESSED_THIS_RUN.clear()
 
 
 _stub_main({"failed": True, "failed_kind": "billing", "tier": "APPLY_CAVEAT",
@@ -212,13 +215,28 @@ for k, v in _orig.items():
 
 
 # ── 4. The drain ─────────────────────────────────────────────────────────
+print("\n-- the ledger is the last word on notifying --")
+
+_stub_main({"tier": "APPLY", "reason": "r", "suggested_resume": "General"},
+           existing_row=None, claim_ok=False)
+out = main.process_job({"id": "li:9", "title": "T", "company": "C", "location": "L"})
+check("a declined claim still stores the row", len(_m["inserted"]) == 1,
+      "suppressing a push must never hide the job -- it stays in To apply")
+check("...but does not push", _m["pushed"] == [])
+check("...and is counted by reason for the canary",
+      main._SUPPRESSED_THIS_RUN.get("sibling:notified") == 1)
+check("...returning False", out is False)
+
+for k, v in _orig.items():
+    setattr(main, k, v)
+
 print("\n-- retry_pending drains the backlog --")
 
 _d = {}
 _orig_d = {k: getattr(main, k) for k in
            ("classify", "fetch_pending_jobs", "count_pending_jobs",
             "update_job_classification", "push_job", "push_canary",
-            "get_state", "set_state", "clear_state")}
+            "get_state", "set_state", "clear_state", "claim_notification")}
 
 
 def _stub_drain(rows, results, state=None):
@@ -235,7 +253,9 @@ def _stub_drain(rows, results, state=None):
     main.get_state = lambda k: _d["state"].get(k)
     main.set_state = lambda k, v: _d["state"].__setitem__(k, v)
     main.clear_state = lambda k: _d["cleared"].append(k)
+    main.claim_notification = lambda _id: (True, "claimed")
     main._PARKED_THIS_RUN.clear()
+    main._SUPPRESSED_THIS_RUN.clear()
 
 
 ROWS = [{"id": "li:a", "title": "A", "company": "C", "location": "L",
