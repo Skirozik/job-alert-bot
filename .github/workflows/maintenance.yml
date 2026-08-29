@@ -22,6 +22,7 @@ on:
         options:
           - backfill_target_keys
           - dedupe_existing
+          - audit_apply_dupes
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
         required: true
@@ -67,6 +68,19 @@ jobs:
 
           # The two scripts spell their write flag differently on purpose:
           # --apply merely fills a column, --execute deletes rows.
+          # audit_apply_dupes is READ-ONLY: it has no write path and never
+          # reads argv, so `confirm` is meaningless for it. Short-circuit
+          # explicitly rather than let it fall through -- every other task
+          # treats `confirm` as the write gate, and a read-only task quietly
+          # accepting a `confirm: true` would imply it had written something.
+          if [ "${{ inputs.task }}" = "audit_apply_dupes" ]; then
+            if [ "${{ inputs.confirm }}" = "true" ]; then
+              echo "::notice::audit_apply_dupes is read-only; 'confirm' is ignored"
+            fi
+            python audit_apply_dupes.py
+            exit 0
+          fi
+
           case "${{ inputs.task }}" in
             backfill_target_keys) FLAG="--apply"   ;;
             dedupe_existing)      FLAG="--execute" ;;
