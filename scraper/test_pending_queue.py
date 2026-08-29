@@ -144,16 +144,22 @@ print("\n-- process_job parks instead of dropping --")
 
 _m = {}
 _orig = {k: getattr(main, k) for k in
-         ("classify", "insert_job", "push_job", "fetch_description")}
+         ("classify", "insert_job", "push_job", "fetch_description", "get_job_row")}
 
 
-def _stub_main(classify_result, insert_ok=True):
+def _stub_main(classify_result, insert_ok=True, existing_row=None):
     _m.clear()
     _m["inserted"], _m["pushed"] = [], []
     main.classify = lambda job: dict(classify_result)
     main.insert_job = lambda job: (_m["inserted"].append(dict(job)), insert_ok)[1]
     main.push_job = lambda job: _m["pushed"].append(dict(job))
     main.fetch_description = lambda _id: ("desc from linkedin", None, None, False, None)
+    # Stubbed explicitly rather than left to the real function. Unstubbed it
+    # still "works" here -- no Supabase credentials, so it raises and its
+    # except returns None -- but then these cases would be passing through an
+    # error path rather than the one they mean to exercise, and would start
+    # making live calls the moment a .env appeared.
+    main.get_job_row = lambda _id: existing_row
     main._PARKED_THIS_RUN.clear()
 
 
@@ -178,6 +184,28 @@ main.process_job({"id": "ats:acme:2", "title": "T", "company": "C", "location": 
                   "description": "d"})
 check("a failed park is not counted as parked", not main._PARKED_THIS_RUN,
       "the counter drives the canary; it must reflect rows that actually landed")
+
+print("\n-- process_job short-circuits on an already-stored row --")
+
+_stub_main({"tier": "APPLY", "reason": "r", "suggested_resume": "General"},
+           existing_row={"id": "li:1", "tier": "APPLY", "status": "applied"})
+out = main.process_job({"id": "li:1", "title": "T", "company": "C", "location": "L"})
+check("an already-stored row is not re-classified", _m["inserted"] == [],
+      "insert_job's ON CONFLICT DO NOTHING returns True, so reaching it re-pushes")
+check("...and is not re-pushed", _m["pushed"] == [],
+      "this is the 'it pinged me for a job I already applied to' report")
+check("...returning False", out is False)
+
+_stub_main({"tier": "APPLY", "reason": "r", "suggested_resume": "General"},
+           existing_row={"id": "li:2", "tier": "PENDING", "status": "new"})
+main.process_job({"id": "li:2", "title": "T", "company": "C", "location": "L"})
+check("a PENDING row still falls through to be classified", len(_m["inserted"]) == 1,
+      "short-circuiting PENDING would strand it: insert_job never overwrites it either")
+
+_stub_main({"tier": "APPLY", "reason": "r", "suggested_resume": "General"},
+           existing_row=None)
+main.process_job({"id": "li:3", "title": "T", "company": "C", "location": "L"})
+check("a genuinely new row is still processed and pushed", len(_m["pushed"]) == 1)
 
 for k, v in _orig.items():
     setattr(main, k, v)
@@ -229,6 +257,24 @@ check("salary is passed when the row lacked one",
 check("salary is NOT passed when the row already had one",
       _d["updates"][1][1].get("salary") is None,
       "promotion must never blank or overwrite a stored salary")
+
+# A parked row can already be actioned before it is promoted:
+# sync_applied_from_tracker.py matches on url/norm_key with no tier filter,
+# and the dashboard's set_job_group_status writes every member id regardless
+# of tier. Promoting is right; notifying is not.
+ACTIONED = [{"id": "li:c", "title": "C", "company": "C", "location": "L",
+             "description": "d", "salary": None, "status": "applied"},
+            {"id": "li:d", "title": "D", "company": "C", "location": "L",
+             "description": "d", "salary": None, "status": "new"}]
+_stub_drain(ACTIONED, [
+    {"tier": "APPLY", "reason": "good", "suggested_resume": "General"},
+    {"tier": "APPLY", "reason": "good", "suggested_resume": "General"},
+])
+notified = main.retry_pending()
+check("an already-applied parked row is still promoted", len(_d["updates"]) == 2,
+      "the verdict is real and belongs in the DB regardless of status")
+check("...but is NOT pushed", [p["id"] for p in _d["pushed"]] == ["li:d"] and notified == 1,
+      "pushing it is the 'pinged me for a job I already applied to' report")
 
 _stub_drain(ROWS, [
     {"failed": True, "failed_kind": "billing", "tier": "APPLY_CAVEAT",

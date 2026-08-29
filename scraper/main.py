@@ -47,7 +47,7 @@ from notifier import push_job, push_canary
 from db import (
     find_known_candidates, make_norm_key, insert_job, start_run, finish_run,
     fetch_pending_jobs, count_pending_jobs, update_job_classification,
-    get_state, set_state, clear_state,
+    get_job_row, get_state, set_state, clear_state,
 )
 
 # How many jobs were parked this run, by failure kind. Module-level rather than
@@ -207,6 +207,27 @@ def process_job(job: dict) -> bool:
     second copy that could silently drift out of sync with it.
     """
     log.info("Processing: '%s' @ %s [%s]", job["title"], job["company"], job["id"])
+
+    # Already stored? Stop before spending a description fetch, a Claude call
+    # and -- the part that reaches the user -- a second push notification.
+    #
+    # Reaching here for a stored row is not hypothetical. Three separate paths
+    # allow it, and all three were live: load_dedup_index and
+    # find_known_candidates each return EMPTY sets on any error (so every
+    # listing looks new), and load_dedup_index paginated with .range() and no
+    # .order(), which is not a stable enumeration and can skip rows outright.
+    # insert_job then returns True for the resulting no-op upsert, because
+    # ON CONFLICT DO NOTHING does not raise -- so the push fired again for a
+    # row that had existed for days, whatever its status.
+    #
+    # PENDING is deliberately excluded. A parked row must fall through so
+    # retry_pending() can promote it; short-circuiting here would strand it in
+    # the queue forever, since insert_job would never overwrite it either.
+    existing = get_job_row(job["id"])
+    if existing is not None and existing.get("tier") != "PENDING":
+        log.info("  Already stored [tier=%s status=%s] — no re-fetch, no re-classify, no push",
+                 existing.get("tier"), existing.get("status"))
+        return False
 
     # Fetch description + logo + apply info. LinkedIn jobs get a full
     # detail-page fetch; GitHub-sourced jobs already carry their own
@@ -529,7 +550,14 @@ def retry_pending() -> int:
 
         # Store first, then notify — the same ordering process_job uses, so a
         # DB hiccup can never produce a push for a row that was not written.
-        if result["tier"] in ("APPLY", "APPLY_CAVEAT"):
+        # Promote regardless of status, but only NOTIFY a row the user has not
+        # already acted on. A parked row can legitimately be 'applied' before
+        # it is promoted: sync_applied_from_tracker.py matches on url/norm_key
+        # with no tier filter, and the dashboard's group write sets every
+        # member id regardless of tier. Pushing those was the "it pinged me for
+        # a job I already applied to" report. row carries status because
+        # fetch_pending_jobs does select("*"), so this costs no extra query.
+        if result["tier"] in ("APPLY", "APPLY_CAVEAT") and (row.get("status") or "new") == "new":
             merged = {**row, **result}
             push_job(merged)
             notified += 1

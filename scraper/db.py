@@ -120,6 +120,13 @@ def load_dedup_index() -> tuple[set[str], set[str]]:
             result = (
                 client.table("jobs")
                 .select("id, norm_key")
+                # .order() is not cosmetic. A .range() walk with no ORDER BY is
+                # not a stable enumeration -- Postgres may return a row in two
+                # pages or in none -- so over ~64k rows with three workflows
+                # inserting concurrently, ids could be silently skipped. A
+                # skipped id reads as "new", which re-classifies and re-pushes
+                # a job that was already stored and possibly already applied to.
+                .order("id")
                 .range(offset, offset + page_size - 1)
                 .execute()
             )
@@ -191,6 +198,50 @@ def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[
         return set(), set()
 
     return known_ids, known_norm_keys
+
+
+def get_job_row(job_id: str) -> Optional[dict]:
+    """Point-lookup the fields the notify decision reads, or None if absent.
+
+    This is the guard of last resort for re-notification. Every other dedup
+    path in this module fails OPEN by design -- load_dedup_index and
+    find_known_candidates both return empty sets on error so a transient
+    Supabase blip degrades into "do the work again" rather than "stop
+    scraping". That is the right trade for *work*, and the wrong one for
+    *notifications*: an empty index makes every listing look new, and
+    insert_job's ON CONFLICT DO NOTHING then returns True for rows that
+    already existed, so the caller pushes all of them a second time.
+
+    A primary-key lookup of four narrow columns is ~100 bytes on the wire and
+    runs only for candidates that already survived dedup -- single digits per
+    run, not per listing -- so this costs nothing measurable against the
+    egress budget that forced the 5-minute poll.
+
+    Returns None on error, which keeps the caller's existing fail-open
+    behaviour unchanged. The database-side claim (see claim_notification) is
+    what makes the notify decision fail CLOSED; this only stops the common
+    case cheaply and, in doing so, also skips a description fetch and a
+    Claude call for every job that was already stored.
+    """
+    if not job_id:
+        return None
+    try:
+        result = (
+            get_client().table("jobs")
+            # Deliberately NOT selecting notified_at: it does not exist until the
+            # notification-ledger migration lands, and PostgREST 400s on an unknown
+            # column, which the except below would swallow into None -- silently
+            # disabling this guard on every call.
+            .select("id,tier,status")
+            .eq("id", job_id)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        return rows[0] if rows else None
+    except Exception as exc:
+        log.warning("Existence check failed for %s (%s) — proceeding as if new", job_id, exc)
+        return None
 
 
 def _start_run_legacy() -> Optional[int]:
