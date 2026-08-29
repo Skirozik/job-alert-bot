@@ -64,7 +64,18 @@ create table jobs (
   found_at         timestamptz default now(),
   apply_url        text,
   is_easy_apply    boolean default false,
-  salary           text
+  salary           text,
+  notified_at      timestamptz,             -- set once, by claim_job_notification.
+                                            -- The ledger that makes a push
+                                            -- at-most-once across the three
+                                            -- concurrent workflows.
+  target_key       text                     -- cross-source identity of the
+                                            -- APPLICATION (not the row): the
+                                            -- same Workday req reached via
+                                            -- LinkedIn, the ATS and a GitHub
+                                            -- tracker shares one target_key.
+                                            -- NULL when it cannot be proven,
+                                            -- which makes no claim at all.
 );
 
 create index jobs_norm_key_idx on jobs (norm_key);

@@ -47,7 +47,7 @@ from notifier import push_job, push_canary
 from db import (
     find_known_candidates, make_norm_key, insert_job, start_run, finish_run,
     fetch_pending_jobs, count_pending_jobs, update_job_classification,
-    get_job_row, get_state, set_state, clear_state,
+    get_job_row, claim_notification, get_state, set_state, clear_state,
 )
 
 # How many jobs were parked this run, by failure kind. Module-level rather than
@@ -55,6 +55,22 @@ from db import (
 # bearing — ats_watch.py and github_watch.py truth-test it for "notified" — and
 # widening that contract to carry a diagnostic would be the wrong trade.
 _PARKED_THIS_RUN: dict = {}
+
+# Pushes the ledger declined this run, by reason. Reported through finish_run so
+# scrape_runs.suppressed and the Actions log together answer "is the fix
+# working, or has it gone silent for the wrong reason?" -- 'sibling:'/
+# 'already-notified' are the fix; a spike of 'claim-failed' means Supabase is
+# flaky and we are correctly silent; 'rpc-missing' means the migration is not
+# applied.
+_SUPPRESSED_THIS_RUN: dict = {}
+
+
+def _claim_or_log(job_id: str) -> bool:
+    allowed, why = claim_notification(job_id)
+    if not allowed:
+        _SUPPRESSED_THIS_RUN[why] = _SUPPRESSED_THIS_RUN.get(why, 0) + 1
+        log.info("  Push suppressed (%s)", why)
+    return allowed
 
 # Parked jobs retried per run. The scrape itself uses ~50-70s of a 20-minute
 # Actions budget; 40 classifications at ~2-3s each adds at most 2-3 minutes, and
@@ -312,8 +328,13 @@ def process_job(job: dict) -> bool:
     # persisted, so a DB hiccup doesn't cause the same job to be
     # re-classified and re-notified every run until the write succeeds.
     if job["tier"] in ("APPLY", "APPLY_CAVEAT") and stored:
-        push_job(job)
-        return True
+        # `stored` only means the write did not raise -- ON CONFLICT DO NOTHING
+        # returns success for a no-op -- so it cannot be the last word on
+        # whether to notify. The claim can: it is decided in Postgres, under
+        # advisory locks on this row's identities, against a durable ledger.
+        if _claim_or_log(job["id"]):
+            push_job(job)
+            return True
     return False
 
 
@@ -557,7 +578,9 @@ def retry_pending() -> int:
         # member id regardless of tier. Pushing those was the "it pinged me for
         # a job I already applied to" report. row carries status because
         # fetch_pending_jobs does select("*"), so this costs no extra query.
-        if result["tier"] in ("APPLY", "APPLY_CAVEAT") and (row.get("status") or "new") == "new":
+        if (result["tier"] in ("APPLY", "APPLY_CAVEAT")
+                and (row.get("status") or "new") == "new"
+                and _claim_or_log(row["id"])):
             merged = {**row, **result}
             push_job(merged)
             notified += 1
@@ -680,6 +703,14 @@ def run():
         if _PARKED_THIS_RUN:
             log.warning("Parked this run: %s",
                         ", ".join(f"{n} {k}" for k, n in sorted(_PARKED_THIS_RUN.items())))
+        # Logged rather than written to scrape_runs. A new stat kwarg would make
+        # finish_run fail until the migration lands -- and finish_run failing
+        # holds the run lock for 20 minutes, which is precisely what the
+        # "exactly its four existing stat keys" contract test guards. The log
+        # line carries the same signal with no deploy-order coupling.
+        if _SUPPRESSED_THIS_RUN:
+            log.info("Pushes suppressed this run: %s",
+                     ", ".join(f"{n} {k}" for k, n in sorted(_SUPPRESSED_THIS_RUN.items())))
         _maybe_alert_classifier_down()
 
 

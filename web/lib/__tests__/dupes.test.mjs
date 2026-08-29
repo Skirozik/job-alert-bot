@@ -190,5 +190,37 @@ check('Palantir SWE and Forward Deployed SWE stay separate without one target', 
     url: 'https://www.linkedin.com/jobs/view/palantir-fdse-4450000003' }),
 ))
 
+/* ── Shared identity contract with the scraper ─────────────────────────────
+   scraper/target_key.py ports the DEFINITIVE branches of canonicalTargetKey
+   so the notification path can tell that a LinkedIn row, an ats: row and a
+   gh: row are one application. Two implementations in two languages drift
+   silently, so both assert this same fixture: change the identity here
+   without changing target_key.py and scraper/test_target_key.py goes red,
+   and vice versa.
+
+   `expected: null` means the case is deliberately NOT definitive -- dupes.ts
+   answers with its `url:`/`row:` fallback, which groupNearDuplicates only
+   honours behind guardedMetadataMatch, and which Python declines to answer
+   at all (returns None) so an unidentifiable row can never suppress another
+   row's notification. */
+console.log('\n-- shared definitive-key fixture (scraper/target_key.py parity) --')
+
+const fixture = JSON.parse(
+  readFileSync(join(here, '../../../fixtures/canonical_target_keys.json'), 'utf8'),
+)
+check('the shared fixture is not empty', fixture.cases.length > 0)
+
+for (const c of fixture.cases) {
+  const row = job({ url: c.url, apply_url: c.apply_url, is_easy_apply: c.is_easy_apply })
+  const got = canonicalTargetKey(row)
+  if (c.expected === null) {
+    check(`${c.name} [ts falls back]`,
+      got.startsWith('url:') || got.startsWith('row:'),
+      `got ${got}`)
+  } else {
+    check(c.name, got === c.expected, `expected ${c.expected}, got ${got}`)
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
