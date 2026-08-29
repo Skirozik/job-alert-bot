@@ -399,13 +399,24 @@ def claim_notification(job_id: str) -> tuple[bool, str]:
             return False, "claim-malformed"
         return bool(row["should_notify"]), str(row.get("reason") or "")
     except Exception as exc:
-        # PGRST202 is "function does not exist": the migration has not been
-        # applied yet. Fall open ONLY here, so deploy order is free and a
+        # "The function does not exist" means the migration has not been applied
+        # yet. Fall open ONLY here, so deploy order is free and a
         # code-before-migration rollout keeps notifying as it does today rather
-        # than going silent. Mirrors start_run()'s migration tolerance and the
-        # dashboard's identical fallback in web/app/api/jobs/[id]/status/route.ts.
-        if "PGRST202" in str(exc):
-            log.warning("claim_job_notification missing — apply "
+        # than going silent.
+        #
+        # Matched on BOTH the PostgREST error code and its prose, lowercased,
+        # because the two existing detectors in this repo disagree about which
+        # is available: the dashboard reads a structured body.code === 'PGRST202'
+        # (route.ts), while start_run() above matches lowercased message text
+        # because that is all the Python client surfaces. Getting this wrong in
+        # the strict direction is the expensive one -- every push would fall into
+        # the fail-closed branch below and the pipeline would go silently mute
+        # until someone noticed the absence of notifications.
+        message = str(exc).lower()
+        if ("pgrst202" in message
+                or "could not find the function" in message
+                or ("schema cache" in message and "function" in message)):
+            log.warning("claim_job_notification is not migrated yet — apply "
                         "migrations/20260829_notification_ledger.sql; notifying unguarded")
             return True, "rpc-missing"
         log.error("Notification claim failed for %s (%s) — NOT notifying", job_id, exc)
