@@ -24,6 +24,7 @@ on:
           - dedupe_existing
           - audit_apply_dupes
           - count_stars
+          - dismiss_tiktok_bytedance
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
         required: true
@@ -80,6 +81,19 @@ jobs:
               echo "::notice::${{ inputs.task }} is read-only; 'confirm' is ignored"
             fi
             python "${{ inputs.task }}.py"
+            exit 0
+          fi
+
+          # A named one-off rather than a free-text company input: a task that
+          # bulk-changes status should not take an arbitrary string from a
+          # dispatch form.
+          if [ "${{ inputs.task }}" = "dismiss_tiktok_bytedance" ]; then
+            if [ "${{ inputs.confirm }}" = "true" ]; then
+              echo "::warning::dismissing every TikTok/ByteDance row in the review queue"
+              python dismiss_company.py TikTok ByteDance --execute
+            else
+              python dismiss_company.py TikTok ByteDance
+            fi
             exit 0
           fi
 
