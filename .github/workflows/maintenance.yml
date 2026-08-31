@@ -24,6 +24,7 @@ on:
           - dedupe_existing
           - audit_apply_dupes
           - count_stars
+          - audit_star_gaps
           - dismiss_tiktok_bytedance
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
@@ -76,7 +77,8 @@ jobs:
           # treats `confirm` as the write gate, and a read-only task quietly
           # accepting a `confirm: true` would imply it had written something.
           if [ "${{ inputs.task }}" = "audit_apply_dupes" ] \
-             || [ "${{ inputs.task }}" = "count_stars" ]; then
+             || [ "${{ inputs.task }}" = "count_stars" ] \
+             || [ "${{ inputs.task }}" = "audit_star_gaps" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
               echo "::notice::${{ inputs.task }} is read-only; 'confirm' is ignored"
             fi
