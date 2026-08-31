@@ -71,103 +71,115 @@
     {
       "name": "a listed company stars on the company signal",
       "company": "Microsoft", "title": "Software Engineer Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
       "expected": ["company"]
     },
     {
       "name": "normalisation collapses a suffix: 'Stripe Inc.' is Stripe",
       "company": "Stripe Inc.", "title": "Backend Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
       "expected": ["company"]
     },
     {
       "name": "normalisation strips a leading 'The'",
       "company": "The Meta", "title": "SWE Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
       "expected": ["company"]
     },
     {
       "name": "an unlisted company with high hourly pay stars on salary alone",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "$65.00 per hour", "is_easy_apply": false,
+      "salary": "$65.00 per hour", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": ["salary"]
     },
     {
       "name": "annual figure over the threshold stars",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "$120,000 - $150,000/yr", "is_easy_apply": false,
+      "salary": "$120,000 - $150,000/yr", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": ["salary"]
     },
     {
       "name": "a range qualifies on its LOWER bound, not its ceiling",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "$20.00 - $70.00 per hour", "is_easy_apply": false,
+      "salary": "$20.00 - $70.00 per hour", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": []
     },
     {
       "name": "a range whose lower bound clears the bar does star",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "$50.00 - $70.00 per hour", "is_easy_apply": false,
+      "salary": "$50.00 - $70.00 per hour", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": ["salary"]
     },
     {
       "name": "an unlisted company with no salary does not star",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
       "expected": []
     },
     {
       "name": "unparseable salary text never stars",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "competitive pay and great benefits", "is_easy_apply": false,
+      "salary": "competitive pay and great benefits", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": []
     },
     {
       "name": "an iOS title stars on the mobile signal",
       "company": "Obscure Widgets", "title": "iOS Engineer Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
       "expected": ["mobile"]
     },
     {
       "name": "suggested_resume Mobile stars even when the title does not say so",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "Mobile",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "Mobile",
       "expected": ["mobile"]
     },
     {
       "name": "signals accumulate and are reported in a stable order",
       "company": "Apple", "title": "iOS Engineer Intern",
-      "salary": "$60.00 per hour", "is_easy_apply": false,
+      "salary": "$60.00 per hour", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "Mobile", "expected": ["company", "salary", "mobile"]
     },
     {
       "name": "EASY APPLY NEVER STARS, however strong the other signals",
       "company": "Apple", "title": "iOS Engineer Intern",
-      "salary": "$60.00 per hour", "is_easy_apply": true,
+      "salary": "$60.00 per hour", "is_easy_apply": true, "tier": "APPLY",
       "suggested_resume": "Mobile", "expected": []
     },
     {
       "name": "a missing company does not crash or match",
       "company": "", "title": "Software Engineer Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": null,
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": null,
       "expected": []
     },
     {
       "name": "a substring of a listed name is not a match (Apple vs Applebee's)",
       "company": "Applebee's", "title": "Software Engineer Intern",
-      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
       "expected": []
     },
     {
       "name": "hourly under the bar does not star",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "$22.00 per hour", "is_easy_apply": false,
+      "salary": "$22.00 per hour", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "APPLY_CAVEAT NEVER STARS, however strong the other signals",
+      "company": "Apple", "title": "iOS Engineer Intern",
+      "salary": "$60.00 per hour", "is_easy_apply": false, "tier": "APPLY_CAVEAT",
+      "suggested_resume": "Mobile", "expected": []
+    },
+    {
+      "name": "INELIGIBLE never stars either",
+      "company": "Microsoft", "title": "Software Engineer Intern",
+      "salary": null, "is_easy_apply": false, "tier": "INELIGIBLE",
       "suggested_resume": "General", "expected": []
     },
     {
       "name": "an annual figure that is really a low stipend does not star",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
-      "salary": "$45,000/yr", "is_easy_apply": false,
+      "salary": "$45,000/yr", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": []
     }
   ]

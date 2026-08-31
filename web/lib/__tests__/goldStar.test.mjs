@@ -45,7 +45,7 @@ check('the fixture has cases', rules.cases.length > 0)
 for (const c of rules.cases) {
   const job = {
     company: c.company, title: c.title, salary: c.salary,
-    is_easy_apply: c.is_easy_apply, suggested_resume: c.suggested_resume,
+    is_easy_apply: c.is_easy_apply, suggested_resume: c.suggested_resume, tier: c.tier,
   }
   const got = starReasons(job)
   check(c.name, JSON.stringify(got) === JSON.stringify(c.expected),
@@ -55,7 +55,7 @@ for (const c of rules.cases) {
 console.log('\n-- the Easy Apply gate is a gate, not a signal --')
 
 const strong = {
-  company: 'Apple', title: 'iOS Engineer Intern',
+  company: 'Apple', title: 'iOS Engineer Intern', tier: 'APPLY',
   salary: '$80.00 per hour', suggested_resume: 'Mobile',
 }
 check('three signals star when applying externally',
@@ -66,7 +66,7 @@ check('...and none of them survive Easy Apply',
 
 console.log('\n-- salary parsing --')
 
-const sal = (salary) => starReasons({ company: 'Nobody', title: 'Intern', salary, is_easy_apply: false })
+const sal = (salary) => starReasons({ company: 'Nobody', title: 'Intern', tier: 'APPLY', salary, is_easy_apply: false })
 check('hourly above the bar', sal('$60/hr').includes('salary'))
 check('hourly below the bar', sal('$18/hr').length === 0)
 check('annual above the bar', sal('$150,000 per year').includes('salary'))
@@ -79,7 +79,7 @@ check('a bare four-figure number reads as annual', sal('$95,000').includes('sala
 
 console.log('\n-- company normalisation mirrors scraper/db.py norm_company --')
 
-const comp = (company) => starReasons({ company, title: 'Intern', salary: null, is_easy_apply: false })
+const comp = (company) => starReasons({ company, title: 'Intern', tier: 'APPLY', salary: null, is_easy_apply: false })
 check('exact name', comp('Microsoft').includes('company'))
 check('legal suffix stripped', comp('Stripe, Inc.').includes('company'))
 check("leading 'The' stripped", comp('The Meta').includes('company'))
@@ -89,6 +89,11 @@ check('a substring is not a match', comp("Applebee's").length === 0,
   "Apple is listed; Applebee's must not inherit its star")
 check('empty company does not throw or match', comp('').length === 0)
 check('null company does not throw', comp(null).length === 0)
+
+console.log('\n-- the APPLY-only gate --')
+check('an APPLY_CAVEAT job never stars',
+  starReasons({ ...strong, is_easy_apply: false, tier: 'APPLY_CAVEAT' }).length === 0,
+  'a caveat job already carries a known reservation')
 
 console.log('\n-- isStarred agrees with starReasons --')
 check('isStarred true when reasons exist', isStarred({ ...strong, is_easy_apply: false }) === true)
