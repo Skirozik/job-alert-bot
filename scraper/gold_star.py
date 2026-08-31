@@ -117,9 +117,19 @@ def star_reasons(job: dict) -> list:
     Order is stable (company, salary, mobile) so the parity fixture can compare
     lists directly.
     """
-    # The gate. Checked first: no signal survives it, and short-circuiting makes
-    # that impossible to accidentally reorder.
+    # TWO gates, both checked before any signal, so no signal can survive them
+    # and short-circuiting makes the ordering impossible to break by accident.
+    #
+    # 1. Easy Apply reuses the resume already on file, so one curated for it is
+    #    effort that never reaches a human.
+    # 2. APPLY only, never APPLY_CAVEAT. A caveat job already carries a known
+    #    reservation -- that is what the tier MEANS -- so it is a strange
+    #    candidate for an hour of tailoring. Reserving the star for clean fits
+    #    is also what keeps it scarce: company matching alone was marking 15.8%
+    #    of the review queue.
     if job.get("is_easy_apply"):
+        return []
+    if job.get("tier") != "APPLY":
         return []
 
     reasons = []

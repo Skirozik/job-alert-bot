@@ -81,8 +81,16 @@ function salaryClearsBar(salary: string | null | undefined): boolean {
  * explanation is one you learn to ignore. Order is stable so the shared parity
  * fixture can compare lists directly against the Python side. */
 export function starReasons(job: Job): StarReason[] {
-  // The gate, checked first so it cannot be accidentally reordered below a signal.
+  // TWO gates, both before any signal, so neither can be reordered below one.
+  //
+  // 1. Easy Apply reuses the resume already on file, so one curated for it is
+  //    effort that never reaches a human.
+  // 2. APPLY only, never APPLY_CAVEAT. A caveat job already carries a known
+  //    reservation -- that is what the tier MEANS -- so it is a strange
+  //    candidate for an hour of tailoring, and reserving the star for clean
+  //    fits is what keeps it scarce.
   if (job.is_easy_apply) return []
+  if (job.tier !== 'APPLY') return []
 
   const out: StarReason[] = []
   if (STARRED_COMPANIES.has(normCompany(job.company))) out.push('company')

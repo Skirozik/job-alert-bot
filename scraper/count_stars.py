@@ -38,11 +38,14 @@ COLS = "id,company,title,salary,is_easy_apply,suggested_resume,tier,status"
 
 
 def _fetch_to_apply(client) -> list:
-    """The same predicate the dashboard's To apply view uses."""
+    """The same predicate the dashboard's To apply view uses: tier APPLY, status new."""
     rows, offset = [], 0
     while True:
         page = (client.table("jobs").select(COLS)
-                .eq("status", "new").in_("tier", ["APPLY", "APPLY_CAVEAT"])
+                # APPLY only -- the gold star deliberately excludes APPLY_CAVEAT, so
+                # measuring against caveats too would report a rate against a
+                # population the rule cannot mark.
+                .eq("status", "new").eq("tier", "APPLY")
                 .order("id").range(offset, offset + PAGE - 1).execute().data) or []
         rows.extend(page)
         if len(page) < PAGE:
@@ -53,7 +56,7 @@ def _fetch_to_apply(client) -> list:
 
 def main() -> int:
     rows = _fetch_to_apply(get_client())
-    log.info("Loaded %d rows from To apply", len(rows))
+    log.info("Loaded %d rows from To apply (tier=APPLY only)", len(rows))
 
     starred, by_reason, companies, easy_blocked = [], Counter(), Counter(), 0
     for r in rows:

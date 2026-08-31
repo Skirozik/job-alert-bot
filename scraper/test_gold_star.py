@@ -40,13 +40,14 @@ for c in cases:
     job = {
         "company": c["company"], "title": c["title"], "salary": c["salary"],
         "is_easy_apply": c["is_easy_apply"], "suggested_resume": c["suggested_resume"],
+        "tier": c["tier"],
     }
     got = gs.star_reasons(job)
     check(c["name"], got == c["expected"], f"expected {c['expected']}, got {got}")
 
 print("\n-- the Easy Apply gate is a gate, not a signal --")
 
-strong = {"company": "Apple", "title": "iOS Engineer Intern",
+strong = {"company": "Apple", "title": "iOS Engineer Intern", "tier": "APPLY",
           "salary": "$80.00 per hour", "suggested_resume": "Mobile"}
 check("three signals star when applying externally",
       len(gs.star_reasons({**strong, "is_easy_apply": False})) == 3)
@@ -57,7 +58,7 @@ check("...and none of them survive Easy Apply",
 print("\n-- salary parsing --")
 
 def sal(text):
-    return gs.star_reasons({"company": "Nobody", "title": "Intern",
+    return gs.star_reasons({"company": "Nobody", "title": "Intern", "tier": "APPLY",
                             "salary": text, "is_easy_apply": False})
 
 check("hourly above the bar", sal("$60/hr") == ["salary"])
@@ -74,7 +75,7 @@ check("a bare four-figure number is read as annual, not hourly",
 print("\n-- company normalisation mirrors db.norm_company --")
 
 def comp(name):
-    return gs.star_reasons({"company": name, "title": "Intern",
+    return gs.star_reasons({"company": name, "title": "Intern", "tier": "APPLY",
                             "salary": None, "is_easy_apply": False})
 
 check("exact name", comp("Microsoft") == ["company"])
@@ -86,15 +87,21 @@ check("a substring is not a match", comp("Applebee's") == [],
       "Apple is listed; Applebee's must not inherit its star")
 check("empty company does not crash or match", comp("") == [])
 
+print("\n-- the APPLY-only gate --")
+
+check("an APPLY_CAVEAT job never stars",
+      gs.star_reasons({**strong, "is_easy_apply": False, "tier": "APPLY_CAVEAT"}) == [],
+      "a caveat job already carries a known reservation; tailoring for one is odd")
+
 print("\n-- reason_summary is human-readable for the push body --")
 
-s = gs.reason_summary({"company": "Apple", "title": "iOS Intern", "salary": None,
+s = gs.reason_summary({"company": "Apple", "title": "iOS Intern", "salary": None, "tier": "APPLY",
                        "is_easy_apply": False, "suggested_resume": None})
 check("names the signals in plain words", "top-tier company" in s and "mobile" in s, s)
 check("an unstarred job summarises to nothing",
-      gs.reason_summary({"company": "Nobody", "title": "Intern",
+      gs.reason_summary({"company": "Nobody", "title": "Intern", "tier": "APPLY",
                          "salary": None, "is_easy_apply": False}) == "")
 
-total = 1 + len(cases) + 2 + 8 + 7 + 2
+total = 1 + len(cases) + 2 + 8 + 7 + 2 + 1
 print(f"\n{total - _fails} passed, {_fails} failed")
 sys.exit(1 if _fails else 0)
