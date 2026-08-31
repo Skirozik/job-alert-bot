@@ -5,7 +5,8 @@ import type { Job, Status } from '@/types/job'
 import { APPLIED_OR_LATER } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
 import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect } from '@/lib/jobView'
-import { IconApplyFilled, IconApplyOutline, IconClose, IconBolt } from './icons'
+import { IconApplyFilled, IconApplyOutline, IconClose, IconBolt, IconStar } from './icons'
+import { starReasons, REASON_LABEL } from '@/lib/goldStar'
 
 const TIER_LABEL: Record<string, string> = {
   APPLY: 'Apply', APPLY_CAVEAT: 'Apply — caveat', INELIGIBLE: 'Ineligible',
@@ -54,6 +55,7 @@ export function JobDrawer({
   const status = job.status ?? 'new'
   const easy = job.is_easy_apply
   const applyHref = easy ? job.url : (job.apply_url ?? job.url)
+  const stars = starReasons(job)
 
   // Escape closes. Arrow keys are handled by the table so they keep working
   // while the drawer is open — that is the whole point of the drawer, triage
@@ -159,6 +161,27 @@ export function JobDrawer({
             </dd>
           </>)}
         </dl>
+
+        {/* Why this is starred. Follows the tier block's idiom below -- colour
+            chip, uppercase meta label, prose -- because it answers the same
+            kind of question. Listing the REASONS rather than just showing a
+            star is the difference between a badge that is trusted and one that
+            gets ignored. */}
+        {stars.length > 0 && (
+          <div style={{ marginTop: 'var(--s5)' }}>
+            <div className="flex items-center gap-2" style={{ marginBottom: 'var(--s2)' }}>
+              <span style={{ color: 'var(--star)', display: 'flex' }} aria-hidden><IconStar /></span>
+              <span style={{ fontSize: 'var(--text-meta)', letterSpacing: '0.06em',
+                             textTransform: 'uppercase', color: 'var(--star)' }}>
+                Gold — write a custom resume
+              </span>
+            </div>
+            <ul style={{ fontSize: 'var(--text-data)', lineHeight: 1.6,
+                         color: 'var(--fg-muted)', display: 'grid', gap: '2px' }}>
+              {stars.map(r => <li key={r}>{REASON_LABEL[r]}</li>)}
+            </ul>
+          </div>
+        )}
 
         {/* Reasoning now shows for EVERY tier, including INELIGIBLE. Under the
             old taxonomy ineligible meant discarded so it was hidden; now it is
