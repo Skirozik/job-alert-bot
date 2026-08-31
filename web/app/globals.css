@@ -11,6 +11,19 @@
 
    ONE accent (--accent). It is permitted in exactly three places: the active
    nav item, focus rings, and the primary action. Everything else is neutral.
+
+   ONE deliberate exception: --star. The gold star is a second signal colour,
+   added knowingly rather than by drift. It earns the exception because it is
+   the only mark that changes what the user DOES with a row -- everything else
+   here describes a job, this one says "stop and spend an hour on this". It
+   appears in exactly two places: the row's company cell and the drawer's
+   explanation block.
+
+   --star is deliberately NOT --tier-caveat. That token (#d29922) already
+   renders as the 3px left bar on every APPLY_CAVEAT row, so a star in the same
+   amber sitting a few pixels away would read as part of the tier signal. This
+   gold is brighter and more saturated so the two are distinguishable side by
+   side, which is the exact case that occurs on a starred APPLY_CAVEAT row.
    ───────────────────────────────────────────────────────────────────────── */
 :root {
   /* Surfaces, darkest to lightest */
@@ -37,6 +50,10 @@
   --accent:        #4f8cff;
   --accent-bg:     rgba(79, 140, 255, 0.12);
   --accent-border: rgba(79, 140, 255, 0.35);
+
+  /* Worth a hand-written resume. See the note above on why this is not
+     --tier-caveat: they can appear 3px apart on the same row. */
+  --star:          #ffc94a;
 
   /* Tier signal — the 3px left edge bar only */
   --tier-clean:    #3fb950;

@@ -59,6 +59,14 @@ export const IconChevron = ({ dir = 'down' }: { dir?: 'up' | 'down' }) => (
 export const IconClose = () => (
   <svg {...P} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
 )
+/** Gold star: this posting is worth a hand-written resume rather than one of
+ *  the four variants. Filled, not outlined — it marks an action to take, and an
+ *  outline would read as one more piece of metadata describing the job. */
+export const IconStar = () => (
+  <svg {...P} fill="currentColor">
+    <path d="M8 1.6l1.9 3.9 4.3.6-3.1 3 .74 4.3L8 11.4l-3.84 2-.73-4.3-3.1-3 4.3-.6L8 1.6Z"/>
+  </svg>
+)
 /** Opens the view rail on mobile, where the rail is an overlay rather than a
  *  column. Never rendered on desktop — the rail is already on screen there. */
 export const IconMenu = () => (

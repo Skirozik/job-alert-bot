@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { IconSearch, IconRefresh, IconChevron, IconMenu } from './icons'
 import type { RoleFilter, SourceFilter, DateFilter } from '@/lib/jobView'
+import type { StarFilter } from '@/lib/goldStar'
 import { useIsMobile } from '@/lib/useMediaQuery'
 
 function Dropdown<T extends string>({
@@ -83,13 +84,14 @@ function Dropdown<T extends string>({
 }
 
 export function Toolbar({
-  search, onSearch, role, onRole, source, onSource, date, onDate,
+  search, onSearch, role, onRole, source, onSource, date, onDate, star, onStar,
   onRefresh, lastSynced, showSource, onMenu,
 }: {
   search: string; onSearch: (v: string) => void
   role: RoleFilter; onRole: (v: RoleFilter) => void
   source: SourceFilter; onSource: (v: SourceFilter) => void
   date: DateFilter; onDate: (v: DateFilter) => void
+  star: StarFilter; onStar: (v: StarFilter) => void
   onRefresh: () => void
   lastSynced: string
   showSource: boolean
@@ -191,6 +193,13 @@ export function Toolbar({
         { key: 'all', label: 'All roles' },
         { key: 'internships', label: 'Internships' },
         { key: 'entry-level', label: 'Entry-level' },
+      ]} />
+      {/* Gold star. A filter rather than a sidebar view -- see matchesStar in
+          jobView.ts for why. Without it the stars are unfindable among ~1,550
+          To-apply rows, which would make the badge decorative. */}
+      <Dropdown label="Star" value={star} onChange={onStar} options={[
+        { key: 'all', label: 'All jobs' },
+        { key: 'starred', label: 'Gold star only' },
       ]} />
       <Dropdown label="Discovered" value={date} onChange={onDate} options={[
         { key: 'all', label: 'Any time' },

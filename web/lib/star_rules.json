@@ -1,0 +1,174 @@
+{
+  "_comment": [
+    "Gold star: which postings are worth a hand-curated resume.",
+    "",
+    "A star does NOT mean 'good job'. It means high marginal return on spending",
+    "30-60 minutes tailoring a resume -- P(curation flips the decision) x value",
+    "of the job. Company prestige and pay are only the second factor.",
+    "",
+    "WHY THIS LIVES IN web/lib/ RATHER THAN fixtures/: Vercel is configured with",
+    "web/ as the deployment root (see README), so anything outside web/ is not in",
+    "the bundle -- an import of ../../fixtures/ would build locally and fail in",
+    "production. Python has no such constraint: GitHub Actions checks out the",
+    "whole repo, so scraper/gold_star.py reads across into web/lib/ instead. The",
+    "constrained side holds the file; the unconstrained side reaches for it.",
+    "",
+    "SINGLE SOURCE OF TRUTH for two implementations: web/lib/goldStar.ts drives",
+    "the dashboard, scraper/gold_star.py drives the ntfy push. Two copies of one",
+    "rule drift silently -- that is exactly what fixtures/canonical_target_keys",
+    ".json exists to prevent for target_key -- so the data AND the parity cases",
+    "live here, and BOTH test suites assert every entry in `cases`. Change the",
+    "rule in one language without the other and a test goes red in both.",
+    "",
+    "TUNING: this file is the dial. Editing it needs no migration, no backfill",
+    "and no reclassification -- the star is derived at render/push time, never",
+    "stored. Run scraper/count_stars.py after any edit: if more than ~5% of To",
+    "apply is starred, the star is wallpaper and the thresholds are too loose.",
+    "",
+    "companies: matched AFTER norm_company-style normalisation (lowercase, strip",
+    "punctuation/YC tags/leading 'the', drop noise words like inc/corp/labs), so",
+    "'Regions' and 'Regions Bank' collapse together and cannot slip past. Write",
+    "them here in readable form; normalisation happens in code."
+  ],
+
+  "thresholds": {
+    "_comment": [
+      "Lower bound of a stated range must clear these. A wide band like",
+      "'$20 - $70/hr' must NOT qualify on its ceiling alone.",
+      "hourly ~= 45/hr ~= 93k annualised, so the two are roughly consistent."
+    ],
+    "hourly": 45,
+    "annual": 90000
+  },
+
+  "companies": [
+    "Alphabet", "Google", "Meta", "Amazon", "Apple", "Netflix", "Microsoft",
+    "Nvidia", "OpenAI", "Anthropic", "Tesla", "SpaceX",
+
+    "Stripe", "Databricks", "Snowflake", "Palantir", "Airbnb", "Uber", "Lyft",
+    "DoorDash", "Coinbase", "Robinhood", "Plaid", "Figma", "Notion", "Linear",
+    "Ramp", "Brex", "Rippling", "Scale AI", "Anduril", "Discord", "Reddit",
+    "Pinterest", "Snap", "Spotify", "Roblox", "Cloudflare", "Datadog",
+    "MongoDB", "HashiCorp", "Twilio", "Atlassian", "Asana", "Dropbox", "Box",
+    "Square", "Block", "Shopify", "Instacart", "Verkada", "Samsara", "Rivian",
+    "Waymo", "Cruise", "Zoox", "Applied Intuition",
+
+    "Jane Street", "Citadel", "Citadel Securities", "Two Sigma", "Jump Trading",
+    "Hudson River Trading", "DE Shaw", "Optiver", "IMC Trading", "SIG",
+    "Susquehanna", "Akuna Capital", "Belvedere Trading", "DRW", "Old Mission",
+    "Five Rings", "Point72", "Millennium", "Bridgewater",
+
+    "Goldman Sachs", "Morgan Stanley", "JPMorgan Chase", "Capital One",
+    "American Express", "Visa", "Mastercard", "BlackRock",
+
+    "Salesforce", "Adobe", "Oracle", "IBM", "Intel", "AMD", "Qualcomm",
+    "Broadcom", "Micron", "Texas Instruments", "Workday", "ServiceNow",
+    "VMware", "Cisco", "Dell", "Intuit", "PayPal", "eBay", "Expedia",
+    "Booking", "LinkedIn", "TikTok", "ByteDance", "Bloomberg"
+  ],
+
+  "cases": [
+    {
+      "name": "a listed company stars on the company signal",
+      "company": "Microsoft", "title": "Software Engineer Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "expected": ["company"]
+    },
+    {
+      "name": "normalisation collapses a suffix: 'Stripe Inc.' is Stripe",
+      "company": "Stripe Inc.", "title": "Backend Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "expected": ["company"]
+    },
+    {
+      "name": "normalisation strips a leading 'The'",
+      "company": "The Meta", "title": "SWE Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "expected": ["company"]
+    },
+    {
+      "name": "an unlisted company with high hourly pay stars on salary alone",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$65.00 per hour", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "annual figure over the threshold stars",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$120,000 - $150,000/yr", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a range qualifies on its LOWER bound, not its ceiling",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$20.00 - $70.00 per hour", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "a range whose lower bound clears the bar does star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$50.00 - $70.00 per hour", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "an unlisted company with no salary does not star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "expected": []
+    },
+    {
+      "name": "unparseable salary text never stars",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "competitive pay and great benefits", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "an iOS title stars on the mobile signal",
+      "company": "Obscure Widgets", "title": "iOS Engineer Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "expected": ["mobile"]
+    },
+    {
+      "name": "suggested_resume Mobile stars even when the title does not say so",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "Mobile",
+      "expected": ["mobile"]
+    },
+    {
+      "name": "signals accumulate and are reported in a stable order",
+      "company": "Apple", "title": "iOS Engineer Intern",
+      "salary": "$60.00 per hour", "is_easy_apply": false,
+      "suggested_resume": "Mobile", "expected": ["company", "salary", "mobile"]
+    },
+    {
+      "name": "EASY APPLY NEVER STARS, however strong the other signals",
+      "company": "Apple", "title": "iOS Engineer Intern",
+      "salary": "$60.00 per hour", "is_easy_apply": true,
+      "suggested_resume": "Mobile", "expected": []
+    },
+    {
+      "name": "a missing company does not crash or match",
+      "company": "", "title": "Software Engineer Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": null,
+      "expected": []
+    },
+    {
+      "name": "a substring of a listed name is not a match (Apple vs Applebee's)",
+      "company": "Applebee's", "title": "Software Engineer Intern",
+      "salary": null, "is_easy_apply": false, "suggested_resume": "General",
+      "expected": []
+    },
+    {
+      "name": "hourly under the bar does not star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$22.00 per hour", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "an annual figure that is really a low stipend does not star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$45,000/yr", "is_easy_apply": false,
+      "suggested_resume": "General", "expected": []
+    }
+  ]
+}

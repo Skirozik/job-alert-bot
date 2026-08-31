@@ -11,8 +11,9 @@ import {
 } from '@/lib/jobView'
 import {
   IconApplyFilled, IconApplyOutline, IconApplied, IconSave, IconDismiss,
-  IconReset, IconBolt, IconChevron,
+  IconReset, IconBolt, IconChevron, IconStar,
 } from './icons'
+import { isStarred } from '@/lib/goldStar'
 import { useIsMobile } from '@/lib/useMediaQuery'
 
 const TIER_BAR: Record<string, string> = {
@@ -195,6 +196,7 @@ export function JobTable({
         const easy = job.is_easy_apply
         const applyHref = easy ? job.url : (job.apply_url ?? job.url)
         const inelig = job.tier === 'INELIGIBLE'
+        const starred = isStarred(job)
         const pending = hasPendingMutation(job, pendingIds)
         // Muted FOREGROUND, not an opacity filter — 40% opacity on a dark
         // theme is close to unreadable, and these rows still need to be
@@ -238,6 +240,20 @@ export function JobTable({
               {status === 'new' && (
                 <span aria-label="New" title="New" className="shrink-0"
                       style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--status-new)' }} />
+              )}
+              {/* The company cell is the only place with slack in BOTH layouts,
+                  and the New dot is the precedent: a shrink-0 sibling that costs
+                  the company name some truncation. No new column or grid row is
+                  available -- row height is pinned in three coupled places
+                  (--row-h twice, ROW_PX here) and the mobile grid already spends
+                  95px of its 96px box. */}
+              {starred && (
+                <span aria-label="Worth a custom resume"
+                      title="Gold star — worth writing a custom resume for"
+                      className="shrink-0 flex items-center"
+                      style={{ color: 'var(--star)' }}>
+                  <IconStar />
+                </span>
               )}
             </div>
 

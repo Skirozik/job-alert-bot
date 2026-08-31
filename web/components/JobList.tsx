@@ -19,6 +19,7 @@ import {
   type ViewKey, type RoleFilter, type SourceFilter, type DateFilter,
   type SortKey, type SortDir,
 } from '@/lib/jobView'
+import { matchesStar, type StarFilter } from '@/lib/goldStar'
 
 const FULL_POLL_MS = 5 * 60_000
 const LINKEDIN_POLL_MS = 15_000
@@ -102,11 +103,11 @@ export function JobList({
      popstate, so bookmarks and the back button work as before. */
   type ViewState = {
     view: ViewKey; q: string; role: RoleFilter; src: SourceFilter
-    date: DateFilter; sort: SortKey; dir: SortDir; job: string | null
+    date: DateFilter; star: StarFilter; sort: SortKey; dir: SortDir; job: string | null
   }
 
   const DEFAULTS: ViewState = {
-    view: 'to-apply', q: '', role: 'all', src: 'all', date: 'all',
+    view: 'to-apply', q: '', role: 'all', src: 'all', date: 'all', star: 'all',
     sort: 'found_at', dir: 'desc', job: null,
   }
 
@@ -116,13 +117,14 @@ export function JobList({
     role: (sp.get('role') ?? 'all') as RoleFilter,
     src:  (sp.get('src') ?? 'all') as SourceFilter,
     date: (sp.get('date') ?? 'all') as DateFilter,
+    star: (sp.get('star') ?? 'all') as StarFilter,
     sort: (sp.get('sort') ?? 'found_at') as SortKey,
     dir:  (sp.get('dir') ?? 'desc') as SortDir,
     job:  sp.get('job'),
   }), [])
 
   const [st, setSt] = useState<ViewState>(() => readUrl(new URLSearchParams(params.toString())))
-  const { view, q: search, role, src: source, date, sort, dir, job: selectedId } = st
+  const { view, q: search, role, src: source, date, star, sort, dir, job: selectedId } = st
 
   const patch = useCallback((p: Partial<ViewState>) => setSt(prev => ({ ...prev, ...p })), [])
 
@@ -263,7 +265,8 @@ export function JobList({
   const rows = useMemo(() => {
     const filtered = jobs.filter(j =>
       matchesView(j, view) && matchesRole(j, role) &&
-      matchesSource(j, source) && matchesDate(j, date) && matchesSearch(j, search)
+      matchesSource(j, source) && matchesDate(j, date) && matchesStar(j, star)
+    && matchesSearch(j, search)
     )
     return sortJobs(filtered, sort, dir) as Grouped[]
   }, [jobs, view, role, source, date, search, sort, dir])
@@ -396,6 +399,7 @@ export function JobList({
           role={role} onRole={v => patch({ role: v })}
           source={source} onSource={v => patch({ src: v })}
           date={date} onDate={v => patch({ date: v })}
+          star={star} onStar={v => patch({ star: v })}
           onRefresh={() => router.refresh()}
           lastSynced={relativeTime(lastSynced)}
           showSource={jobs.some(j => j.id.startsWith('ats:'))}

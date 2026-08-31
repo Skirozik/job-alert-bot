@@ -23,6 +23,7 @@ on:
           - backfill_target_keys
           - dedupe_existing
           - audit_apply_dupes
+          - count_stars
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
         required: true
@@ -73,11 +74,12 @@ jobs:
           # explicitly rather than let it fall through -- every other task
           # treats `confirm` as the write gate, and a read-only task quietly
           # accepting a `confirm: true` would imply it had written something.
-          if [ "${{ inputs.task }}" = "audit_apply_dupes" ]; then
+          if [ "${{ inputs.task }}" = "audit_apply_dupes" ] \
+             || [ "${{ inputs.task }}" = "count_stars" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
-              echo "::notice::audit_apply_dupes is read-only; 'confirm' is ignored"
+              echo "::notice::${{ inputs.task }} is read-only; 'confirm' is ignored"
             fi
-            python audit_apply_dupes.py
+            python "${{ inputs.task }}.py"
             exit 0
           fi
 
