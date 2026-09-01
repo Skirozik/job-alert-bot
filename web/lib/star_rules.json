@@ -68,6 +68,12 @@
     "Goldman Sachs", "Morgan Stanley", "JPMorgan Chase", "Capital One",
     "American Express", "Visa", "Mastercard", "BlackRock",
 
+    "BNY", "Vanguard", "Charles Schwab", "Dimensional Fund Advisors",
+    "Deutsche Bank", "Wells Fargo", "Chicago Trading Company",
+
+    "Analog Devices", "Synopsys", "Hewlett Packard Enterprise", "Axon",
+    "DraftKings", "Nuro", "Celonis", "The Walt Disney Company",
+
     "Salesforce", "Adobe", "Oracle", "IBM", "Intel", "AMD", "Qualcomm",
     "Broadcom", "Micron", "Texas Instruments", "Workday", "ServiceNow",
     "VMware", "Cisco", "Dell", "Intuit", "PayPal", "eBay", "Expedia",
