@@ -1,12 +1,18 @@
 """READ-ONLY: how many stars a week would each candidate tightening produce?
 
-WHY THIS EXISTS. count_stars answers "what does the current rule mark", which is
-enough to notice a problem and useless for fixing one. After the company list
-grew to 121 it marked 110 of 478 To-apply rows, and 58 of those arrived in the
-last 7 days. 58 hand-written resumes a week is not a workload, so the rule needs
-tightening -- but "tighten it" has at least four independent levers and no
-intuition about which one is doing the damage. This prints the arrival rate under
-each, so the choice is made against numbers.
+WHY THIS EXISTS. count_stars answers "what does the current rule mark". This
+answers "what would marking it DIFFERENTLY cost", which is a separate question
+and the one you need before changing a rule.
+
+It was written to argue for tightening -- 121 companies produced 58 stars in one
+week, and that looked like too many. That argument was rejected, correctly: the
+star means "this posting meets the criteria", so the right number of stars is
+however many postings meet them. Volume is an output, not a defect. Nothing here
+recommends a variant any more.
+
+It is kept because the levers themselves are still worth being able to price. If
+the criteria ever do change -- a different pay bar, a shorter list -- this shows
+what that change does before it ships, instead of after.
 
 WHY 7 DAYS AND NOT A 4-WEEK AVERAGE. To apply only holds rows still status=new.
 Every week that passes, more of that week's jobs get applied to or dismissed and
@@ -17,12 +23,12 @@ honest one. It still understates slightly, which is the safe direction.
 
 THE FOUR LEVERS:
 
-  pay bar     51 of the 110 star on salary alone. The bar is $35/hr, chosen by
-              the user; the original plan said $45.
-  per-company The company list stars EVERY open posting at a listed employer.
-              American Express has 10 and BNY has 10 -- but nobody writes ten
-              custom resumes for one company, they write one or two. This caps
-              stars per company, keeping the earliest-found.
+  pay bar     51 of the 110 star on salary alone. The bar is $35/hr, set by the
+              user; the original plan said $45.
+  per-company Caps stars per employer, keeping the earliest-found. Priced here
+              and DELIBERATELY NOT ADOPTED: a cap would hide a posting that
+              meets the criteria purely because a sibling at the same company
+              also met them, which is the one thing the star must never do.
   list size   121 companies, up from 106.
   reason mix  what company-only or salary-only would each cost.
 
@@ -153,9 +159,11 @@ def main() -> int:
         print(f"  {label:<38} {week:>5} {allrows:>8}   {bar}")
 
     print()
-    print("  A sustainable target is roughly 3-6 a week: one custom resume is 30-60")
-    print("  minutes, so 5 is already most of an evening. Pick the first variant")
-    print("  that lands in that band rather than the one that looks tidiest.")
+    print("  NO TARGET RATE. An earlier version of this script recommended aiming for")
+    print("  3-6 a week. That advice was withdrawn: the star means \"meets the")
+    print("  criteria\", so the right number of stars is however many postings meet")
+    print("  them. Use this table to see what a rule CHANGE would cost, not to pick a")
+    print("  variant because its number looks comfortable.")
     print()
 
     # The per-company cap is the lever with the least intuition behind it, so

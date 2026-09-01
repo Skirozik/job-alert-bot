@@ -5,8 +5,16 @@ it stops meaning "stop and spend an hour on this" and becomes one more column to
 ignore. So measure before trusting the thresholds, and re-measure after any edit
 to web/lib/star_rules.json.
 
-RULE OF THUMB: if more than ~5% of To apply is starred, tighten the thresholds
-or trim the company list before shipping.
+THIS TOOL REPORTS; IT DOES NOT JUDGE. It used to warn above ~5%, on the theory
+that a star on everything is a star on nothing. That rule of thumb has been
+retired deliberately: the star means "this posting meets the criteria", and the
+criteria are the user's to set. If 60 postings a week genuinely meet them then
+60 stars a week is the correct output, not a bug to tune away.
+
+So the number that matters here is no longer the rate -- it is whether each star
+is CORRECT. The listing at the end prints the evidence behind every star (which
+company matched, which salary string cleared the bar) so a false positive is
+visible on sight rather than inferred from a percentage.
 
 READ THE ARRIVAL RATE, NOT ONLY THE PERCENTAGE. To apply is a backlog that has
 been accumulating for weeks, but the star fires once, at push time, on a job the
@@ -36,7 +44,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 from db import get_client
-from gold_star import star_reasons
+from gold_star import star_reasons, _norm_company
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                     datefmt="%H:%M:%S", stream=sys.stdout)
@@ -133,12 +141,23 @@ def main() -> int:
     for company, n in companies.most_common(15):
         print(f"    {n:>4}  {company}")
     print()
-    if pct > 5:
-        print(f"  ⚠  {pct:.1f}% is above the ~5% rule of thumb. Tighten the thresholds")
-        print("     or trim the company list in web/lib/star_rules.json -- a star on")
-        print("     everything is a star on nothing.")
-    else:
-        print(f"  {pct:.1f}% is within the ~5% rule of thumb.")
+    print("  EVIDENCE FOR EVERY STAR THIS WEEK -- check these for false positives.")
+    print("  A star is correct when the posting meets the criteria; the count is not")
+    print("  the thing to judge, the reasons are.")
+    print()
+    for r in sorted(starred, key=lambda x: str(x.get("found_at") or ""), reverse=True):
+        if _weeks_ago(r.get("found_at")) != 0:
+            continue
+        why = []
+        for reason in star_reasons(r):
+            if reason == "company":
+                why.append(f"company={_norm_company(r.get('company')) or '?'}")
+            elif reason == "salary":
+                why.append(f"salary={(r.get('salary') or '').strip()[:34]!r}")
+            else:
+                why.append(reason)
+        print(f"    {(r.get('company') or '?')[:22]:<22} {(r.get('title') or '')[:40]:<40}")
+        print(f"      -> {' | '.join(why)}")
     print()
     print("Read-only. Nothing was written.")
     return 0
