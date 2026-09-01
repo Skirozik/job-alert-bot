@@ -35,10 +35,17 @@
     "_comment": [
       "Lower bound of a stated range must clear these. A wide band like",
       "'$20 - $70/hr' must NOT qualify on its ceiling alone.",
-      "hourly ~= 45/hr ~= 93k annualised, so the two are roughly consistent."
+      "",
+      "35/hr x 2080 hours = 72,800/yr, so the two thresholds describe the same",
+      "pay rather than two different bars. Change them together or a posting",
+      "will star or not depending only on which unit it happened to quote.",
+      "",
+      "Set from the candidate's own stated line: anything paying $35+/hr is",
+      "worth a curated resume. Previously 45/90k, which was a guess and which",
+      "missed Wells Fargo despite it stating a salary."
     ],
-    "hourly": 45,
-    "annual": 90000
+    "hourly": 35,
+    "annual": 72800
   },
 
   "companies": [
