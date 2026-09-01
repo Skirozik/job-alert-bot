@@ -118,8 +118,14 @@ def main() -> int:
         for week in sorted(per_week):
             label = "this week" if week == 0 else f"{week} week(s) ago"
             print(f"    {label:<16} {per_week[week]:>4}  {'#' * min(per_week[week], 50)}")
-        recent = sum(n for w, n in per_week.items() if w < 4)
-        print(f"    -> {recent / 4:.1f} custom resumes a week over the last 4 weeks")
+        # Deliberately NOT a 4-week average. To apply only holds rows still
+        # status=new, so every week that passes drains as jobs get applied to
+        # or dismissed. Older buckets are survivors, not a record of what
+        # arrived, and averaging across them understates the real rate. Week 0
+        # is the least-drained bucket and so the only honest one.
+        print(f"    -> ~{per_week.get(0, 0)} custom resumes in the last 7 days.")
+        print("       Read that number, not an average across the older weeks --")
+        print("       those look small only because they have been actioned away.")
     else:
         print("    (no parseable found_at timestamps)")
     print()

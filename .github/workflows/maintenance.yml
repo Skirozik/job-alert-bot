@@ -25,6 +25,7 @@ on:
           - audit_apply_dupes
           - count_stars
           - audit_star_gaps
+          - star_whatif
           - dismiss_tiktok_bytedance
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
@@ -78,7 +79,8 @@ jobs:
           # accepting a `confirm: true` would imply it had written something.
           if [ "${{ inputs.task }}" = "audit_apply_dupes" ] \
              || [ "${{ inputs.task }}" = "count_stars" ] \
-             || [ "${{ inputs.task }}" = "audit_star_gaps" ]; then
+             || [ "${{ inputs.task }}" = "audit_star_gaps" ] \
+             || [ "${{ inputs.task }}" = "star_whatif" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
               echo "::notice::${{ inputs.task }} is read-only; 'confirm' is ignored"
             fi
