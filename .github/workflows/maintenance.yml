@@ -26,6 +26,7 @@ on:
           - count_stars
           - audit_star_gaps
           - star_whatif
+          - audit_recent_pushes
           - dismiss_tiktok_bytedance
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
@@ -80,7 +81,8 @@ jobs:
           if [ "${{ inputs.task }}" = "audit_apply_dupes" ] \
              || [ "${{ inputs.task }}" = "count_stars" ] \
              || [ "${{ inputs.task }}" = "audit_star_gaps" ] \
-             || [ "${{ inputs.task }}" = "star_whatif" ]; then
+             || [ "${{ inputs.task }}" = "star_whatif" ] \
+             || [ "${{ inputs.task }}" = "audit_recent_pushes" ]; then
             if [ "${{ inputs.confirm }}" = "true" ]; then
               echo "::notice::${{ inputs.task }} is read-only; 'confirm' is ignored"
             fi
