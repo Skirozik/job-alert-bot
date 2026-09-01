@@ -29,6 +29,7 @@ on:
           - audit_recent_pushes
           - audit_frozen_rows
           - requeue_rogue_rows
+          - repair_descriptionless_promotions
           - dismiss_tiktok_bytedance
       confirm:
         description: 'WRITE for real? Leave false for a dry run you can review first.'
@@ -110,6 +111,7 @@ jobs:
             backfill_target_keys) FLAG="--apply"   ;;
             dedupe_existing)      FLAG="--execute" ;;
             requeue_rogue_rows)   FLAG="--execute" ;;
+            repair_descriptionless_promotions) FLAG="--execute" ;;
             *) echo "::error::unknown task"; exit 1 ;;
           esac
 
