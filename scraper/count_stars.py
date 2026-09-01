@@ -8,6 +8,14 @@ to web/lib/star_rules.json.
 RULE OF THUMB: if more than ~5% of To apply is starred, tighten the thresholds
 or trim the company list before shipping.
 
+READ THE ARRIVAL RATE, NOT ONLY THE PERCENTAGE. To apply is a backlog that has
+been accumulating for weeks, but the star fires once, at push time, on a job the
+day it is found. The number that decides whether the feature is usable is
+"starred jobs per week", because that is how many custom resumes it is asking
+for. A scary-looking percentage against a large backlog can still be a
+manageable two or three a week, and a comfortable percentage can still be
+unusable if they all land on one day.
+
 No write path, no --apply, no --execute, and it never reads sys.argv -- so there
 is no flag that could turn it into something that writes.
 
@@ -18,6 +26,7 @@ Run from the scraper directory:
 import logging
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,7 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 PAGE = 1000
-COLS = "id,company,title,salary,is_easy_apply,suggested_resume,tier,status"
+COLS = "id,company,title,salary,is_easy_apply,suggested_resume,tier,status,found_at"
 
 
 def _fetch_to_apply(client) -> list:
@@ -54,11 +63,27 @@ def _fetch_to_apply(client) -> list:
     return rows
 
 
+def _weeks_ago(found_at):
+    """How many whole weeks back this job was discovered, or None if unparseable."""
+    if not found_at:
+        return None
+    try:
+        # Supabase returns ISO with a trailing Z, which fromisoformat rejects
+        # before Python 3.11.
+        ts = datetime.fromisoformat(str(found_at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return max(0, (datetime.now(timezone.utc) - ts).days // 7)
+
+
 def main() -> int:
     rows = _fetch_to_apply(get_client())
     log.info("Loaded %d rows from To apply (tier=APPLY only)", len(rows))
 
     starred, by_reason, companies, easy_blocked = [], Counter(), Counter(), 0
+    per_week = Counter()
     for r in rows:
         reasons = star_reasons(r)
         if reasons:
@@ -66,6 +91,9 @@ def main() -> int:
             for x in reasons:
                 by_reason[x] += 1
             companies[r.get("company") or "?"] += 1
+            week = _weeks_ago(r.get("found_at"))
+            if week is not None:
+                per_week[week] += 1
         elif r.get("is_easy_apply") and star_reasons({**r, "is_easy_apply": False}):
             # Would have starred but for the Easy Apply gate. Worth surfacing:
             # if this number is large the gate is doing most of the filtering,
@@ -83,6 +111,17 @@ def main() -> int:
     print("  by reason (a job can have several):")
     for reason, n in by_reason.most_common():
         print(f"    {reason:<10} {n}")
+    print()
+    print("  starred ARRIVALS per week -- this is the real workload, one custom")
+    print("  resume each. The percentage above is against a backlog; this is not.")
+    if per_week:
+        for week in sorted(per_week):
+            label = "this week" if week == 0 else f"{week} week(s) ago"
+            print(f"    {label:<16} {per_week[week]:>4}  {'#' * min(per_week[week], 50)}")
+        recent = sum(n for w, n in per_week.items() if w < 4)
+        print(f"    -> {recent / 4:.1f} custom resumes a week over the last 4 weeks")
+    else:
+        print("    (no parseable found_at timestamps)")
     print()
     print("  top starred companies:")
     for company, n in companies.most_common(15):
