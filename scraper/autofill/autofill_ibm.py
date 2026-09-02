@@ -396,7 +396,7 @@ def login(url: Optional[str] = None) -> None:
 def run(job_id: Optional[str] = None, resume_variant: str = "IBM",
         dry_run: bool = False, advance: bool = True,
         url: Optional[str] = None, show_options: bool = False,
-        stop_at: Optional[str] = None) -> None:
+        stop_at: Optional[str] = None, resume_file: Optional[str] = None) -> None:
     apply_url, label = _resolve_target(job_id, url)
     if apply_url is None:
         return
@@ -415,6 +415,19 @@ def run(job_id: Optional[str] = None, resume_variant: str = "IBM",
             log.error("  %s", p)
         return
 
+    # --resume-file is registered as a synthetic variant rather than threaded
+    # through as a separate argument. resolve_resume_path already accepts an
+    # absolute path, and the resume travels downstream as
+    # job["suggested_resume"], so this reaches the uploader with no other
+    # change and no second code path to keep in sync.
+    if resume_file:
+        explicit = Path(resume_file).expanduser()
+        if not explicit.is_file():
+            log.error("Resume file not found: %s", explicit)
+            return
+        profile.setdefault("resumes", {}).setdefault("by_variant", {})["_explicit"] = str(explicit)
+        resume_variant = "_explicit"
+
     # Fail on a missing resume now rather than three steps into the wizard.
     if not dry_run:
         try:
@@ -431,7 +444,12 @@ def run(job_id: Optional[str] = None, resume_variant: str = "IBM",
         "suggested_resume": resume_variant,
     }
     log.info("Job: %s [ibm]", job["apply_url"])
-    log.info("Resume: %s", resume_variant)
+    # The FILENAME, not just the variant: with a different resume per
+    # requisition, "Resume: IBM" is not enough to confirm the right one went up.
+    try:
+        log.info("Resume: %s  (%s)", resolve_resume_path(profile, resume_variant).name, resume_variant)
+    except ProfileError:
+        log.info("Resume: %s", resume_variant)
 
     _warn_if_profile_busy()
     pw, context, page = launch_browser()
@@ -545,6 +563,7 @@ _USAGE = (
     "                     (e.g. --stop-at 60), so you can inspect the page\n"
     "  --no-advance       stop at the FIRST step that fills something, which\n"
     "                     is usually 40% — use --stop-at to pick a step\n"
+    "  --resume-file PATH one-off: upload exactly this file, ignoring --resume\n"
     "  --resume VARIANT   IBM (default), General, Mobile, AI, Frontend\n"
 )
 
@@ -574,6 +593,7 @@ if __name__ == "__main__":
     # run of THIS script is an IBM application, so the company-specific resume
     # is the right default and the generic one is the exception.
     variant = take_value("--resume", "--resume needs a variant (IBM, General, Mobile, AI, Frontend)") or "IBM"
+    resume_path = take_value("--resume-file", "--resume-file needs a path to a .pdf")
     target_url = take_value("--url", "--url needs the full application URL")
     stop_at_pct = take_value("--stop-at", "--stop-at needs a progress percent, e.g. --stop-at 60")
 
@@ -594,6 +614,7 @@ if __name__ == "__main__":
     run(
         positional[0] if positional else None,
         resume_variant=variant,
+        resume_file=resume_path,
         dry_run="--dry-run" in flags,
         advance="--no-advance" not in flags,
         url=target_url,
