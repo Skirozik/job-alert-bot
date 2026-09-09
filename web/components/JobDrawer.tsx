@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { Job, Status } from '@/types/job'
+import { TailoredResume } from './TailoredResume'
 import { APPLIED_OR_LATER } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
 import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect } from '@/lib/jobView'
@@ -161,6 +162,9 @@ export function JobDrawer({
             </dd>
           </>)}
         </dl>
+
+        <TailoredResume jobId={job.id} />
+
 
         {/* Why this is starred. Follows the tier block's idiom below -- colour
             chip, uppercase meta label, prose -- because it answers the same
