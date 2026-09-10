@@ -21,7 +21,10 @@ import { useCallback, useEffect, useState } from 'react'
  */
 
 type Build = {
-  status: 'claimed' | 'planned' | 'render_requested' | 'rendered' | 'failed'
+  // 'ineligible' is a verdict the tailor reached, not an error it hit — the
+  // plan exists and says why. It is kept distinct from 'failed' because the
+  // retry policy must not spend two more tailor calls re-deriving it.
+  status: 'claimed' | 'planned' | 'render_requested' | 'rendered' | 'failed' | 'ineligible'
   plan?: {
     ordering_signal?: string
     analogue?: string | null
@@ -40,6 +43,7 @@ const LABEL: Record<Build['status'], string> = {
   render_requested: 'Render queued',
   rendered: 'PDF ready',
   failed: 'Build failed',
+  ineligible: 'Not a fit',
 }
 
 export function TailoredResume({ jobId }: { jobId: string }) {
@@ -127,7 +131,7 @@ export function TailoredResume({ jobId }: { jobId: string }) {
         <button
           onClick={request}
           disabled={busy || build.status === 'claimed' || build.status === 'failed'
-                    || build.status === 'render_requested'}
+                    || build.status === 'ineligible' || build.status === 'render_requested'}
           style={{
             height: 28, padding: '0 var(--s3)', fontSize: 'var(--text-data)',
             color: 'var(--fg)', background: 'var(--bg-active)',
