@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requirePersonaApi } from '@/lib/auth'
+import { SIBLING_CAP, mergeSiblingIds, pgList, siblingIdentities } from '@/lib/siblings'
 
 const VALID_STATUSES = [
   'new', 'saved', 'applied', 'dismissed',
@@ -23,6 +24,60 @@ function idFilter(ids: string[]): string {
 
 function parseJson(text: string): any {
   try { return JSON.parse(text) } catch { return null }
+}
+
+/**
+ * Widen a status write to every row that is the SAME POSTING.
+ *
+ * The client sends the dupes.ts display group, which is a fuzzy near-duplicate
+ * cluster. That misses cross-source twins it did not happen to cluster, and a
+ * missed twin stays 'new' and drifts back into To apply — measured at 60 rows,
+ * 18 of them starred. Joining on target_key/norm_key instead makes this route
+ * agree with scraper/db.py and the resume builder about what one job is.
+ *
+ * NEVER FATAL. Every failure path returns the original ids, because the write
+ * the user actually asked for must land even if the widening cannot run. A
+ * missed twin is the bug we already had; a dead button is worse.
+ */
+async function widenToSiblings(
+  url: string,
+  key: string,
+  ids: string[],
+): Promise<{ ids: string[], added: number, note: string }> {
+  const headers = { apikey: key, Authorization: `Bearer ${key}` }
+  const fail = (note: string) => ({ ids, added: 0, note })
+
+  const seedRes = await fetch(
+    `${url}/rest/v1/jobs?id=${encodeURIComponent(idFilter(ids))}&select=id,target_key,norm_key`,
+    { headers, cache: 'no-store' }
+  )
+  if (!seedRes.ok) return fail(`seed-read-${seedRes.status}`)
+  const seeds = parseJson(await seedRes.text())
+  if (!Array.isArray(seeds) || !seeds.length) return fail('no-seed-rows')
+
+  const { targetKeys, normKeys } = siblingIdentities(seeds)
+  const found: { id: string }[] = []
+  for (const [column, values] of [['target_key', targetKeys], ['norm_key', normKeys]] as const) {
+    if (!values.length) continue
+    const res = await fetch(
+      `${url}/rest/v1/jobs?${column}=in.${encodeURIComponent(pgList(values))}&select=id`,
+      { headers, cache: 'no-store' }
+    )
+    if (!res.ok) return fail(`${column}-read-${res.status}`)
+    const rows = parseJson(await res.text())
+    if (Array.isArray(rows)) found.push(...rows)
+  }
+
+  // Re-validated even though these came from our own table: the ids flow
+  // straight back into a PostgREST filter, and defence in depth costs one
+  // regex per row.
+  const safe = found.filter((r) => typeof r?.id === 'string' && JOB_ID.test(r.id))
+  const merged = mergeSiblingIds(ids, safe, SIBLING_CAP)
+  return {
+    ids: merged.ids,
+    added: merged.added,
+    note: merged.truncated ? `truncated-${merged.truncated}` : 'ok',
+  }
 }
 
 async function legacyVerifiedUpdate(
@@ -100,8 +155,9 @@ export async function PATCH(
   // the next refresh. The client therefore sends the complete group, while a
   // legacy/single-row request continues to work unchanged.
   const requested = Array.isArray(body?.ids) ? body.ids : []
-  const ids = [...new Set([params.id, ...requested])]
-  if (ids.length > MAX_GROUP || ids.some((id) => typeof id !== 'string' || !JOB_ID.test(id))) {
+  const clientIds = [...new Set([params.id, ...requested])]
+  if (clientIds.length > MAX_GROUP
+      || clientIds.some((id) => typeof id !== 'string' || !JOB_ID.test(id))) {
     return NextResponse.json({ error: 'Invalid job ids' }, { status: 400 })
   }
 
@@ -114,6 +170,16 @@ export async function PATCH(
   }
 
   const requestId = crypto.randomUUID()
+
+  // The group the CLIENT could see is only the fuzzy display cluster. Widen it
+  // to the rows that are provably the same posting before writing anything, so
+  // one click resolves the job rather than one of its three rows.
+  const widened = await widenToSiblings(url, key, clientIds)
+  const ids = widened.ids
+  if (widened.added || widened.note !== 'ok') {
+    console.log(`[status] request=${requestId} widened ${clientIds.length}`
+                + `->${ids.length} (+${widened.added}, ${widened.note})`)
+  }
   let mode: 'atomic-rpc' | 'verified-fallback' = 'atomic-rpc'
   let updatedRows: UpdatedRow[] | undefined
 
