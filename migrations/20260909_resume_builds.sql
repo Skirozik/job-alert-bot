@@ -123,6 +123,19 @@ begin
 end;
 $$;
 
+-- RLS with no policies: deny by default for every browser-facing role.
+--
+-- This does NOT affect the two callers. Both the local builder and the
+-- dashboard's server route authenticate as service_role, which bypasses RLS,
+-- so there is nothing to write a policy FOR -- an empty policy set is the
+-- correct end state here, not an unfinished one.
+--
+-- It overlaps with the revokes below on purpose. Grants and RLS are
+-- independent defences: the day someone adds a convenience `grant select` to
+-- authenticated, the revokes stop protecting this table and RLS still does.
+-- Supabase's linter flags a table created without it, and the linter is right.
+alter table public.resume_builds enable row level security;
+
 -- Called only from the local builder and the dashboard's server route, both of
 -- which authenticate with the persona service key. Never expose a write to a
 -- browser-side role.
