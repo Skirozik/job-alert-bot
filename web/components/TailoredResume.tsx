@@ -35,6 +35,21 @@ type Build = {
   final_y?: number | null
   last_error?: string | null
   rendered_at?: string | null
+  pdf_path?: string | null
+}
+
+/* Which file to upload, and nothing more of the path.
+ *
+ * The filename deliberately carries no role — it travels with the application,
+ * and "Ifiok_Zachary_Ame_Data_Engineering.pdf" tells the employer it was built
+ * for that exact req. The cost is that nine American Express builds are
+ * Ame.pdf, Ame_Phoenix.pdf, Ame_6280.pdf and so on, which is unreadable in a
+ * folder. This panel is where that gets resolved: open the job, read the
+ * filename, upload it. The folder never has to be self-describing. */
+function fileName(p: string | null | undefined): string | null {
+  if (!p) return null
+  const parts = p.split(/[\\/]/)
+  return parts[parts.length - 1] || null
 }
 
 const LABEL: Record<Build['status'], string> = {
@@ -96,6 +111,19 @@ export function TailoredResume({ jobId }: { jobId: string }) {
           {build.final_y != null && build.status === 'rendered' ? ` · final y ${build.final_y}` : ''}
         </span>
       </div>
+
+      {build.status === 'rendered' && fileName(build.pdf_path) && (
+        <p style={{ fontSize: 'var(--text-data)', margin: '0 0 var(--s2)',
+                    lineHeight: 1.45, color: 'var(--fg)' }}>
+          <strong style={{ color: 'var(--fg-subtle)', fontWeight: 600 }}>Upload: </strong>
+          <code style={{ fontSize: 'var(--text-meta)', background: 'var(--bg-active)',
+                         padding: '1px 5px', borderRadius: 'var(--radius)',
+                         wordBreak: 'break-all' }}>
+            {fileName(build.pdf_path)}
+          </code>
+          <span style={{ color: 'var(--fg-subtle)' }}> · in resumes/tailored/</span>
+        </p>
+      )}
 
       {plan?.ordering_signal && (
         <p style={{ fontSize: 'var(--text-data)', color: 'var(--fg)', margin: '0 0 var(--s2)',
