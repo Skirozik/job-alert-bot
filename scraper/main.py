@@ -45,8 +45,8 @@ from external_descriptions import fetch_external_description
 from classifier import classify
 from notifier import push_job, push_canary
 from db import (
-    find_known_candidates, make_norm_key, insert_job, start_run, finish_run,
-    fetch_pending_jobs, count_pending_jobs, update_job_classification,
+    find_known_candidates, make_norm_key, norm_company, insert_job, start_run,
+    finish_run, fetch_pending_jobs, count_pending_jobs, update_job_classification,
     get_job_row, claim_notification, get_state, set_state, clear_state,
 )
 
@@ -197,6 +197,23 @@ def _is_non_internship_title(title: str) -> bool:
     return not (_INTERN_TITLE_RE.search(title.lower()) or _is_student_worker_title(title))
 
 
+# Employers the candidate cannot be hired by, so a posting from one is noise no
+# matter how well it classifies. Kept as a plain set rather than a fixture file
+# because nothing else reads it -- gold_star.py does not need to know, since a
+# blocked row never reaches tier APPLY and star_reasons already gates on that.
+#
+# Matched on whole TOKENS of the normalised name, not substrings: a substring
+# test would also catch an unrelated "Tiktoken". Normalising via
+# db.norm_company is what collapses the five spellings these arrive under --
+# "TikTok", "ByteDance", "TikTok USDS Joint Venture", and the emoji-prefixed
+# variants the GitHub trackers emit -- into two tokens.
+BLOCKED_COMPANIES = {"tiktok", "bytedance"}
+
+
+def _is_blocked_company(company: str) -> bool:
+    return bool(BLOCKED_COMPANIES & set(norm_company(company or "").split()))
+
+
 MAX_PAGES_PER_SEARCH = 10  # 100 results max per search term/location pair
 # Was 5 (50 results). Confirmed live that LinkedIn's guest search endpoint
 # does NOT reliably return newest-first, despite the assumption embedded in
@@ -243,6 +260,26 @@ def process_job(job: dict) -> bool:
     if existing is not None and existing.get("tier") != "PENDING":
         log.info("  Already stored [tier=%s status=%s] — no re-fetch, no re-classify, no push",
                  existing.get("tier"), existing.get("status"))
+        return False
+
+    # A blocked employer stops here: before the description fetch and before
+    # the Claude call, so one normalised token compare replaces a page fetch
+    # plus a classification. Measured over the fleet's life these were 580
+    # rows, 297 of which had already been dismissed by hand.
+    #
+    # AFTER the already-stored check on purpose. A row that is already in the
+    # table keeps whatever status it has, so the applications made before the
+    # block was added are not rewritten.
+    #
+    # Stored, not dropped. A row that is never stored is never in the dedup
+    # index, so it would be rediscovered, re-fetched and re-classified on
+    # every run, forever.
+    if _is_blocked_company(job.get("company", "")):
+        log.info("  Pre-filter SKIP (blocked employer)")
+        job["tier"] = "INELIGIBLE"
+        job["reason"] = "Pre-filtered: employer on the blocked list"
+        job["suggested_resume"] = "General"
+        insert_job(job)
         return False
 
     # Fetch description + logo + apply info. LinkedIn jobs get a full
