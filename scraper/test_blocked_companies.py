@@ -44,6 +44,22 @@ for name in ("Stripe", "Adobe", "Rivian", "Byte", "Dance", "TikTok Rivals Inc"):
         continue                      # genuinely contains the token; blocking is correct
     check(f"allowed: {name!r}", not _is_blocked_company(name))
 
+# ---- multi-word entries match as a PHRASE, not as tokens -----------------
+# "american express" cannot be a token match: "american" would catch American
+# Airlines and "express" would catch Express Scripts. Added 2026-09-10 at
+# Zach's request after nine Amex resumes were built and deleted.
+for name in ("American Express", "american express", "AMERICAN EXPRESS",
+             "American Express National Bank", "American Express, Inc.",
+             "American Express Global Business Travel"):
+    check(f"blocked: {name!r}", _is_blocked_company(name))
+
+for name in ("American Airlines", "Bank of America", "Express Scripts",
+             "American Water Works", "FedEx Express", "Americas Styrenics"):
+    check(f"allowed: {name!r}", not _is_blocked_company(name))
+
+check("a single-word entry still matches as a token", _is_blocked_company("TikTok"))
+check("the block list holds the phrase", "american express" in BLOCKED_COMPANIES)
+
 # ---- degenerate input ----------------------------------------------------
 for bad in (None, "", "   ", "!!!"):
     check(f"empty-ish {bad!r} is not blocked", not _is_blocked_company(bad))
