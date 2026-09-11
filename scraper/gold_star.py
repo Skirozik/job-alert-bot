@@ -49,8 +49,25 @@ _MOBILE_TITLE = re.compile(r"\b(ios|swift|swiftui|android|mobile|react native)\b
 
 # "$45.00", "$45", "$120,000" -- the money shapes that actually appear in the
 # salary column, which is free display text and never a number.
-_MONEY = re.compile(r"\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
+# The k suffix is captured: "$200k-$260k" otherwise reads as 200, falls to the
+# magnitude branch as an hourly rate, and annualises to $416,000.
+_MONEY = re.compile(r"\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k\b)?", re.I)
 _HOURLY_HINT = re.compile(r"\b(per\s*hour|/\s*hr|hourly|an\s*hour)\b", re.I)
+# Biweekly is tested BEFORE weekly or "biweekly" reads as weekly and doubles.
+_BIWEEKLY = re.compile(r"\bbi-?weekly\b|\bevery\s+two\s+weeks\b", re.I)
+_PER_WEEK = re.compile(r"\b(per\s*week|weekly)\b|/\s*w(k|eek)\b", re.I)
+_PER_MONTH = re.compile(r"\b(per\s*month|monthly)\b|/\s*mo(nth)?\b", re.I)
+_PER_YEAR = re.compile(r"\b(per\s*year|annually|annualized|annualised|a\s*year)\b"
+                       r"|/\s*(yr|year)\b", re.I)
+# A bonus written after the band, never part of it.
+_ADDER = re.compile(r"\b(plus|additional)\b|\+", re.I)
+
+_HOURS_PER_YEAR = 2080
+
+# Above this, the figure is a scraper artifact rather than pay. Intel posts
+# "$91,198-$91,202/hr" -- annual numbers mislabelled hourly -- which annualises
+# to $189,691,840 and clears any threshold trivially.
+_MAX_PLAUSIBLE_ANNUAL = 500_000
 
 _rules = None
 
@@ -78,35 +95,75 @@ def _starred_companies() -> set:
     return {_norm_company(name) for name in _load()["companies"]}
 
 
-def _salary_clears_bar(salary) -> bool:
-    """True when the LOWER bound of a stated range clears the threshold.
+def _annual_salary(salary):
+    """The posting's pay as one annual number, or None when it states none.
 
-    Lower bound, not upper, and not the average: a posting advertising
-    "$20 - $70/hr" is a $20/hr job with a ceiling, and starring it on the
-    ceiling would be exactly the kind of false positive that turns the star
-    into wallpaper.
+    THE MEDIAN OF THE BAND, not its floor (changed 2026-09-11). The floor was
+    chosen to stop a high ceiling creating false stars, and it did -- but it
+    also sank every wide band regardless of its midpoint, and a wide band is
+    how the best-paying employers post. IBM's "$61,200-$138,600" and Cisco's
+    "$44,000-$185,000" both failed the bar on a floor that is the
+    rising-sophomore end of the range. Measured on the live table: 110 open
+    APPLY rows clear the bar on the median that the floor denied.
+
+    EVERY UNIT ANNUALISES. The old rule knew only hourly and treated anything
+    else as a yearly figure, so Composio's "$10,000/mo" read as a $10,000-a-year
+    job and earned no star against a $120,000 reality. Weekly, biweekly and
+    monthly are now read explicitly, and an explicit unit always beats the
+    magnitude fallback.
     """
     text = (salary or "").strip()
     if not text:
-        return False
+        return None
+
+    # Amounts come from the part BEFORE any adder: "$21.80-$29.10/hr plus
+    # $5.09/hr differential" is a band and a bonus, and counting the bonus
+    # drags the median down. Units are read from the whole string, since a
+    # "plus" clause sometimes carries the only "/hr" in the text.
+    band = _ADDER.split(text)[0]
     amounts = []
-    for raw in _MONEY.findall(text):
+    for raw, k in _MONEY.findall(band):
         try:
-            amounts.append(float(raw.replace(",", "")))
+            amounts.append(float(raw.replace(",", "")) * (1000 if k else 1))
         except ValueError:
             continue
     if not amounts:
-        return False
+        return None
+    # A $0 floor is a placeholder, and the median hides it: "$0 - $200,000"
+    # medians to a perfectly plausible $100,000. No real posting floors at zero.
+    if min(amounts) == 0:
+        return None
 
-    low = min(amounts)
-    th = _load()["thresholds"]
-    # Decide the unit from the text where it says so, and fall back to
-    # magnitude. A four-figure-plus number is never an hourly rate.
+    amounts.sort()
+    n = len(amounts)
+    mid = amounts[n // 2] if n % 2 else (amounts[n // 2 - 1] + amounts[n // 2]) / 2
+
+    if _BIWEEKLY.search(text):
+        return mid * 26
+    if _PER_WEEK.search(text):
+        return mid * 52
+    if _PER_MONTH.search(text):
+        return mid * 12
     if _HOURLY_HINT.search(text):
-        return low >= th["hourly"]
-    if low >= 1000:
-        return low >= th["annual"]
-    return low >= th["hourly"]
+        return mid * _HOURS_PER_YEAR
+    if _PER_YEAR.search(text):
+        return mid
+    # No unit stated. Decided on the band's FLOOR, not its median: a
+    # "$900 - $1,200" band medians above 1000 and would flip to annual on the
+    # midpoint alone. A four-figure-plus number is never an hourly rate.
+    return mid if amounts[0] >= 1000 else mid * _HOURS_PER_YEAR
+
+
+def _salary_clears_bar(salary) -> bool:
+    """True when the annualised median clears the threshold."""
+    annual = _annual_salary(salary)
+    if annual is None:
+        return False
+    # Garbage clears any floor trivially, and switching to a median made that
+    # worse rather than better, so it is rejected rather than starred.
+    if annual > _MAX_PLAUSIBLE_ANNUAL:
+        return False
+    return annual >= _load()["thresholds"]["annual"]
 
 
 def star_reasons(job: dict) -> list:

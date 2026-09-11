@@ -71,8 +71,18 @@ check('hourly above the bar', sal('$60/hr').includes('salary'))
 check('hourly below the bar', sal('$18/hr').length === 0)
 check('annual above the bar', sal('$150,000 per year').includes('salary'))
 check('annual below the bar', sal('$40,000 per year').length === 0)
-check('range uses the lower bound', sal('$20 - $90 per hour').length === 0,
-  'starring on the ceiling is how a badge becomes noise')
+// Changed 2026-09-11: the band is judged on its MEDIAN. The floor sank every
+// wide band regardless of its midpoint, and a wide band is how the best payers
+// post — IBM's "$61,200–$138,600" failed the bar on its rising-sophomore end.
+check('range uses the median', sal('$20 - $90 per hour').includes('salary'),
+  '$55/hr median clears the $35/hr bar')
+check('a band under the bar at BOTH ends still does not star',
+  sal('$20 - $28 per hour').length === 0)
+check('monthly pay annualises', sal('$10,000/mo').includes('salary'))
+check('weekly pay annualises', sal('$2,400/week').includes('salary'))
+check('biweekly is not read as weekly', sal('$1,635 - $3,185 biweekly').length === 0)
+check('a $0 floor never stars', sal('$0 - $200,000').length === 0)
+check('an implausible figure is rejected', sal('$91,198 - $91,202/hr').length === 0)
 check('null salary', sal(null).length === 0)
 check('prose with no figure', sal('competitive compensation').length === 0)
 check('a bare four-figure number reads as annual', sal('$95,000').includes('salary'))

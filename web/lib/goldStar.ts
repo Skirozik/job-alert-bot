@@ -47,32 +47,84 @@ function normCompany(raw: string | null | undefined): string {
 const STARRED_COMPANIES = new Set(rules.companies.map(normCompany))
 
 const MOBILE_TITLE = /\b(ios|swift|swiftui|android|mobile|react native)\b/i
-const MONEY = /\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/g
+// Mirror of scraper/gold_star.py. Both sides assert every `cases` entry in
+// star_rules.json, so a change here that is not made there turns a test red in
+// both suites -- which is the point.
+//
+// The k suffix is captured: "$200k-$260k" otherwise reads as 200, falls to the
+// magnitude branch as an hourly rate, and annualises to $416,000.
+const MONEY = /\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k\b)?/gi
 const HOURLY_HINT = /\b(per\s*hour|\/\s*hr|hourly|an\s*hour)\b/i
+// Biweekly is tested BEFORE weekly or "biweekly" reads as weekly and doubles.
+const BIWEEKLY = /\bbi-?weekly\b|\bevery\s+two\s+weeks\b/i
+const PER_WEEK = /\b(per\s*week|weekly)\b|\/\s*w(k|eek)\b/i
+const PER_MONTH = /\b(per\s*month|monthly)\b|\/\s*mo(nth)?\b/i
+const PER_YEAR = /\b(per\s*year|annually|annualized|annualised|a\s*year)\b|\/\s*(yr|year)\b/i
+// A bonus written after the band, never part of it.
+const ADDER = /\b(plus|additional)\b|\+/i
 
-/** True when the LOWER bound of a stated range clears the threshold.
+const HOURS_PER_YEAR = 2080
+
+// Above this the figure is a scraper artifact rather than pay. Intel posts
+// "$91,198-$91,202/hr" -- annual numbers mislabelled hourly -- which
+// annualises to $189,691,840 and clears any threshold trivially.
+const MAX_PLAUSIBLE_ANNUAL = 500_000
+
+/** The posting's pay as one annual number, or null when it states none.
  *
- * Lower bound, not upper and not the average: "$20 - $70/hr" is a $20/hr job
- * with a ceiling, and starring it on that ceiling is exactly the false positive
- * that turns the badge into noise. */
-function salaryClearsBar(salary: string | null | undefined): boolean {
+ * THE MEDIAN OF THE BAND, not its floor (changed 2026-09-11). The floor was
+ * chosen to stop a high ceiling creating false stars, and it did — but it also
+ * sank every wide band regardless of its midpoint, and a wide band is how the
+ * best-paying employers post. IBM's "$61,200–$138,600" and Cisco's
+ * "$44,000–$185,000" both failed the bar on a floor that is the
+ * rising-sophomore end of the range. Measured on the live table: 110 open APPLY
+ * rows clear the bar on the median that the floor denied.
+ *
+ * EVERY UNIT ANNUALISES. The old rule knew only hourly and treated anything
+ * else as a yearly figure, so Composio's "$10,000/mo" read as a $10,000-a-year
+ * job and earned no star against a $120,000 reality. */
+function annualSalary(salary: string | null | undefined): number | null {
   const text = (salary ?? '').trim()
-  if (!text) return false
+  if (!text) return null
 
+  // Amounts come from the part BEFORE any adder: "$21.80–$29.10/hr plus
+  // $5.09/hr differential" is a band and a bonus, and counting the bonus drags
+  // the median down. Units are read from the whole string, since a "plus"
+  // clause sometimes carries the only "/hr" in the text.
+  const band = text.split(ADDER)[0]
   const amounts: number[] = []
-  for (const m of text.matchAll(MONEY)) {
-    const n = Number(m[1].replace(/,/g, ''))
+  for (const m of band.matchAll(MONEY)) {
+    const n = Number(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)
     if (Number.isFinite(n)) amounts.push(n)
   }
-  if (!amounts.length) return false
+  if (!amounts.length) return null
+  // A $0 floor is a placeholder, and the median hides it: "$0 - $200,000"
+  // medians to a perfectly plausible $100,000. No real posting floors at zero.
+  if (Math.min(...amounts) === 0) return null
 
-  const low = Math.min(...amounts)
-  const { hourly, annual } = rules.thresholds
-  // Unit from the text where it says so; otherwise from magnitude — a
-  // four-figure-plus number is never an hourly rate.
-  if (HOURLY_HINT.test(text)) return low >= hourly
-  if (low >= 1000) return low >= annual
-  return low >= hourly
+  const sorted = [...amounts].sort((x, y) => x - y)
+  const n = sorted.length
+  const mid = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+
+  if (BIWEEKLY.test(text)) return mid * 26
+  if (PER_WEEK.test(text)) return mid * 52
+  if (PER_MONTH.test(text)) return mid * 12
+  if (HOURLY_HINT.test(text)) return mid * HOURS_PER_YEAR
+  if (PER_YEAR.test(text)) return mid
+  // No unit stated. Decided on the band's FLOOR, not its median: a
+  // "$900 - $1,200" band medians above 1000 and would flip to annual on the
+  // midpoint alone. A four-figure-plus number is never an hourly rate.
+  return sorted[0] >= 1000 ? mid : mid * HOURS_PER_YEAR
+}
+
+/** True when the annualised median clears the threshold. */
+function salaryClearsBar(salary: string | null | undefined): boolean {
+  const annual = annualSalary(salary)
+  if (annual === null) return false
+  // Garbage clears any floor trivially, and switching to a median made that
+  // worse rather than better, so it is rejected rather than starred.
+  if (annual > MAX_PLAUSIBLE_ANNUAL) return false
+  return annual >= rules.thresholds.annual
 }
 
 /** Why this job is starred, or [] when it is not.
