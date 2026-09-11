@@ -182,7 +182,7 @@ export function JobTable({
         <SortHead label="Role"       col="title"    sort={sort} dir={dir} onSort={onSort} style={cell} />
         <SortHead label="Location"   col="location" sort={sort} dir={dir} onSort={onSort} style={cell} />
         {cols.source && <SortHead label="Source" sort={sort} dir={dir} onSort={onSort} style={cell} />}
-        {cols.salary && <SortHead label="Salary" sort={sort} dir={dir} onSort={onSort} style={{ ...cell, textAlign: 'right' }} />}
+        {cols.salary && <SortHead label="Salary" col="salary" sort={sort} dir={dir} onSort={onSort} style={{ ...cell, textAlign: 'right' }} />}
         {cols.resume && <SortHead label="Resume" sort={sort} dir={dir} onSort={onSort} style={cell} />}
         <SortHead label="Discovered" col="found_at" sort={sort} dir={dir} onSort={onSort} style={cell} />
         <span />

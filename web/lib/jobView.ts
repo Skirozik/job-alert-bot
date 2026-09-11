@@ -170,7 +170,99 @@ export function visibleOptionalColumns(rows: Job[]): Record<OptionalCol, boolean
 }
 
 /* ── Sorting ─────────────────────────────────────────────────────────────*/
-export type SortKey = 'company' | 'title' | 'location' | 'found_at'
+/* Salary as one annual number, for sorting only. Null when the string carries
+ * no figure at all.
+ *
+ * The regex is a deliberate copy of goldStar.ts's MONEY rather than an import:
+ * this module is transpiled into a data: URL by statusMutations.test.mjs, and a
+ * data: URL cannot resolve a relative value import. Keep the two in step by
+ * hand; they answer different questions (does it clear a bar, vs how does it
+ * rank) and only share the shape of the money they read.
+ *
+ * EVERYTHING NORMALISES TO A YEAR, because the column mixes units freely --
+ * "$23-$43/hr" sits next to "$37,000 - $82,000 USD" and neither sorts against
+ * the other as written. 2080 hours matches star_rules.json, where 35/hr and
+ * 72,800/yr are defined as the same pay.
+ *
+ * BIWEEKLY IS WHY THIS IS NOT JUST goldStar's PARSER. "$1,635.00 - $3,185.00
+ * biweekly" appears 18 times in the live table. A magnitude-only fallback reads
+ * 1,635 as four figures, calls it annual, and ranks a $42,510/yr job below a
+ * $20/hr one. Weekly and monthly are handled for the same reason.
+ *
+ * THE LOWER BOUND RANKS, never the upper: "$20 - $70/hr" is a $20/hr job with a
+ * ceiling, and sorting it on 70 would push it above a flat $60/hr that pays
+ * more. That is the same call salaryClearsBar makes, for the same reason. */
+/* The k suffix is captured, not ignored. "$200k-$260k" otherwise reads as 200,
+ * falls through to the magnitude fallback as an hourly rate, and annualises to
+ * $416,000 -- and the k-form is how the best-paying rows are written, so every
+ * one of them led the board at roughly double its real pay. */
+const SALARY_MONEY = /\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k\b)?/gi
+const PER_HOUR = /\b(?:per\s*hour|hourly|an\s*hour)\b|\/\s*(?:hr|hour)\b/i
+const BIWEEKLY = /\bbi-?weekly\b|\bevery\s+two\s+weeks\b/i
+const PER_WEEK = /\b(?:per\s*week|weekly)\b|\/\s*w(?:k|eek)\b/i
+const PER_MONTH = /\b(?:per\s*month|monthly)\b|\/\s*mo(?:nth)?\b/i
+const PER_YEAR = /\b(?:per\s*year|annually|annualized|annualised|a\s*year)\b|\/\s*(?:yr|year)\b/i
+
+// A bonus or differential written after the band, never part of it.
+const ADDER = /\b(?:plus|additional)\b|\+/i
+
+const HOURS_PER_YEAR = 2080
+
+/* Sanity band for an internship, in annualised dollars. Outside it the number
+ * is a scraper artifact, not pay, and the honest answer is "unknown" -- which
+ * sorts last -- rather than a ranking built on nonsense.
+ *
+ * Every one of these is live data, and without the band they were the entire
+ * top of "highest first":
+ *   Intel        "$91,198-$91,202/hr"      annual figures mislabelled /hr -> $189,691,840
+ *   Clearwater   "$0.00 - $10,000,000.00"  placeholder range
+ *   Morningstar  "$500-$2,000 annually"    a stipend, not a salary
+ *   Gen Dynamics "$0.01-$0.02/yr"          placeholder
+ * The floor also keeps a flat "$1,000" total stipend from ranking against real
+ * pay. A row rejected here still DISPLAYS its raw string; only ranking ignores it. */
+const MIN_PLAUSIBLE = 10_000
+const MAX_PLAUSIBLE = 500_000
+
+export function annualSalary(raw: string | null | undefined): number | null {
+  const text = (raw ?? '').trim()
+  if (!text) return null
+
+  // Read amounts only from the part BEFORE any adder. "$21.80-$29.10/hr plus
+  // $5.09/hr differential" is a band and a bonus, and a global minimum takes
+  // the $5.09 as the salary, ranking a $45k co-op at $10,587. Counting the
+  // first two figures instead would fix that case and break "$30/hr plus
+  // $2/hr", which is one figure and an adder rather than a range. Cutting at
+  // the adder is what the sentence actually means, so it handles both.
+  //
+  // Units are still read from the WHOLE string: "plus" clauses sometimes carry
+  // the only "/hr" in the text.
+  const band = text.split(ADDER)[0]
+  const amounts: number[] = []
+  for (const m of band.matchAll(SALARY_MONEY)) {
+    const n = Number(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)
+    // Zero is KEPT, not filtered. Dropping it turned "$0.00 - $10,000,000.00"
+    // into a ten-million-dollar internship instead of the placeholder it is.
+    if (Number.isFinite(n)) amounts.push(n)
+  }
+  if (!amounts.length) return null          // "Not mentioned", "Competitive"
+  const low = Math.min(...amounts)
+
+  // Order matters twice over. Biweekly before weekly, or "biweekly" reads as
+  // weekly and doubles. An explicit unit before the magnitude fallback, or
+  // "$500-$2,000 annually" falls through and is multiplied by 2080.
+  let annual: number
+  if (BIWEEKLY.test(text)) annual = low * 26
+  else if (PER_WEEK.test(text)) annual = low * 52
+  else if (PER_MONTH.test(text)) annual = low * 12
+  else if (PER_HOUR.test(text)) annual = low * HOURS_PER_YEAR
+  else if (PER_YEAR.test(text)) annual = low
+  // No unit stated. A four-figure-plus number is never an hourly rate.
+  else annual = low >= 1000 ? low : low * HOURS_PER_YEAR
+
+  return annual >= MIN_PLAUSIBLE && annual <= MAX_PLAUSIBLE ? annual : null
+}
+
+export type SortKey = 'company' | 'title' | 'location' | 'found_at' | 'salary'
 export type SortDir = 'asc' | 'desc'
 
 export function sortJobs(rows: Job[], key: SortKey, dir: SortDir): Job[] {
@@ -178,6 +270,20 @@ export function sortJobs(rows: Job[], key: SortKey, dir: SortDir): Job[] {
   s.sort((a, b) => {
     let r: number
     if (key === 'found_at') r = new Date(a.found_at).getTime() - new Date(b.found_at).getTime()
+    else if (key === 'salary') {
+      const av = annualSalary(a.salary)
+      const bv = annualSalary(b.salary)
+      // A row with no figure sorts LAST in BOTH directions, so these returns
+      // deliberately skip the dir flip below. 45% of To apply has no salary,
+      // and flipping them would bury every paying job under 1,600 blanks the
+      // moment you asked for highest first.
+      if (av === null && bv === null) {
+        return new Date(b.found_at).getTime() - new Date(a.found_at).getTime()
+      }
+      if (av === null) return 1
+      if (bv === null) return -1
+      r = av - bv
+    }
     else r = (a[key] ?? '').localeCompare(b[key] ?? '', undefined, { sensitivity: 'base' })
     return dir === 'asc' ? r : -r
   })
