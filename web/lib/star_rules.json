@@ -33,8 +33,10 @@
 
   "thresholds": {
     "_comment": [
-      "Lower bound of a stated range must clear these. A wide band like",
-      "'$20 - $70/hr' must NOT qualify on its ceiling alone.",
+      "The MEDIAN of a stated band must clear these (changed 2026-09-11). It",
+      "was the lower bound, to stop a high ceiling creating false stars -- but",
+      "that also sank every wide band whatever its midpoint, and a wide band is",
+      "how the best-paying employers post. '$20 - $70/hr' is a $45/hr job.",
       "",
       "35/hr x 2080 hours = 72,800/yr, so the two thresholds describe the same",
       "pay rather than two different bars. Change them together or a posting",
@@ -112,13 +114,73 @@
       "suggested_resume": "General", "expected": ["salary"]
     },
     {
-      "name": "a range qualifies on its LOWER bound, not its ceiling",
+      "name": "a range qualifies on its MEDIAN: $20-$70/hr is a $45/hr job",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
       "salary": "$20.00 - $70.00 per hour", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a band under the bar on BOTH ends does not star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$20.00 - $28.00 per hour", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": []
     },
     {
-      "name": "a range whose lower bound clears the bar does star",
+      "name": "a wide annual band stars on its median",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$61,200-$138,600/yr", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "monthly pay annualises: $10,000/mo is $120,000",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$10,000/mo", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "monthly under the bar does not star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$3,500/month", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "weekly pay annualises: $2,400/week is $124,800",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$2,400/week", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "biweekly is not read as weekly",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$1,635.00 - $3,185.00 biweekly", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "a k suffix is pay, not an hourly rate",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$200k-$260k", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a $0 floor is a placeholder, never a star",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$0 - $200,000", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "an implausible figure is rejected, not starred",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$91,198-$91,202/hr", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "an adder does not drag the median down",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$60.00-$70.00/hr plus $5.09/hr shift", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a range whose LOWER bound already clears the bar still stars",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
       "salary": "$50.00 - $70.00 per hour", "is_easy_apply": false, "tier": "APPLY",
       "suggested_resume": "General", "expected": ["salary"]
