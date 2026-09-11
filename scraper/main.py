@@ -207,11 +207,29 @@ def _is_non_internship_title(title: str) -> bool:
 # db.norm_company is what collapses the five spellings these arrive under --
 # "TikTok", "ByteDance", "TikTok USDS Joint Venture", and the emoji-prefixed
 # variants the GitHub trackers emit -- into two tokens.
-BLOCKED_COMPANIES = {"tiktok", "bytedance"}
+BLOCKED_COMPANIES = {"tiktok", "bytedance", "american express"}
 
 
 def _is_blocked_company(company: str) -> bool:
-    return bool(BLOCKED_COMPANIES & set(norm_company(company or "").split()))
+    """Whole-token match for one-word entries, whole-PHRASE for multi-word ones.
+
+    A single token cannot express "american express": blocking the token
+    "american" would also catch American Airlines, and "express" would catch
+    Express Scripts. So a multi-word entry is matched as a phrase against the
+    normalised name, still on word boundaries, which lets "American Express
+    Global Business Travel" (normalising to "american express business travel",
+    since db.norm_company drops "global" as noise) match while neither
+    single-word neighbour does.
+    """
+    norm = norm_company(company or "")
+    tokens = set(norm.split())
+    for entry in BLOCKED_COMPANIES:
+        if " " in entry:
+            if re.search(r"\b" + re.escape(entry) + r"\b", norm):
+                return True
+        elif entry in tokens:
+            return True
+    return False
 
 
 MAX_PAGES_PER_SEARCH = 10  # 100 results max per search term/location pair
