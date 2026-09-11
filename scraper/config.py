@@ -51,7 +51,20 @@ LOCATIONS = ["United States", "Atlanta, GA"]
 # description fetch or Claude call.
 LOOKBACK_SECONDS = 21600  # 6 hours
 
-CANDIDATE_PROFILE_PATH = REPO_ROOT / "Candidate_Profile_and_Filters.md"
+# Overridable, because THIS REPO IS PUBLIC and the default file is tracked in
+# it. Anything the classifier needs to know about the candidate personally --
+# a GPA, an exact graduation date, anything he would not publish on GitHub --
+# has to live somewhere else, and this is the seam that lets it.
+#
+# Not hypothetical: with no GPA anywhere in the default profile, the classifier
+# demoted 64 postings to APPLY_CAVEAT reading "candidate's GPA not stated in
+# profile", including floors of 3.0 and 3.2 that he clears outright.
+#
+# Point CANDIDATE_PROFILE_PATH at a file outside the repo (the same tier as
+# APPLICATION_PROFILE_PATH below) and the classifier reads that instead. Unset,
+# the behaviour is exactly what it was.
+CANDIDATE_PROFILE_PATH = Path(os.environ.get(
+    "CANDIDATE_PROFILE_PATH", REPO_ROOT / "Candidate_Profile_and_Filters.md"))
 
 # autofill/ personal data — lives outside the repo (never committed), same
 # tier as the resumes folder and tracker.csv it sits alongside.

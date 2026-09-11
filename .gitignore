@@ -41,3 +41,6 @@ node_modules/
 # Claude Code local settings — machine-specific paths and tool permissions,
 # not project config.
 .claude/
+
+# Google Drive / OneDrive staging directory. Machine litter, never project state.
+.tmp.driveupload/
