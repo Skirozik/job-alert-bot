@@ -3,7 +3,8 @@
  * shipped helpers without adding a test framework.
  *
  * Every salary string below is a real value from the live jobs table, taken
- * from the 2,033 rows in To apply that carry a figure. The column mixes hourly,
+ * from the rows in To apply that carry a figure. A band ranks at its MEDIAN
+ * (Zach's call, 2026-09-11), so "$20 - $70/hr" ranks at $45/hr. The column mixes hourly,
  * annual, biweekly and unlabelled figures freely, which is the whole reason a
  * plain string sort was never going to work.
  *
@@ -25,6 +26,10 @@ const loadTs = async (path) => {
 
 const { annualSalary, sortJobs } = await loadTs('../jobView.ts')
 
+// Medians introduce halves, and 25.45 * 2080 is not bit-identical to
+// ((21.80 + 29.10) / 2) * 2080 in IEEE754. Compare money to the cent.
+const near = (a, b) => a !== null && b !== null && Math.abs(a - b) < 0.01
+
 let pass = 0, fail = 0
 const check = (name, condition, detail = '') => {
   if (condition) { pass++; console.log(`  PASS  ${name}`) }
@@ -35,27 +40,45 @@ const check = (name, condition, detail = '') => {
 check('a flat hourly rate annualises', annualSalary('$25/hr') === 25 * 2080,
       String(annualSalary('$25/hr')))
 check('decimals survive', annualSalary('$32.00/hr') === 32 * 2080)
-check('"per hour" is recognised', annualSalary('$37 - $97 an hour') === 37 * 2080)
-check('spaced "/ hr" is recognised', annualSalary('$46.15 - $50.71 / hr') === 46.15 * 2080)
+check('"per hour" is recognised', near(annualSalary('$37 - $97 an hour'), 67 * 2080),
+      String(annualSalary('$37 - $97 an hour')))
+check('spaced "/ hr" is recognised',
+      near(annualSalary('$46.15 - $50.71 / hr'), ((46.15 + 50.71) / 2) * 2080),
+      String(annualSalary('$46.15 - $50.71 / hr')))
 
-check('an annual range reads as annual', annualSalary('$37,000 - $82,000 USD') === 37000)
-check('an en dash range parses', annualSalary('$39,108–$111,111') === 39108,
+check('an annual range medians', annualSalary('$37,000 - $82,000 USD') === 59_500,
+      String(annualSalary('$37,000 - $82,000 USD')))
+check('an en dash range parses and medians',
+      annualSalary('$39,108–$111,111') === (39108 + 111111) / 2,
       String(annualSalary('$39,108–$111,111')))
-check('an explicit /yr parses', annualSalary('$52,900–$108,000/yr (annualized)') === 52900)
+check('an explicit /yr medians',
+      annualSalary('$52,900–$108,000/yr (annualized)') === (52900 + 108000) / 2)
 
 // The case a magnitude-only fallback gets badly wrong: 18 live rows.
-check('biweekly annualises at 26 pay periods',
-      annualSalary('$1,635.00 - $3,185.00 biweekly') === 1635 * 26,
+check('biweekly annualises at 26 pay periods, on the median',
+      annualSalary('$1,635.00 - $3,185.00 biweekly') === ((1635 + 3185) / 2) * 26,
       String(annualSalary('$1,635.00 - $3,185.00 biweekly')))
 check('biweekly is NOT read as weekly',
-      annualSalary('$1,635.00 biweekly') !== 1635 * 52)
+      annualSalary('$1,635.00 biweekly') === 1635 * 26)
 check('weekly annualises at 52', annualSalary('$2,000 per week') === 2000 * 52)
 check('monthly annualises at 12', annualSalary('$5,000 monthly') === 5000 * 12)
 
-// ---- the lower bound ranks, never the ceiling ---------------------------
-check('a wide band ranks on its floor', annualSalary('$20 - $70/hr') === 20 * 2080)
-check('a wide band does not outrank a higher flat rate',
+// ---- a band ranks at its MEDIAN ----------------------------------------
+// Changed from the floor on 2026-09-11. On a floor every wide band sank to the
+// bottom whatever its midpoint, and wide bands are how the best payers post.
+check('a wide band ranks at its midpoint', annualSalary('$20 - $70/hr') === 45 * 2080,
+      String(annualSalary('$20 - $70/hr')))
+check('a single figure is its own median', annualSalary('$45/hr') === 45 * 2080)
+check('a band still loses to a flat rate above its midpoint',
       annualSalary('$20 - $70/hr') < annualSalary('$60/hr'))
+check('a band now beats a flat rate below its midpoint',
+      annualSalary('$20 - $70/hr') > annualSalary('$40/hr'))
+check('an out-of-order band medians the same',
+      annualSalary('$70 - $20/hr') === annualSalary('$20 - $70/hr'))
+// An odd count takes the middle value, not the midpoint of the extremes.
+check('three figures take the middle one',
+      annualSalary('$50,000, $60,000, $90,000') === 60_000,
+      String(annualSalary('$50,000, $60,000, $90,000')))
 
 // ---- no figure at all ---------------------------------------------------
 for (const v of [null, undefined, '', '   ', 'Not mentioned', 'Competitive', 'DOE']) {
@@ -75,7 +98,7 @@ check('"annually" is honoured, not guessed', annualSalary('$500-$2,000 annually'
 check('"/yr" is honoured', annualSalary('$95,000/yr') === 95000)
 check('"per year" is honoured', annualSalary('$88,000 per year') === 88000)
 check('"/week" is matched, not just "/wk"',
-      annualSalary('$1,000–$1,450/week') === 1000 * 52,
+      annualSalary('$1,000–$1,450/week') === 1225 * 52,
       String(annualSalary('$1,000–$1,450/week')))
 
 // ---- garbage is rejected rather than ranked -----------------------------
@@ -83,37 +106,51 @@ check('"/week" is matched, not just "/wk"',
 check('annual figures mislabelled /hr are rejected',
       annualSalary('$91,198–$91,202/hr (intern)') === null,
       String(annualSalary('$91,198–$91,202/hr (intern)')))
+// A $0 floor is rejected outright, because the median would hide it: this
+// medians to a perfectly plausible $5,000,000.
 check('a $0 placeholder range is rejected',
       annualSalary('$0.00 - $10,000,000.00') === null,
       String(annualSalary('$0.00 - $10,000,000.00')))
 check('a cent-scale placeholder is rejected',
       annualSalary('$0.01–$0.02/yr (salary range)') === null)
 check('a flat total stipend is rejected', annualSalary('$1,000') === null)
-check('zero is kept so a $0 floor is seen',
+check('a $0 floor is rejected even when the median is plausible',
       annualSalary('$0 - $200,000') === null, String(annualSalary('$0 - $200,000')))
 
 // The band must not reject real pay at either edge.
 check('a $20/hr internship is kept', annualSalary('$20/hr') === 20 * 2080)
-check('a $175k quant internship is kept', annualSalary('$175,000–$220,000/yr') === 175000)
+check('a $175k quant internship is kept',
+      annualSalary('$175,000–$220,000/yr') === (175000 + 220000) / 2)
 check('a biweekly stipend inside the band is kept',
-      annualSalary('$1,635.00 - $3,185.00 biweekly') === 1635 * 26)
+      annualSalary('$1,635.00 - $3,185.00 biweekly') === ((1635 + 3185) / 2) * 26)
+
+// The magnitude fallback reads the band's FLOOR, not its median, so a
+// "$900 - $1,200" band is read as hourly rather than flipping to annual on a
+// midpoint of 1,050. Hourly annualises to $2.18M, which the plausibility band
+// then rejects -- the honest outcome for a string that states no unit and
+// could as easily be weekly.
+check('an unlabelled band straddling 1000 does not flip to annual',
+      annualSalary('$900 - $1,200') === null,
+      String(annualSalary('$900 - $1,200')))
+check('an unlabelled band clearly above 1000 is annual',
+      annualSalary('$90,000 - $120,000') === 105_000)
 
 // ---- the k suffix, which is how the best-paying rows are written --------
 // Without it "$200k" reads as 200, magnitude-falls to hourly, and annualises to
 // $416,000. Every row in the live top ten was inflated about 2x by this.
-check('"$200k–$260k" is 200,000 not 416,000',
-      annualSalary('$200k–$260k') === 200_000, String(annualSalary('$200k–$260k')))
+check('"$200k–$260k" medians to 230,000, not 416,000',
+      annualSalary('$200k–$260k') === 230_000, String(annualSalary('$200k–$260k')))
 check('"$100k" is 100,000', annualSalary('$100k') === 100_000)
-check('a capital K works', annualSalary('$133K–$215K') === 133_000)
-check('"$110k - $120k" is 110,000', annualSalary('$110k - $120k') === 110_000)
+check('a capital K works', annualSalary('$133K–$215K') === 174_000)
+check('"$110k - $120k" medians to 115,000', annualSalary('$110k - $120k') === 115_000)
 check('a k suffix with a space works', annualSalary('$95 k') === 95_000)
 check('a plain number is unaffected by the k branch', annualSalary('$85,000') === 85_000)
 
 // ---- a trailing adder is not the salary ---------------------------------
 // "$21.80–$29.10/hr plus $5.09/hr" ranked at $10,587 when the global minimum
 // picked up the differential instead of the band.
-check('the range is the first two figures, not every figure',
-      annualSalary('$21.80–$29.10/hr plus $5.09/hr differential') === 21.80 * 2080,
+check('the band excludes the adder, and medians what is left',
+      near(annualSalary('$21.80–$29.10/hr plus $5.09/hr differential'), 25.45 * 2080),
       String(annualSalary('$21.80–$29.10/hr plus $5.09/hr differential')))
 check('a single figure with an adder still reads the figure',
       annualSalary('$30/hr plus $2/hr shift premium') === 30 * 2080)
@@ -134,14 +171,16 @@ const rows = [
 
 const desc = sortJobs(rows, 'salary', 'desc').map(j => j.id)
 check('highest first puts the top payer first', desc[0] === 'hourly75', desc.join(','))
-check('highest first orders by annualised value',
-      desc.slice(0, 4).join(',') === 'hourly75,annual120,hourly25,biweekly', desc.join(','))
+// biweekly medians to (1635+3185)/2 * 26 = 62,660, which now sits ABOVE the
+// $25/hr row at 52,000. On the old floor ranking it was 42,510 and below it.
+check('highest first orders by annualised median',
+      desc.slice(0, 4).join(',') === 'hourly75,annual120,biweekly,hourly25', desc.join(','))
 check('rows with no salary sort LAST when descending',
       desc.slice(-2).sort().join(',') === 'none,notmentioned', desc.join(','))
 
 const asc = sortJobs(rows, 'salary', 'asc').map(j => j.id)
 check('lowest first reverses the paying rows',
-      asc.slice(0, 4).join(',') === 'biweekly,hourly25,annual120,hourly75', asc.join(','))
+      asc.slice(0, 4).join(',') === 'hourly25,biweekly,annual120,hourly75', asc.join(','))
 check('rows with no salary sort LAST when ascending too',
       asc.slice(-2).sort().join(',') === 'none,notmentioned', asc.join(','))
 

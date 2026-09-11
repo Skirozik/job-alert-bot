@@ -189,9 +189,19 @@ export function visibleOptionalColumns(rows: Job[]): Record<OptionalCol, boolean
  * 1,635 as four figures, calls it annual, and ranks a $42,510/yr job below a
  * $20/hr one. Weekly and monthly are handled for the same reason.
  *
- * THE LOWER BOUND RANKS, never the upper: "$20 - $70/hr" is a $20/hr job with a
- * ceiling, and sorting it on 70 would push it above a flat $60/hr that pays
- * more. That is the same call salaryClearsBar makes, for the same reason. */
+ * THE MEDIAN OF THE BAND RANKS (Zach's call, 2026-09-11). "$20 - $70/hr" ranks
+ * at $45/hr. This deliberately differs from salaryClearsBar, which tests the
+ * FLOOR against a threshold -- a different question. Deciding whether a job
+ * clears a bar must not be fooled by a high ceiling, but deciding where a job
+ * sits in a ranked list is better served by the middle of what was advertised:
+ * on a floor, every wide band sinks to the bottom regardless of its midpoint,
+ * and wide bands are how the best-paying employers post.
+ *
+ * A $0 FLOOR IS STILL REJECTED OUTRIGHT, because the median would hide it:
+ * "$0.00 - $10,000,000.00" medians to a perfectly plausible $5,000,000 and
+ * "$0 - $200,000" to $100,000, so both would rank near the top on a midpoint
+ * that the plausibility band alone cannot catch. No real posting floors at
+ * zero. */
 /* The k suffix is captured, not ignored. "$200k-$260k" otherwise reads as 200,
  * falls through to the magnitude fallback as an hourly rate, and annualises to
  * $416,000 -- and the k-form is how the best-paying rows are written, so every
@@ -245,19 +255,28 @@ export function annualSalary(raw: string | null | undefined): number | null {
     if (Number.isFinite(n)) amounts.push(n)
   }
   if (!amounts.length) return null          // "Not mentioned", "Competitive"
-  const low = Math.min(...amounts)
+  if (Math.min(...amounts) === 0) return null   // placeholder band, see above
+
+  // Median, so a two-figure band ranks at its midpoint. Sorted first, because
+  // a band is not guaranteed to be written low-to-high.
+  const sorted = [...amounts].sort((x, y) => x - y)
+  const mid = sorted.length % 2
+    ? sorted[(sorted.length - 1) / 2]
+    : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
 
   // Order matters twice over. Biweekly before weekly, or "biweekly" reads as
   // weekly and doubles. An explicit unit before the magnitude fallback, or
   // "$500-$2,000 annually" falls through and is multiplied by 2080.
   let annual: number
-  if (BIWEEKLY.test(text)) annual = low * 26
-  else if (PER_WEEK.test(text)) annual = low * 52
-  else if (PER_MONTH.test(text)) annual = low * 12
-  else if (PER_HOUR.test(text)) annual = low * HOURS_PER_YEAR
-  else if (PER_YEAR.test(text)) annual = low
-  // No unit stated. A four-figure-plus number is never an hourly rate.
-  else annual = low >= 1000 ? low : low * HOURS_PER_YEAR
+  if (BIWEEKLY.test(text)) annual = mid * 26
+  else if (PER_WEEK.test(text)) annual = mid * 52
+  else if (PER_MONTH.test(text)) annual = mid * 12
+  else if (PER_HOUR.test(text)) annual = mid * HOURS_PER_YEAR
+  else if (PER_YEAR.test(text)) annual = mid
+  // No unit stated. A four-figure-plus number is never an hourly rate. Tested
+  // on the band's FLOOR, not its median: a "$900 - $1,200" band medians above
+  // 1000 and would flip to annual while its floor says hourly.
+  else annual = sorted[0] >= 1000 ? mid : mid * HOURS_PER_YEAR
 
   return annual >= MIN_PLAUSIBLE && annual <= MAX_PLAUSIBLE ? annual : null
 }
