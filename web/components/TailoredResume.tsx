@@ -24,7 +24,15 @@ type Build = {
   // 'ineligible' is a verdict the tailor reached, not an error it hit — the
   // plan exists and says why. It is kept distinct from 'failed' because the
   // retry policy must not spend two more tailor calls re-deriving it.
-  status: 'claimed' | 'planned' | 'render_requested' | 'rendered' | 'failed' | 'ineligible'
+  //
+  // 'hand_built' is a reservation, not an outcome: Zach is writing this one
+  // himself and the pipeline must keep its hands off. It needs no new rule to
+  // work — watcher.needs_build() offers only a job with NO row or a 'failed'
+  // one, and claim_job_resume_build's ON CONFLICT clause fires only on
+  // 'failed' — so the row IS the mechanism. Rendered here so the drawer says
+  // "yours to write" rather than showing an empty panel.
+  status: 'claimed' | 'planned' | 'render_requested' | 'rendered' | 'failed'
+        | 'ineligible' | 'hand_built'
   plan?: {
     ordering_signal?: string
     analogue?: string | null
@@ -59,6 +67,7 @@ const LABEL: Record<Build['status'], string> = {
   rendered: 'PDF ready',
   failed: 'Build failed',
   ineligible: 'Not a fit',
+  hand_built: 'Hand-built — yours to write',
 }
 
 export function TailoredResume({ jobId }: { jobId: string }) {
@@ -148,8 +157,11 @@ export function TailoredResume({ jobId }: { jobId: string }) {
         </p>
       )}
 
+      {/* last_error also carries the reservation note for a hand_built row,
+          which is not an error and must not be painted like one. */}
       {build.last_error && (
-        <p style={{ fontSize: 'var(--text-meta)', color: 'var(--danger)',
+        <p style={{ fontSize: 'var(--text-meta)',
+                    color: build.status === 'hand_built' ? 'var(--fg-subtle)' : 'var(--danger)',
                     margin: '0 0 var(--s2)' }}>
           {build.last_error}
         </p>
@@ -159,7 +171,8 @@ export function TailoredResume({ jobId }: { jobId: string }) {
         <button
           onClick={request}
           disabled={busy || build.status === 'claimed' || build.status === 'failed'
-                    || build.status === 'ineligible' || build.status === 'render_requested'}
+                    || build.status === 'ineligible' || build.status === 'hand_built'
+                    || build.status === 'render_requested'}
           style={{
             height: 28, padding: '0 var(--s3)', fontSize: 'var(--text-data)',
             color: 'var(--fg)', background: 'var(--bg-active)',
