@@ -57,8 +57,9 @@ LOOKBACK_SECONDS = 21600  # 6 hours
 # has to live somewhere else, and this is the seam that lets it.
 #
 # Not hypothetical: with no GPA anywhere in the default profile, the classifier
-# demoted 64 postings to APPLY_CAVEAT reading "candidate's GPA not stated in
-# profile", including floors of 3.0 and 3.2 that he clears outright.
+# demoted 64 postings to APPLY_CAVEAT for stating no GPA, most of them naming a
+# floor the candidate clears. The figures stay out of this file -- naming the
+# floors he clears would publish a lower bound on the number itself.
 #
 # Point CANDIDATE_PROFILE_PATH at a file outside the repo (the same tier as
 # APPLICATION_PROFILE_PATH below) and the classifier reads that instead. Unset,

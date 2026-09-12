@@ -15,6 +15,12 @@ SCOPE: only rows whose stored reason mentions GPA. A blanket re-classification
 of all 2,954 caveats would re-decide thousands of rows this change has nothing
 to do with, and every write is a chance to lose a verdict that was correct.
 
+LOCAL ONLY -- IT REFUSES TO RUN IN CI. The dry run prints the classifier's
+reason text, because reviewing the reasons IS the review; a list of tier
+transitions with the reasoning stripped out would be unreadable. That text is
+exactly what must never reach a GitHub Actions log, which anyone can read on a
+public repo, so the check in run() is a guard rather than a note.
+
 SAFETY, inherited from backfill_reclassify_apply.py:
   * never writes `status` -- that column holds the application record
   * writes only the columns listed in WRITABLE
@@ -27,6 +33,7 @@ SAFETY, inherited from backfill_reclassify_apply.py:
 
 import argparse
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -71,7 +78,25 @@ def fetch_caveats(client):
         offset += 1000
 
 
+def _refuse_in_ci() -> None:
+    """A world-readable log is the one place this output must not go.
+
+    A docstring saying "run this locally" is not a guard -- someone wires the
+    script into a workflow for a one-off backfill, and the classifier's reason
+    for 64 postings is public forever. Checked at the top of run(), so no path
+    reaches the printing loop without passing it.
+    """
+    for var in ("CI", "GITHUB_ACTIONS", "GITHUB_RUN_ID"):
+        if os.environ.get(var):
+            sys.stderr.write(
+                f"refusing to run: {var} is set. This script prints classifier "
+                "reason text, and Actions logs on a public repo are readable by "
+                "anyone. Run it locally.\n")
+            raise SystemExit(2)
+
+
 def run(write: bool):
+    _refuse_in_ci()
     client = get_client()
     caveats = fetch_caveats(client)
 
@@ -112,11 +137,12 @@ def run(write: bool):
         # and INELIGIBLE hides the job from the dashboard entirely.
         #
         # Both demotions the dry run produced were wrong, and the postings say
-        # so. Citi: "graduating between December 2027 and May 2028" -- he
-        # graduates December 2027, inside it -- yet the model returned "not
-        # actually an internship, Time Type: Full time", reading the RETURN
-        # OFFER salary line on a posting titled Summer Analyst Program. Ketjen
-        # cited a window that appears nowhere in its text.
+        # so. One stated a graduation window the candidate falls inside, yet the
+        # model returned "not actually an internship, Time Type: Full time" --
+        # it had read the RETURN OFFER salary line on a posting titled Summer
+        # Analyst Program. The other cited a window appearing nowhere in its
+        # text. Neither the dates nor the employers belong in this file: this
+        # repo is public, and a graduation window is a personal detail.
         #
         # A false INELIGIBLE is unrecoverable in practice: nobody reviews a
         # hidden row. Report it and leave the stored verdict alone.
