@@ -222,5 +222,106 @@ for (const c of fixture.cases) {
   }
 }
 
+console.log('\n-- one place written six ways --')
+/* Every pair below is one live posting that the dashboard was showing TWICE,
+ * and every one was rejected by compatibleLocations alone: the titles already
+ * matched. The cell is free text from three different sources, so an exact
+ * string compare was never going to hold. */
+
+const twoPlaces = (locA, locB, extra = {}) => grouped(
+  job({ id: 'linkedin:1', location: locA, url: 'https://www.linkedin.com/jobs/view/x-1', ...extra }),
+  job({ id: 'gh:1', location: locB, apply_url: 'https://jobs.ashbyhq.com/x/abc/application', ...extra }),
+)
+
+check('an airport-code city matches its full name (Semgrep)',
+  twoPlaces('San Francisco, CA', 'SF'))
+check('NYC matches a decorated New York cell (Coinbase)',
+  twoPlaces('NYC', 'Hybrid - New York, NY'))
+check('a spelled-out state matches its code (Epic Games)',
+  twoPlaces('Cary, NC', 'Cary,North Carolina,United States'))
+check('a spelled-out state with a country suffix matches too (Waymo)',
+  twoPlaces('Mountain View, CA', 'Mountain View, California, USA '))
+check('"Greater X Area" is X (Xcel Energy)',
+  twoPlaces('Amarillo, TX', 'Greater Amarillo Area'))
+check('"X Metropolitan Area" is X (Skillz)',
+  twoPlaces('Las Vegas, NV', 'Las Vegas Metropolitan Area'))
+check('a list concatenated without a separator still parses (Gen. Dynamics)',
+  twoPlaces('Middletown, RI', 'Middletown, RIManassas, VA'))
+check('a "+1" suffix does not hide the city it does show (Xcel)',
+  twoPlaces('Denver, CO +1', 'Denver Metropolitan Area'))
+
+console.log('\n-- ...without making different places the same --')
+/* The whole point of the location guard. 53 live groups are one company
+ * advertising one role in several cities, and each is a separate application. */
+check('two cities in the same state stay apart (Brunswick)',
+  !twoPlaces('Tulsa, OK', 'Champaign, IL'))
+check('one city name in two states stays apart',
+  !twoPlaces('Columbus, OH', 'Columbus, GA'))
+check('a shared state is not a shared city (Leidos)',
+  !twoPlaces('Bethesda, MD', 'Annapolis Junction, MD'))
+check('coast to coast stays apart (Booz Allen)',
+  !twoPlaces('Huntsville, AL', 'Honolulu, HI'))
+check('an unknown state cannot contradict, but a different city still does',
+  !twoPlaces('Greater Boston Area', 'Portland, ME'))
+
+console.log('\n-- an arrangement is not a place --')
+check('"Remote" alone never matches a real city',
+  !twoPlaces('Remote', 'Austin, TX'))
+check('a country-only cell still matches its twin (Honeywell)',
+  twoPlaces('United States', 'United States'))
+check('"LA" is Los Angeles, not Louisiana (Apex)',
+  twoPlaces('Los Angeles, CA', 'LA'))
+
+console.log('\n-- the company name is not evidence of a location --')
+/* compatibleLocations falls back to looking for the city inside the other
+ * row's application URL, which is how Graco's "French Lake, MN" meets
+ * "Dayton, MN" -- one Workday requisition naming both. But the employer's own
+ * name is in every one of its URLs, so a city that IS the employer proves
+ * nothing: this merged Corning's Corning NY with its Concord NC posting, and
+ * The Hartford's Hartford CT with its Charlotte NC one. */
+check('a city that is also the employer does not merge two cities',
+  !grouped(
+    job({ id: 'linkedin:2', company: 'Corning Incorporated', location: 'Corning, NY',
+          url: 'https://www.linkedin.com/jobs/view/corning-tech-analyst-2' }),
+    job({ id: 'gh:2', company: 'Corning Incorporated', location: 'Concord, NC',
+          apply_url: 'https://corning.wd1.myworkdayjobs.com/corning/job/Concord-NC/Technology-Analyst_R1' }),
+  ))
+check('...and the same for a one-word employer (The Hartford)',
+  !grouped(
+    job({ id: 'gh:3', company: 'The Hartford', location: 'Charlotte, NC',
+          apply_url: 'https://thehartford.wd5.myworkdayjobs.com/hartford/job/Charlotte-NC/Data-Engineer_R2' }),
+    job({ id: 'gh:4', company: 'The Hartford', location: 'Hartford, CT',
+          apply_url: 'https://thehartford.wd5.myworkdayjobs.com/hartford/job/Hartford-CT/Data-Engineer_R3' }),
+  ))
+check('a genuine city named in the other URL still merges (Graco)',
+  grouped(
+    job({ id: 'linkedin:3', company: 'Graco', location: 'French Lake, MN',
+          url: 'https://www.linkedin.com/jobs/view/ai-intern-at-graco-3' }),
+    job({ id: 'gh:5', company: 'Graco', location: 'Dayton, MN',
+          apply_url: 'https://graco.wd501.myworkdayjobs.com/en-US/graco_career/job/Dayton-Minnesota-USA-French-Lake/AI-Intern_R0023511-1' }),
+  ))
+
+console.log('\n-- "Internship" and "Intern" are the same word --')
+/* Two otherwise identical titles scored 0.75 containment against a 0.8
+ * threshold on this one word alone. scraper/db.py's norm_role has always
+ * treated them as one; this is the display side catching up. Mapping beats
+ * stripping: measured on the live table, mapping groups 965 pairs and
+ * stripping only 887, because a short title loses too much of its signature. */
+const twoTitles = (ta, tb) => grouped(
+  job({ id: 'linkedin:4', title: ta, location: 'Columbus, OH',
+        url: 'https://www.linkedin.com/jobs/view/y-4' }),
+  job({ id: 'gh:6', title: tb, location: 'Columbus, OH',
+        apply_url: 'https://jobs.ashbyhq.com/y/def/application' }),
+)
+check('Internship matches Intern (Immuta)',
+  twoTitles('Full-Stack Engineering Internship - Summer 2027',
+            'Full-Stack Engineering Intern - Summer 2027'))
+check('...and with a trailing specialism (Persona AI)',
+  twoTitles('Robotics Software Internship, Manipulation',
+            'Robotics Software Intern - Manipulation'))
+check('but it does not make two different roles one',
+  !twoTitles('Cloud Software Engineering Internship',
+             'Automated Test Software Engineering Intern'))
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
