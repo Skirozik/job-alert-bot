@@ -1,0 +1,1478 @@
+{
+  "_comment": [
+    "Cross-language salary contract. Regenerate with:",
+    "  cd scraper && python dump_salary_corpus.py > ../fixtures/salary_corpus.json",
+    "",
+    "Asserted by web/lib/__tests__/salaryParity.test.mjs (goldStar.ts and",
+    "jobView.ts, against each other AND against these numbers) and by",
+    "scraper/test_gold_star.py (gold_star.py against these numbers).",
+    "",
+    "star_rules.json pins the star VERDICT; this pins the NUMBER. Two copies",
+    "can agree a job is starred while disagreeing about what it pays, which",
+    "is how jobView.ts came to be the only one reading '$45.00 / hr' as",
+    "hourly. `annual` of null means 'states no pay we can judge'.",
+    "",
+    "Salary strings only, never a row: this repo is public.",
+    "",
+    "The numbers come from this repo's own gold_star.py, so regenerating",
+    "blesses whatever the parser currently does. Read the diff before you",
+    "commit it, or this stops being a test."
+  ],
+  "families": {
+    "non_usd": 20,
+    "restatement": 30,
+    "workload": 14,
+    "adder": 30,
+    "bare_bound": 30,
+    "k_suffix": 30,
+    "biweekly": 9,
+    "weekly": 27,
+    "monthly": 30,
+    "hourly": 30,
+    "yearly": 30,
+    "unlabelled": 30,
+    "no_figure": 30
+  },
+  "cases": [
+    {
+      "salary": "$ 25.00 to $40.00 per Hour",
+      "annual": 67600.0
+    },
+    {
+      "salary": "$0 - $0/hr (unspecified)",
+      "annual": null
+    },
+    {
+      "salary": "$0-$50",
+      "annual": null
+    },
+    {
+      "salary": "$0.00 - $10,000,000.00",
+      "annual": null
+    },
+    {
+      "salary": "$0.00 - $41.70/hr",
+      "annual": null
+    },
+    {
+      "salary": "$0.00 to $0.00",
+      "annual": null
+    },
+    {
+      "salary": "$0.00/Hr",
+      "annual": null
+    },
+    {
+      "salary": "$0.01-$0.00",
+      "annual": null
+    },
+    {
+      "salary": "$0.01–$0.02/yr (salary range appears malformed in posting)",
+      "annual": null
+    },
+    {
+      "salary": "$1,000",
+      "annual": null
+    },
+    {
+      "salary": "$1,000-$2,000 USD weekly",
+      "annual": 78000.0
+    },
+    {
+      "salary": "$1,000-$2,000 USD weekly / $21.00-$36.00/hr",
+      "annual": 78000.0
+    },
+    {
+      "salary": "$1,000/yr",
+      "annual": null
+    },
+    {
+      "salary": "$1,000–$1,450/week",
+      "annual": 63700.0
+    },
+    {
+      "salary": "$1,000–$2,000 USD weekly",
+      "annual": 78000.0
+    },
+    {
+      "salary": "$1,000–$2,000/week",
+      "annual": 78000.0
+    },
+    {
+      "salary": "$1,200/week",
+      "annual": 62400.0
+    },
+    {
+      "salary": "$1,500/month rent stipend + benefits",
+      "annual": 18000.0
+    },
+    {
+      "salary": "$1,500/month rent stipend + meals, gym, learning stipend",
+      "annual": 18000.0
+    },
+    {
+      "salary": "$1,500–$2,500/month part-time; $80,000–$120,000/yr full-time (May 2027)",
+      "annual": 30000.0
+    },
+    {
+      "salary": "$1,575–$1,950/week",
+      "annual": 91650.0
+    },
+    {
+      "salary": "$1,635.00 - $3,185.00 biweekly",
+      "annual": 62660.0
+    },
+    {
+      "salary": "$1,850 — $2,200 USD (bi-weekly)",
+      "annual": 52650.0
+    },
+    {
+      "salary": "$1,850 — $2,250 USD bi-weekly",
+      "annual": 53300.0
+    },
+    {
+      "salary": "$1,850–$2,250 USD (bi-weekly)",
+      "annual": 53300.0
+    },
+    {
+      "salary": "$1,850–$2,250 USD bi-weekly",
+      "annual": 53300.0
+    },
+    {
+      "salary": "$10,000",
+      "annual": 10000.0
+    },
+    {
+      "salary": "$10,000 USD",
+      "annual": 10000.0
+    },
+    {
+      "salary": "$10,000-$12,000",
+      "annual": 11000.0
+    },
+    {
+      "salary": "$10,000/mo",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$10,000/month",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$10,000–$15,000/month",
+      "annual": 150000.0
+    },
+    {
+      "salary": "$10,215 Monthly",
+      "annual": 122580.0
+    },
+    {
+      "salary": "$10,215/month",
+      "annual": 122580.0
+    },
+    {
+      "salary": "$10,500/month",
+      "annual": 126000.0
+    },
+    {
+      "salary": "$100,000 - $125,000",
+      "annual": 112500.0
+    },
+    {
+      "salary": "$100,000 - $130,000",
+      "annual": 115000.0
+    },
+    {
+      "salary": "$100,000 - $140,000",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$100,000 - $140,000/yr",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$100,000 - $150,000 + Bonus + Equity + Relocation + Health benefits + 401(k)",
+      "annual": 125000.0
+    },
+    {
+      "salary": "$100,000 - $150,000/annual",
+      "annual": 125000.0
+    },
+    {
+      "salary": "$100,000 - $150,000/annual salary",
+      "annual": 125000.0
+    },
+    {
+      "salary": "$100,000 annualized",
+      "annual": 100000.0
+    },
+    {
+      "salary": "$100,000 to $120,000 per year",
+      "annual": 110000.0
+    },
+    {
+      "salary": "$100,000 to $300,000 annually",
+      "annual": 200000.0
+    },
+    {
+      "salary": "$100,000 – $148,000",
+      "annual": 124000.0
+    },
+    {
+      "salary": "$100,000 — $110,000 USD",
+      "annual": 105000.0
+    },
+    {
+      "salary": "$100,000-$110,000 USD",
+      "annual": 105000.0
+    },
+    {
+      "salary": "$100,000-$110,000/yr",
+      "annual": 105000.0
+    },
+    {
+      "salary": "$100,000-$110,000/yr (prorated for 10-week internship)",
+      "annual": 105000.0
+    },
+    {
+      "salary": "$100,000-$110,000/yr (prorated)",
+      "annual": 105000.0
+    },
+    {
+      "salary": "$100,000-$115,000/yr (prorated for 10 weeks)",
+      "annual": 107500.0
+    },
+    {
+      "salary": "$100,000-$300,000/yr",
+      "annual": 200000.0
+    },
+    {
+      "salary": "$100,000/yr",
+      "annual": 100000.0
+    },
+    {
+      "salary": "$100,000–$150,000/yr",
+      "annual": 125000.0
+    },
+    {
+      "salary": "$100,000–$165,000/yr",
+      "annual": 132500.0
+    },
+    {
+      "salary": "$100,173-$135,000/yr",
+      "annual": 117586.5
+    },
+    {
+      "salary": "$100,800–$184,800/yr",
+      "annual": 142800.0
+    },
+    {
+      "salary": "$100,810 CAD/yr",
+      "annual": null
+    },
+    {
+      "salary": "$100K - $150K",
+      "annual": 125000.0
+    },
+    {
+      "salary": "$100k",
+      "annual": 100000.0
+    },
+    {
+      "salary": "$101,000- $174,000",
+      "annual": 137500.0
+    },
+    {
+      "salary": "$101,100 - $136,800/yr",
+      "annual": 118950.0
+    },
+    {
+      "salary": "$101,192",
+      "annual": 101192.0
+    },
+    {
+      "salary": "$101,192 USD - $167,336 USD",
+      "annual": 134264.0
+    },
+    {
+      "salary": "$101,405–$141,966 (CO)",
+      "annual": 121685.5
+    },
+    {
+      "salary": "$101,500 - $169,100/yr",
+      "annual": 135300.0
+    },
+    {
+      "salary": "$101,500 to $188,500",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$101,500–$169,100/yr",
+      "annual": 135300.0
+    },
+    {
+      "salary": "$101,900 - $149,100/yr",
+      "annual": 125500.0
+    },
+    {
+      "salary": "$102,000 - $138,000",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$102,100 - $202,200 per year",
+      "annual": 152150.0
+    },
+    {
+      "salary": "$1021.13/week",
+      "annual": 53098.76
+    },
+    {
+      "salary": "$103,955–$109,395/yr",
+      "annual": 106675.0
+    },
+    {
+      "salary": "$104,295.00 USD Annually",
+      "annual": 104295.0
+    },
+    {
+      "salary": "$104,500.00 - $162,500.00/yr",
+      "annual": 133500.0
+    },
+    {
+      "salary": "$105,000-$110,000/yr",
+      "annual": 107500.0
+    },
+    {
+      "salary": "$105,000/yr (prorated for 10 weeks)",
+      "annual": 105000.0
+    },
+    {
+      "salary": "$105,000–$115,000/yr",
+      "annual": 110000.0
+    },
+    {
+      "salary": "$105,000—$135,000",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$105,300",
+      "annual": 105300.0
+    },
+    {
+      "salary": "$105,400–$155,000 USD",
+      "annual": 130200.0
+    },
+    {
+      "salary": "$105,698–$105,702/yr",
+      "annual": 105700.0
+    },
+    {
+      "salary": "$107,900 - $195,050/yr",
+      "annual": 151475.0
+    },
+    {
+      "salary": "$108,00 - $172,800",
+      "annual": 91800.0
+    },
+    {
+      "salary": "$108,000–$126,000/yr",
+      "annual": 117000.0
+    },
+    {
+      "salary": "$109,418",
+      "annual": 109418.0
+    },
+    {
+      "salary": "$11,700/month + housing stipend",
+      "annual": 140400.0
+    },
+    {
+      "salary": "$11.50/hr",
+      "annual": 23920.0
+    },
+    {
+      "salary": "$110,000",
+      "annual": 110000.0
+    },
+    {
+      "salary": "$110,000 - $120,000,",
+      "annual": 115000.0
+    },
+    {
+      "salary": "$110,000 - $132,000",
+      "annual": 121000.0
+    },
+    {
+      "salary": "$110k",
+      "annual": 110000.0
+    },
+    {
+      "salary": "$110k - $120k",
+      "annual": 115000.0
+    },
+    {
+      "salary": "$119K",
+      "annual": 119000.0
+    },
+    {
+      "salary": "$12,500–$14,500/month (3-6 month term)",
+      "annual": 162000.0
+    },
+    {
+      "salary": "$12/hour",
+      "annual": 24960.0
+    },
+    {
+      "salary": "$120,000 CAD",
+      "annual": null
+    },
+    {
+      "salary": "$120k-$180k",
+      "annual": 150000.0
+    },
+    {
+      "salary": "$127,000–$140,000 annualized (10-week paid internship; varies by location)",
+      "annual": 133500.0
+    },
+    {
+      "salary": "$127,000–$140,000/yr (annualized 10-week summer internship)",
+      "annual": 133500.0
+    },
+    {
+      "salary": "$13.35–$30.00/hr (undergrad) or $22.60–$52.00/hr (postgrad)",
+      "annual": 54704.0
+    },
+    {
+      "salary": "$13.35–$30.00/hr (undergraduate) or $22.60–$52.00/hr (postgraduate)",
+      "annual": 54704.0
+    },
+    {
+      "salary": "$130,000+",
+      "annual": 130000.0
+    },
+    {
+      "salary": "$130,000+/yr",
+      "annual": 130000.0
+    },
+    {
+      "salary": "$130K - $500K",
+      "annual": 315000.0
+    },
+    {
+      "salary": "$130k-$180k",
+      "annual": 155000.0
+    },
+    {
+      "salary": "$133k–$215k",
+      "annual": 174000.0
+    },
+    {
+      "salary": "$134,000–$161,000/yr (annualized internship pay, location-dependent)",
+      "annual": 147500.0
+    },
+    {
+      "salary": "$135K – $260K",
+      "annual": 197500.0
+    },
+    {
+      "salary": "$136K - $288K",
+      "annual": 212000.0
+    },
+    {
+      "salary": "$14,500/month (8 weeks, ~$8,000–$14,500 total + signing bonus)",
+      "annual": 174000.0
+    },
+    {
+      "salary": "$14,500/month + signing bonus",
+      "annual": 174000.0
+    },
+    {
+      "salary": "$14,500/month plus signing bonus",
+      "annual": 174000.0
+    },
+    {
+      "salary": "$14,583/mo",
+      "annual": 174996.0
+    },
+    {
+      "salary": "$14.00–$15.00/hr",
+      "annual": 30160.0
+    },
+    {
+      "salary": "$14.5 - $30.51/hr",
+      "annual": 46810.40000000001
+    },
+    {
+      "salary": "$14/hour",
+      "annual": 29120.0
+    },
+    {
+      "salary": "$140K",
+      "annual": 140000.0
+    },
+    {
+      "salary": "$140K–$250K",
+      "annual": 195000.0
+    },
+    {
+      "salary": "$145,000+",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+ (annualized)",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+ annualized",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+ annualized (Illinois pay-transparency boilerplate)",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+ annualized (minimum base per Illinois pay transparency)",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+ annualized (pay-transparency boilerplate)",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+/yr",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+/yr (annualized base)",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$145,000+/yr (annualized)",
+      "annual": 145000.0
+    },
+    {
+      "salary": "$147,000–$161,000/yr (annualized)",
+      "annual": 154000.0
+    },
+    {
+      "salary": "$15 - $40/hr",
+      "annual": 57200.0
+    },
+    {
+      "salary": "$15-$30/hr",
+      "annual": 46800.0
+    },
+    {
+      "salary": "$15-$40/hr",
+      "annual": 57200.0
+    },
+    {
+      "salary": "$15-$62/hr",
+      "annual": 80080.0
+    },
+    {
+      "salary": "$15-18/hr",
+      "annual": 34320.0
+    },
+    {
+      "salary": "$15-62/hr",
+      "annual": 80080.0
+    },
+    {
+      "salary": "$15-62/hr (annualized range provided)",
+      "annual": 80080.0
+    },
+    {
+      "salary": "$15.00 - $25.00/hr",
+      "annual": 41600.0
+    },
+    {
+      "salary": "$15.00 - $27.00/hr",
+      "annual": 43680.0
+    },
+    {
+      "salary": "$15.00-$17.00/hr",
+      "annual": 33280.0
+    },
+    {
+      "salary": "$15.00/hr",
+      "annual": 31200.0
+    },
+    {
+      "salary": "$15.00–$62.00/hr",
+      "annual": 80080.0
+    },
+    {
+      "salary": "$15.09/hr, up to 20 hrs/week",
+      "annual": 31387.2
+    },
+    {
+      "salary": "$15.38 - $20.48/hr",
+      "annual": 37294.4
+    },
+    {
+      "salary": "$15/hour",
+      "annual": 31200.0
+    },
+    {
+      "salary": "$15/hr",
+      "annual": 31200.0
+    },
+    {
+      "salary": "$150K - $325K",
+      "annual": 237500.0
+    },
+    {
+      "salary": "$16,000-$19,000+/month",
+      "annual": 210000.0
+    },
+    {
+      "salary": "$16,500/month plus signing bonus",
+      "annual": 198000.0
+    },
+    {
+      "salary": "$16-$18/hr",
+      "annual": 35360.0
+    },
+    {
+      "salary": "$16-$24/hr",
+      "annual": 41600.0
+    },
+    {
+      "salary": "$16-36/hr (varies by degree level)",
+      "annual": 54080.0
+    },
+    {
+      "salary": "$16.00 - $33.44/hr (undergraduate); $22.60 - $52.00/hr (postgraduate)",
+      "annual": 58281.6
+    },
+    {
+      "salary": "$16.00-$27.50/hr",
+      "annual": 45240.0
+    },
+    {
+      "salary": "$16.00/hr",
+      "annual": 33280.0
+    },
+    {
+      "salary": "$16.00–$27.50/hr",
+      "annual": 45240.0
+    },
+    {
+      "salary": "$16.01 - $24.00/hr",
+      "annual": 41610.40000000001
+    },
+    {
+      "salary": "$160,000-$192,000/yr (annualized)",
+      "annual": 176000.0
+    },
+    {
+      "salary": "$160,000–$192,000/yr (annualized; location-dependent)",
+      "annual": 176000.0
+    },
+    {
+      "salary": "$160K–$250K",
+      "annual": 205000.0
+    },
+    {
+      "salary": "$17-19/hr",
+      "annual": 37440.0
+    },
+    {
+      "salary": "$17-25/hr",
+      "annual": 43680.0
+    },
+    {
+      "salary": "$170k - $235k",
+      "annual": 202500.0
+    },
+    {
+      "salary": "$170k - $240k",
+      "annual": 205000.0
+    },
+    {
+      "salary": "$170k–$250k",
+      "annual": 210000.0
+    },
+    {
+      "salary": "$171K - $242K",
+      "annual": 206500.0
+    },
+    {
+      "salary": "$175K - $280K",
+      "annual": 227500.0
+    },
+    {
+      "salary": "$176,000–$192,000/yr (annualized)",
+      "annual": 184000.0
+    },
+    {
+      "salary": "$18-20/hr",
+      "annual": 39520.0
+    },
+    {
+      "salary": "$18-21/hr",
+      "annual": 40560.0
+    },
+    {
+      "salary": "$18-22/hour",
+      "annual": 41600.0
+    },
+    {
+      "salary": "$18-24/hr",
+      "annual": 43680.0
+    },
+    {
+      "salary": "$18-25/hr",
+      "annual": 44720.0
+    },
+    {
+      "salary": "$18-25/hr (depending on class year)",
+      "annual": 44720.0
+    },
+    {
+      "salary": "$18-25/hr undergraduate, $26-30/hr post-graduate",
+      "annual": 53040.0
+    },
+    {
+      "salary": "$18.00-27.50/hr",
+      "annual": 47320.0
+    },
+    {
+      "salary": "$1800 - $2000 per week",
+      "annual": 98800.0
+    },
+    {
+      "salary": "$1800-$2000/week",
+      "annual": 98800.0
+    },
+    {
+      "salary": "$180K - $280K",
+      "annual": 230000.0
+    },
+    {
+      "salary": "$180K-$250K",
+      "annual": 215000.0
+    },
+    {
+      "salary": "$180k-$260k",
+      "annual": 220000.0
+    },
+    {
+      "salary": "$189,000+",
+      "annual": 189000.0
+    },
+    {
+      "salary": "$19-30/hr",
+      "annual": 50960.0
+    },
+    {
+      "salary": "$19-33/hr",
+      "annual": 54080.0
+    },
+    {
+      "salary": "$19-33/hr (annualized)",
+      "annual": 54080.0
+    },
+    {
+      "salary": "$19-35/hr",
+      "annual": 56160.0
+    },
+    {
+      "salary": "$19.57 - $31.93/hr (annualized)",
+      "annual": 53560.0
+    },
+    {
+      "salary": "$19.57 - $35.02/hr (annualized ~$40,700–$72,800)",
+      "annual": 56773.600000000006
+    },
+    {
+      "salary": "$19.57 - $35.02/hr (annualized)",
+      "annual": 56773.600000000006
+    },
+    {
+      "salary": "$191,000–$209,000/yr (annualized)",
+      "annual": 200000.0
+    },
+    {
+      "salary": "$2,353–$3,760 bi-weekly",
+      "annual": 79469.0
+    },
+    {
+      "salary": "$2,400/week (10-week internship) + housing stipend",
+      "annual": 124800.0
+    },
+    {
+      "salary": "$2,400/week (11-week internship)",
+      "annual": 124800.0
+    },
+    {
+      "salary": "$2,400/week + housing stipend",
+      "annual": 124800.0
+    },
+    {
+      "salary": "$20-23/hr",
+      "annual": 44720.0
+    },
+    {
+      "salary": "$20-25/hr",
+      "annual": 46800.0
+    },
+    {
+      "salary": "$20-28/hr",
+      "annual": 49920.0
+    },
+    {
+      "salary": "$20-28/hr + relocation",
+      "annual": 49920.0
+    },
+    {
+      "salary": "$20-30/hr",
+      "annual": 52000.0
+    },
+    {
+      "salary": "$20-32/hr",
+      "annual": 54080.0
+    },
+    {
+      "salary": "$20-34/hr",
+      "annual": 56160.0
+    },
+    {
+      "salary": "$20-35/hr",
+      "annual": 57200.0
+    },
+    {
+      "salary": "$20-35/hr, sign-on bonus, housing/stipend",
+      "annual": 57200.0
+    },
+    {
+      "salary": "$20-35/hr, sign-on bonus, paid housing or stipend",
+      "annual": 57200.0
+    },
+    {
+      "salary": "$20-40/hour",
+      "annual": 62400.0
+    },
+    {
+      "salary": "$20-40/hr",
+      "annual": 62400.0
+    },
+    {
+      "salary": "$20-71/hr",
+      "annual": 94640.0
+    },
+    {
+      "salary": "$20.00 - $40.00/hr + $2,000 housing stipend",
+      "annual": 62400.0
+    },
+    {
+      "salary": "$20.00 - $50.00/hour + benefits",
+      "annual": 72800.0
+    },
+    {
+      "salary": "$20.00 - $50.00/hr + benefits",
+      "annual": 72800.0
+    },
+    {
+      "salary": "$20.00 - $55.00/hr + benefits",
+      "annual": 78000.0
+    },
+    {
+      "salary": "$20.00 - $60.00/hr + benefits",
+      "annual": 83200.0
+    },
+    {
+      "salary": "$20.00-$40.00/hr + $2,000 housing stipend",
+      "annual": 62400.0
+    },
+    {
+      "salary": "$200/week stipend for 8-month full-time internship",
+      "annual": 10400.0
+    },
+    {
+      "salary": "$200/weekly housing stipend",
+      "annual": 10400.0
+    },
+    {
+      "salary": "$200K - $500K",
+      "annual": 350000.0
+    },
+    {
+      "salary": "$200k-$300k",
+      "annual": 250000.0
+    },
+    {
+      "salary": "$200k–$260k",
+      "annual": 230000.0
+    },
+    {
+      "salary": "$20K",
+      "annual": 20000.0
+    },
+    {
+      "salary": "$21.00-$36.00/hr; $1,000-$2,000/week",
+      "annual": 59280.0
+    },
+    {
+      "salary": "$210k-$280k",
+      "annual": 245000.0
+    },
+    {
+      "salary": "$22.50–$29.00/hr ($46,800–$60,320 annualized equivalent)",
+      "annual": 53560.0
+    },
+    {
+      "salary": "$22.66 - $30.90/hr (annualized from internship context)",
+      "annual": 55702.4
+    },
+    {
+      "salary": "$224k - $280k",
+      "annual": 252000.0
+    },
+    {
+      "salary": "$23.65 - $37.50/hr (monthly equivalent)",
+      "annual": 63596.0
+    },
+    {
+      "salary": "$230k-$250k",
+      "annual": 240000.0
+    },
+    {
+      "salary": "$25-$30 CAD/hr",
+      "annual": null
+    },
+    {
+      "salary": "$25/hr (30-40 hrs/week)",
+      "annual": 52000.0
+    },
+    {
+      "salary": "$28–$36 CAD/hr",
+      "annual": null
+    },
+    {
+      "salary": "$29.32 - $43.99/hr (part-time, 20 hrs/week)",
+      "annual": 76242.40000000001
+    },
+    {
+      "salary": "$3,420–$7,265/month",
+      "annual": 64110.0
+    },
+    {
+      "salary": "$3,500 - $5,000/week",
+      "annual": 221000.0
+    },
+    {
+      "salary": "$3,500/month",
+      "annual": 42000.0
+    },
+    {
+      "salary": "$3,600 - $4,500 CAD/month",
+      "annual": null
+    },
+    {
+      "salary": "$3,700 — $4,500 USD bi-weekly",
+      "annual": 106600.0
+    },
+    {
+      "salary": "$3,700—$4,500 USD bi-weekly",
+      "annual": 106600.0
+    },
+    {
+      "salary": "$3,800–$4,200/week (Bachelor's–PhD)",
+      "annual": 208000.0
+    },
+    {
+      "salary": "$3,840 stipend (14-16 weeks, 20 hrs/week)",
+      "annual": null
+    },
+    {
+      "salary": "$3,896–$6,375/month",
+      "annual": 61626.0
+    },
+    {
+      "salary": "$30.90 - $35.02/hr (annualized)",
+      "annual": 68556.8
+    },
+    {
+      "salary": "$30/hr (advertised); $39,700–$75,600/yr annualized range (compliance boilerplate)",
+      "annual": 62400.0
+    },
+    {
+      "salary": "$31.30–$40.70/hr (approx. $65K–$85K/yr)",
+      "annual": 74880.0
+    },
+    {
+      "salary": "$32.05 - $50.36/hr (annualized)",
+      "annual": 85706.4
+    },
+    {
+      "salary": "$34,800 - $55,700/yr (annualized from 20 hrs/week)",
+      "annual": 45250.0
+    },
+    {
+      "salary": "$34,800 - $55,700/yr (annualized; 25 hrs/week internship rate)",
+      "annual": 45250.0
+    },
+    {
+      "salary": "$34,800 - $55,700/yr (annualized; 25 hrs/week)",
+      "annual": 45250.0
+    },
+    {
+      "salary": "$34-$36/hour CAD",
+      "annual": null
+    },
+    {
+      "salary": "$35.00/hr ($6,066.67/month)",
+      "annual": 72800.0
+    },
+    {
+      "salary": "$3500/month",
+      "annual": 42000.0
+    },
+    {
+      "salary": "$36.80/hr (Fall 2027 - Spring 2028 for CS); $40.50/hr Master's equivalent",
+      "annual": 80392.0
+    },
+    {
+      "salary": "$37,855.00 - $64,354.00/yr (annualized for 10-week internship)",
+      "annual": 51104.5
+    },
+    {
+      "salary": "$4,000/month",
+      "annual": 48000.0
+    },
+    {
+      "salary": "$4,000–$8,000/month",
+      "annual": 72000.0
+    },
+    {
+      "salary": "$4,900–$5,500/week (depending on degree level)",
+      "annual": 270400.0
+    },
+    {
+      "salary": "$40,950–$60,450 CAD",
+      "annual": null
+    },
+    {
+      "salary": "$43,500–$87,500/yr (annualized)",
+      "annual": 65500.0
+    },
+    {
+      "salary": "$44,500 - $71,200/yr (annualized; position is 20 hrs/week)",
+      "annual": 57850.0
+    },
+    {
+      "salary": "$44,590 - $66,295/yr (part-time, 20 hrs/week)",
+      "annual": 55442.5
+    },
+    {
+      "salary": "$45,000–$55,000 USD annualized",
+      "annual": 50000.0
+    },
+    {
+      "salary": "$45-$60/hr (hourly); annualized ~$93,600–$124,800 based on full-time equivalent",
+      "annual": 109200.0
+    },
+    {
+      "salary": "$45-$60/hr (interns at TikTok typically work ~12-14 weeks, which annualizes to ~$93,600–$124,800)",
+      "annual": 109200.0
+    },
+    {
+      "salary": "$45/hr (approximately $93,600/yr annualized)",
+      "annual": 93600.0
+    },
+    {
+      "salary": "$45/hr (hourly rate listed; ~$94k annualized for 12 weeks)",
+      "annual": 93600.0
+    },
+    {
+      "salary": "$46,301/yr (10-week internship, 40 hrs/week)",
+      "annual": 46301.0
+    },
+    {
+      "salary": "$5,000 - $5,800 weekly",
+      "annual": 280800.0
+    },
+    {
+      "salary": "$5,000 - $5,800/week",
+      "annual": 280800.0
+    },
+    {
+      "salary": "$5,000-$5,800/week",
+      "annual": 280800.0
+    },
+    {
+      "salary": "$5,000–$5,500/week (MS/PhD)",
+      "annual": 273000.0
+    },
+    {
+      "salary": "$5,000–$5,500/week (MS–PhD)",
+      "annual": 273000.0
+    },
+    {
+      "salary": "$5,000–$5,800/week",
+      "annual": 280800.0
+    },
+    {
+      "salary": "$5,250/month",
+      "annual": 63000.0
+    },
+    {
+      "salary": "$5,313–$5,625/month",
+      "annual": 65628.0
+    },
+    {
+      "salary": "$5,610–$11,010/month (Redmond); $7,270–$12,030/month (SF Bay/NYC)",
+      "annual": 109680.0
+    },
+    {
+      "salary": "$5,610–$12,030/month (depending on IC level and location)",
+      "annual": 105840.0
+    },
+    {
+      "salary": "$5,690 - $11,210/month (US base; $7,410 - $12,250/month in SF Bay Area / NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690-$11,210/month (IC2) or $6,810-$13,480/month (IC3)",
+      "annual": 108120.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (Bay Area: $7,410–$12,250/month)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (Boston); $7,410–$12,250/month (SF/NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (Redmond); $7,410–$12,250/month (Bay Area/NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (Redmond); $7,410–$12,250/month (SF Bay/NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (Redmond); $7,410–$12,250/month (SF/NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (base; higher in SF Bay/NYC)",
+      "annual": 101400.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (or $7,410–$12,250/month in Bay Area/NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$5,690–$11,210/month (or $7,410–$12,250/month in SF Bay/NYC)",
+      "annual": 111720.0
+    },
+    {
+      "salary": "$50,840-$59,350/yr CAD",
+      "annual": null
+    },
+    {
+      "salary": "$50/hr; 5–20 hrs/week",
+      "annual": 104000.0
+    },
+    {
+      "salary": "$55,000 - $65,000 CAD",
+      "annual": null
+    },
+    {
+      "salary": "$60,000 - $70,000 CAD",
+      "annual": null
+    },
+    {
+      "salary": "$60,008 CAD",
+      "annual": null
+    },
+    {
+      "salary": "$62,400 CAD/yr",
+      "annual": null
+    },
+    {
+      "salary": "$68,250–$78,000 CAD (prorated for summer term)",
+      "annual": null
+    },
+    {
+      "salary": "$7.25/hr, up to 20 hrs/week",
+      "annual": 15080.0
+    },
+    {
+      "salary": "$730/week (~$18.25/hr)",
+      "annual": 37960.0
+    },
+    {
+      "salary": "$8,600/week (10-week program)",
+      "annual": 447200.0
+    },
+    {
+      "salary": "Based on experience",
+      "annual": null
+    },
+    {
+      "salary": "CA$40/hr - CA$45/hr",
+      "annual": null
+    },
+    {
+      "salary": "CAD $40–$45/hr",
+      "annual": null
+    },
+    {
+      "salary": "CAD $40–$48/hr",
+      "annual": null
+    },
+    {
+      "salary": "CAD $45–$48/hr",
+      "annual": null
+    },
+    {
+      "salary": "CAD $46–$53/hr",
+      "annual": null
+    },
+    {
+      "salary": "CAD $60,008",
+      "annual": null
+    },
+    {
+      "salary": "Commensurate with education hours (not specified numerically)",
+      "annual": null
+    },
+    {
+      "salary": "Commensurate with experience (32 hrs/week)",
+      "annual": null
+    },
+    {
+      "salary": "Commensurate with qualifications; up to 40 hrs/week summer, 20–30 hrs/week during school year",
+      "annual": null
+    },
+    {
+      "salary": "Competitive",
+      "annual": null
+    },
+    {
+      "salary": "Competitive (based on credit hours, classification, degree level; see pay chart)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive (based on credit hours, classification, degree level; see pay rate chart)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive (not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive base salary commensurate with experience",
+      "annual": null
+    },
+    {
+      "salary": "Competitive compensation and stipend (amount not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive hourly pay, full-time (40 hrs/week)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive internship compensation",
+      "annual": null
+    },
+    {
+      "salary": "Competitive internship stipend (amount not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (amount not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (amount not specified); housing stipend available",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (amount not specified); housing stipend if >50 miles away",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (exact range not disclosed); housing stipend available; 401(k) match; medical coverage",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (housing stipend if >50 miles away)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (specific amount not disclosed)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay (specific amount not disclosed); housing stipend available if >50 miles from Savannah",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay based on credit hours, classification, and degree level (see pay rate chart)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive pay based on credit hours, classification, degree level (no specific range provided)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive rates (not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salaries (no specific range given)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary (amount not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary (not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary based on discipline and academic class status (amount not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary based on discipline and academic class status (not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary commensurate with education level (not specified numerically)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary commensurate with education level (not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Competitive salary mentioned; no specific range given.",
+      "annual": null
+    },
+    {
+      "salary": "Hourly, biweekly; amount not specified",
+      "annual": null
+    },
+    {
+      "salary": "INR 10,000 - 20,000 / Monthly",
+      "annual": null
+    },
+    {
+      "salary": "Paid (15-25 hrs/week); rate not specified",
+      "annual": null
+    },
+    {
+      "salary": "Paid full-time internship (40 hrs/week, June–August); no hourly/salary figure stated.",
+      "annual": null
+    },
+    {
+      "salary": "Paid weekly (amount not specified)",
+      "annual": null
+    },
+    {
+      "salary": "Paid; 24 hrs/week max, 10 weeks (hourly rate not specified)",
+      "annual": null
+    },
+    {
+      "salary": "€700/week (internship allowance)",
+      "annual": null
+    },
+    {
+      "salary": "$200-260k",
+      "annual": 230000.0
+    },
+    {
+      "salary": "$39.7–72.8k/yr",
+      "annual": 56250.0
+    },
+    {
+      "salary": "$91,198 - $91,202 / hr",
+      "annual": null
+    },
+    {
+      "salary": "$45.00 / hour",
+      "annual": 93600.0
+    },
+    {
+      "salary": "US$120,000",
+      "annual": 120000.0
+    },
+    {
+      "salary": "$70,000 - $90,000 plus benefits",
+      "annual": 80000.0
+    },
+    {
+      "salary": "$120,000 - $150,000 USD",
+      "annual": 135000.0
+    },
+    {
+      "salary": "$60,000 - 401k match",
+      "annual": 60000.0
+    },
+    {
+      "salary": "$80,000-$100,000, 401(k), PTO",
+      "annual": 90000.0
+    },
+    {
+      "salary": "$55,000 - 15% bonus",
+      "annual": 55000.0
+    },
+    {
+      "salary": "$93,600/yr ($45/hr)",
+      "annual": 93600.0
+    },
+    {
+      "salary": "$25.00/hr + $2,000/month housing stipend",
+      "annual": 52000.0
+    },
+    {
+      "salary": "$21.80–$29.10 plus $5.09/hr differential",
+      "annual": 52936.00000000001
+    },
+    {
+      "salary": "$17.98-$135,700",
+      "annual": null
+    },
+    {
+      "salary": "$37.22 - $150,000.00/yr",
+      "annual": null
+    },
+    {
+      "salary": "$1,000/hr",
+      "annual": null
+    },
+    {
+      "salary": "$0 - $200,000",
+      "annual": null
+    },
+    {
+      "salary": "$900 - $1,200",
+      "annual": null
+    },
+    {
+      "salary": "$500-$2,000 annually",
+      "annual": null
+    },
+    {
+      "salary": "$1,635.00 biweekly",
+      "annual": 42510.0
+    }
+  ]
+}

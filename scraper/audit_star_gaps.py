@@ -38,7 +38,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 from db import get_client
-from gold_star import _norm_company, _starred_companies, _salary_clears_bar, star_reasons
+from gold_star import _norm_company, _starred_companies, star_reasons
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
                     datefmt="%H:%M:%S", stream=sys.stdout)
