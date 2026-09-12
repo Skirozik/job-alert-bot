@@ -199,5 +199,74 @@ const byFound = sortJobs([
 ], 'found_at', 'desc').map(j => j.id)
 check('found_at sorting still works', byFound.join(',') === 'b,a', byFound.join(','))
 
+// ---- the defects the three-copy rewrite closed -------------------------
+// Every string here ranked WRONGLY in this column before 2026-09-11. The gold
+// star's copy of this function had the same bugs, so the badge and the sort
+// were wrong together and neither could reveal the other.
+
+// "$20-71/hr" found ONE amount, so the median was the floor and NVIDIA sorted
+// at $41,600 instead of $94,640. 123 distinct live strings are written this way.
+check('a bare second bound is the top of the band', annualSalary('$20-71/hr') === 45.5 * 2080,
+      String(annualSalary('$20-71/hr')))
+check('a k written once governs both bounds', annualSalary('$200-260k') === 230_000)
+check('an unlabelled bare-bound range still medians',
+      annualSalary('$120,000-150,000') === 135_000, String(annualSalary('$120,000-150,000')))
+
+// A total stipend multiplied by a workload clause put a $3,840 payment near the
+// TOP of "highest first", which is the single most visible way this sort lies.
+check('a lump sum beside a workload clause does not rank as weekly pay',
+      annualSalary('$3,840 stipend (14-16 weeks, 20 hrs/week)') === null,
+      String(annualSalary('$3,840 stipend (14-16 weeks, 20 hrs/week)')))
+check('a workload clause does not sink an hourly rate either',
+      Math.abs(annualSalary('$15.09/hr, up to 20 hrs/week') - 15.09 * 2080) < 0.01,
+      String(annualSalary('$15.09/hr, up to 20 hrs/week')))
+
+// A rate restated annually is one wage written twice; medianed together it
+// exploded past the plausibility cap and the row sorted last instead of high.
+check('an annualised restatement is not a second band',
+      near(annualSalary('$22.50–$29.00/hr ($46,800–$60,320 annualized equivalent)'), 25.75 * 2080),
+      String(annualSalary('$22.50–$29.00/hr ($46,800–$60,320 annualized equivalent)')))
+check('a restatement written the other way round reads the same',
+      annualSalary('$93,600/yr ($45/hr)') === 93_600)
+check('a weekly rate restated hourly stays weekly',
+      annualSalary('$730/week (~$18.25/hr)') === 730 * 52,
+      String(annualSalary('$730/week (~$18.25/hr)')))
+check("an adder's unit does not override the band's",
+      annualSalary('$25.00/hr + $2,000/month housing stipend') === 52_000,
+      String(annualSalary('$25.00/hr + $2,000/month housing stipend')))
+
+// ---- a foreign currency is not ranked against dollars -------------------
+check('a CAD band has no comparable figure', annualSalary('$68,250–$78,000 CAD') === null)
+check('CA$ is caught too', annualSalary('CA$40/hr - CA$45/hr') === null)
+check('US$ is NOT Singapore dollars', annualSalary('US$120,000') === 120_000,
+      String(annualSalary('US$120,000')))
+check("a trailing 's' is not a currency symbol",
+      annualSalary('$70,000 - $90,000 plus benefits') === 80_000,
+      String(annualSalary('$70,000 - $90,000 plus benefits')))
+
+// ---- malformed bands are rejected, not ranked --------------------------
+check('an hourly floor under an annual ceiling is malformed',
+      annualSalary('$17.98-$135,700') === null)
+check('...even when a unit is stated', annualSalary('$37.22 - $150,000') === null)
+check('a retirement plan is not the top of the band',
+      annualSalary('$60,000 - 401k match') === 60_000)
+check('a bonus percentage is not a figure', annualSalary('$55,000 - 15% bonus') === 55_000)
+
+// ---- and it is the ORDER that the user sees ----------------------------
+// "returns null" and "sorts last" are different claims; only the second is
+// visible. A CAD row and a stipend must fall in with the blanks, not lead.
+const mixed = [
+  job('cad', '$68,250–$78,000 CAD'),
+  job('stipend', '$3,840 stipend (14-16 weeks, 20 hrs/week)'),
+  job('nvidia', '$20-71/hr'),                 //  94,640
+  job('flat50', '$50/hr'),                    // 104,000
+  job('blank', null),
+]
+const mixedDesc = sortJobs(mixed, 'salary', 'desc').map(j => j.id)
+check('highest first ranks the bare-bound range on its median, not its floor',
+      mixedDesc.slice(0, 2).join(',') === 'flat50,nvidia', mixedDesc.join(','))
+check('an unparseable currency and a lump sum sort LAST, not first',
+      mixedDesc.slice(2).sort().join(',') === 'blank,cad,stipend', mixedDesc.join(','))
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

@@ -186,6 +186,79 @@
       "suggested_resume": "General", "expected": ["salary"]
     },
     {
+      "name": "a bare second bound is the top of the band, not a lone figure",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$20-71/hr", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a workload clause is not a pay unit",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$40.00/hour, 20 hrs/week", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "an adder's unit does not override the band's own",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$40.00/hr + $2,000/month housing stipend", "is_easy_apply": false,
+      "tier": "APPLY", "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "an annualised restatement is not a second band",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$40.00-$50.00/hr ($83,200-$104,000 annualized equivalent)",
+      "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
+      "expected": ["salary"]
+    },
+    {
+      "name": "a restatement written the other way round reads the same",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$93,600/yr ($45/hr)", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "two units for one job resolve to the one stated FIRST",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$1,000-$2,000 USD weekly / $21.00-$36.00/hr", "is_easy_apply": false,
+      "tier": "APPLY", "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a non-USD band is not scored against a USD bar",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$68,250-$78,000 CAD", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "US$ is not the Singapore dollar",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "US$120,000", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a trailing 's' is not a currency symbol",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$70,000 - $90,000 plus benefits", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": ["salary"]
+    },
+    {
+      "name": "a k written once governs both bounds: $39.7-72.8k is not $39.70",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$39.7-72.8k/yr", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "a retirement plan is not the top of the band",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$60,000 - 401k match", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
+      "name": "a band spanning hourly to annual scale is malformed, not generous",
+      "company": "Obscure Widgets", "title": "Software Engineer Intern",
+      "salary": "$17.98-$135,700", "is_easy_apply": false, "tier": "APPLY",
+      "suggested_resume": "General", "expected": []
+    },
+    {
       "name": "an unlisted company with no salary does not star",
       "company": "Obscure Widgets", "title": "Software Engineer Intern",
       "salary": null, "is_easy_apply": false, "tier": "APPLY", "suggested_resume": "General",
