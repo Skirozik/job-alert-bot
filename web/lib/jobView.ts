@@ -55,6 +55,54 @@ export const isDirect = (j: Job) => j.id.startsWith('ats:')
 export const matchesSource = (j: Job, s: SourceFilter) =>
   s === 'all' ? true : s === 'direct' ? isDirect(j) : !isDirect(j)
 
+/* ── Site ────────────────────────────────────────────────────────────────
+   WHERE THE APPLY LINK GOES, not where the row was found. Source above is the
+   provenance axis (caught by the ATS watcher vs. everything else), and its
+   "LinkedIn only" sweeps in GitHub-tracker rows whose link lands on Workday.
+   This filter answers the question the user actually asks at the Apply
+   button: "which site am I about to be sent to?" */
+// The type is DERIVED from the runtime list, not declared beside it. readUrl
+// validates ?site= against SITE_FILTERS, so a key that reached the union and
+// the dropdown but not this list would type-check, render, write itself into
+// the URL, and then be thrown away on reload. Deriving makes that impossible.
+export const SITE_FILTERS = ['all', 'linkedin', 'workday', 'ashby', 'greenhouse', 'icims', 'other'] as const
+export type SiteFilter = typeof SITE_FILTERS[number]
+export type LinkSite = Exclude<SiteFilter, 'all'>
+
+/** The href the Apply button opens. Easy Apply stays on LinkedIn; otherwise
+ *  the ATS link wins when the scraper captured one. JobTable and JobDrawer
+ *  read this so the filter and the button cannot disagree. dupes.ts keeps a
+ *  private copy: both files are transpiled into data: URLs by tests and a
+ *  data: URL cannot resolve a relative value import. */
+export const applicationHref = (j: Job): string =>
+  j.is_easy_apply ? j.url : (j.apply_url ?? j.url)
+
+// Dot-anchored suffix match: "acme.wd1.myworkdayjobs.com" and
+// "job-boards.eu.greenhouse.io" hit; "notlinkedin.com" does not.
+const SITE_HOSTS: [LinkSite, string][] = [
+  ['linkedin', 'linkedin.com'],
+  ['workday', 'myworkdayjobs.com'],
+  // Workday's other public domain, "wd1.myworkdaysite.com/recruiting/<tenant>/...".
+  // The SimplifyJobs tracker links Wells Fargo, Brevan Howard and Devon Energy
+  // this way (12 rows on the live README), and each opens a Workday apply page.
+  ['workday', 'myworkdaysite.com'],
+  ['ashby', 'ashbyhq.com'],
+  ['greenhouse', 'greenhouse.io'],
+  ['icims', 'icims.com'],
+]
+
+/** Which job site the Apply button lands on. A gh: row that links to Workday
+ *  is 'workday'; an Easy Apply row is 'linkedin' whatever its apply_url says. */
+export function linkSite(j: Job): LinkSite {
+  let host: string
+  try { host = new URL(applicationHref(j)).hostname.toLowerCase().replace(/^www\./, '') }
+  catch { return 'other' }
+  for (const [site, d] of SITE_HOSTS) if (host === d || host.endsWith('.' + d)) return site
+  return 'other'
+}
+
+export const matchesSite = (j: Job, s: SiteFilter) => s === 'all' || linkSite(j) === s
+
 export function matchesDate(j: Job, d: DateFilter): boolean {
   if (d === 'all') return true
   const hours = d === '24h' ? 24 : d === '7d' ? 168 : 720

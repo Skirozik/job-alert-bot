@@ -6,7 +6,7 @@ import type { Job, Status } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
 import { hasPendingMutation } from '@/lib/statusMutations'
 import {
-  compactSalary, splitLocations, relativeTime, fullTimestamp, isDirect,
+  compactSalary, splitLocations, relativeTime, fullTimestamp, isDirect, applicationHref,
   type SortKey, type SortDir, type OptionalCol,
 } from '@/lib/jobView'
 import {
@@ -194,7 +194,7 @@ export function JobTable({
         const locs = splitLocations(job.location)
         const status = job.status ?? 'new'
         const easy = job.is_easy_apply
-        const applyHref = easy ? job.url : (job.apply_url ?? job.url)
+        const applyHref = applicationHref(job)
         const inelig = job.tier === 'INELIGIBLE'
         const starred = isStarred(job)
         const pending = hasPendingMutation(job, pendingIds)

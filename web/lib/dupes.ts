@@ -335,6 +335,9 @@ function compatibleLocations(a: Job, b: Job): boolean {
     || lb.filter(usable).some((x) => ac.includes(x.city))
 }
 
+// A deliberate copy of jobView.ts's applicationHref rather than an import:
+// dupes.test.mjs transpiles this module into a data: URL, which cannot resolve
+// a relative value import. Keep the two in step by hand.
 function applicationHref(job: Job): string {
   return job.is_easy_apply ? job.url : (job.apply_url ?? job.url)
 }
