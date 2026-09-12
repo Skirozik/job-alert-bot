@@ -177,6 +177,12 @@ function titleWords(job: Job): Set<string> {
     .filter((w) => !['spring', 'summer', 'fall', 'autumn', 'winter'].includes(w))
     .filter((w) => !company.has(w) && !location.has(w))
     .map((w) => w === 'engineering' ? 'engineer' : w)
+    // "Internship" and "Intern" are the same word for this purpose, and the
+    // difference is the whole reason two otherwise identical titles missed:
+    // "Full-Stack Engineering Internship - Summer 2027" vs "... Intern - ..."
+    // scored 0.75 containment against a 0.8 threshold. scraper/db.py's
+    // norm_role has always stripped both; this is the display side catching up.
+    .map((w) => w === 'internship' ? 'intern' : w)
   return new Set(out)
 }
 
@@ -206,39 +212,127 @@ function compatibleSpecializations(a: string, b: string): boolean {
   return !xa.length || !xb.length || xa.some((x) => xb.includes(x))
 }
 
-function normalizedLocations(raw: string | null | undefined): Set<string> {
-  const text = raw ?? ''
-  const out = new Set<string>()
-  const cityState = /([A-Za-z][A-Za-z .'-]*?),\s*([A-Z]{2})\b/g
-  let match: RegExpExecArray | null
-  while ((match = cityState.exec(text)) !== null) {
-    out.add(plain(`${match[1]}, ${match[2]}`)
-      .replace(/^new york city ny$/, 'new york ny')
-      .replace(/^nyc$/, 'new york ny')
-      .replace(/^la$/, 'los angeles ca'))
-  }
+/* Every source writes a place differently, and an exact string match on the
+ * whole cell was rejecting pairs that name the SAME city. Live examples, all
+ * of them one posting shown twice on the dashboard:
+ *
+ *   "SF"                          vs "San Francisco, CA"
+ *   "NYC"                         vs "Hybrid - New York, NY"
+ *   "Cary,North Carolina,United States" vs "Cary, NC"
+ *   "Greater Amarillo Area"       vs "Amarillo, TX"
+ *   "Las Vegas Metropolitan Area" vs "Las Vegas, NV"
+ *   "Middletown, RIManassas, VA"  vs "Middletown, RI"
+ *
+ * So a location is parsed into places rather than compared as text. */
+type Place = { city: string, state: string }
 
-  for (const part of text.split(/\s*[·;]\s*/)) {
-    const n = plain(part.replace(/\+\d+\s*$/, ''))
-      .replace(/^new york city ny$/, 'new york ny')
-      .replace(/^nyc$/, 'new york ny')
-      .replace(/^la$/, 'los angeles ca')
-    if (n) out.add(n)
-  }
+const STATE_CODE: Record<string, string> = {
+  alabama: 'al', alaska: 'ak', arizona: 'az', arkansas: 'ar', california: 'ca',
+  colorado: 'co', connecticut: 'ct', delaware: 'de', florida: 'fl', georgia: 'ga',
+  hawaii: 'hi', idaho: 'id', illinois: 'il', indiana: 'in', iowa: 'ia',
+  kansas: 'ks', kentucky: 'ky', louisiana: 'la', maine: 'me', maryland: 'md',
+  massachusetts: 'ma', michigan: 'mi', minnesota: 'mn', mississippi: 'ms',
+  missouri: 'mo', montana: 'mt', nebraska: 'ne', nevada: 'nv',
+  'new hampshire': 'nh', 'new jersey': 'nj', 'new mexico': 'nm', 'new york': 'ny',
+  'north carolina': 'nc', 'north dakota': 'nd', ohio: 'oh', oklahoma: 'ok',
+  oregon: 'or', pennsylvania: 'pa', 'rhode island': 'ri', 'south carolina': 'sc',
+  'south dakota': 'sd', tennessee: 'tn', texas: 'tx', utah: 'ut', vermont: 'vt',
+  virginia: 'va', washington: 'wa', 'west virginia': 'wv', wisconsin: 'wi',
+  wyoming: 'wy', 'district of columbia': 'dc',
+}
+const STATE_CODES = new Set(Object.values(STATE_CODE))
 
+/* Only abbreviations that are unambiguous for a US job board. "la" is already
+ * here as Los Angeles rather than Louisiana because the existing table chose
+ * that, and the state code is stripped separately so the two never collide. */
+const CITY_ALIAS: Record<string, string> = {
+  sf: 'san francisco', sfo: 'san francisco', 'san fran': 'san francisco',
+  nyc: 'new york', 'new york city': 'new york', la: 'los angeles',
+  dc: 'washington', 'washington dc': 'washington', philly: 'philadelphia',
+}
+
+/* How a posting was arranged, not where it is. "Greater X Area" and "X
+ * Metropolitan Area" are how LinkedIn writes a metro; the tracker writes the
+ * bare city. Dropped outright — two "Remote" rows are not in the same place. */
+const ARRANGEMENT = /\b(?:greater|metropolitan|metro|area|region|remote|hybrid|on-?site|onsite|multiple locations?|\d+\s*locations?)\b/g
+/* A country is not a city, but it IS something two rows can share: Honeywell
+ * posts "United States" and nothing else, and those rows must still meet. */
+const COUNTRY_ONLY = /^(?:united states|usa?)$/
+const TRAILING_COUNTRY = /\s+(?:united states|usa?)$/
+
+function parsePlaces(raw: string | null | undefined): Place[] {
+  let text = raw ?? ''
+  if (!text.trim()) return []
+  // "Middletown, RIManassas, VA" -- trackers join a list with no separator, so
+  // a state code butted against a capital letter IS the separator.
+  text = text.replace(/\b([A-Z]{2})(?=[A-Z][a-z])/g, '$1;')
+  text = text.replace(/\+\s*\d+\s*$/, '')
+
+  const out: Place[] = []
+  for (const rawPart of text.split(/[;·|\/]|\s+-\s+/)) {
+    const full = plain(rawPart)
+    if (!full) continue
+    // A bare abbreviation IS the city, and it has to be resolved BEFORE any
+    // state logic: "LA" is also Louisiana's code, so the state pass would
+    // consume it and leave no city at all.
+    if (CITY_ALIAS[full]) { out.push({ city: CITY_ALIAS[full], state: '' }); continue }
+
+    const part = full.replace(ARRANGEMENT, ' ').replace(/\s+/g, ' ').trim()
+    if (!part) continue                                  // "Hybrid", "Remote"
+    if (COUNTRY_ONLY.test(part)) { out.push({ city: part, state: '' }); continue }
+
+    const tokens = part.replace(TRAILING_COUNTRY, '').trim().split(' ')
+    // A trailing state, as a code or spelled out ("north carolina" is two
+    // words, so the last TWO tokens are tried before the last one).
+    let state = ''
+    let cityTokens = tokens
+    const last1 = tokens[tokens.length - 1]
+    const last2 = tokens.slice(-2).join(' ')
+    if (STATE_CODE[last2]) { state = STATE_CODE[last2]; cityTokens = tokens.slice(0, -2) }
+    else if (STATE_CODE[last1]) { state = STATE_CODE[last1]; cityTokens = tokens.slice(0, -1) }
+    else if (last1 && STATE_CODES.has(last1)) { state = last1; cityTokens = tokens.slice(0, -1) }
+    let city = cityTokens.join(' ').trim()
+    city = CITY_ALIAS[city] ?? city
+    if (!city) continue
+    out.push({ city, state })
+  }
   return out
 }
 
+/** Two places are the same when the city matches and the states do not
+ * contradict. An UNKNOWN state cannot contradict: "Greater Amarillo Area"
+ * names no state and is still Amarillo, TX. Two KNOWN states that differ do
+ * contradict, which is what keeps Columbus, OH apart from Columbus, GA. */
+function samePlace(a: Place, b: Place): boolean {
+  if (a.city !== b.city) return false
+  return !a.state || !b.state || a.state === b.state
+}
+
+function normalizedLocations(raw: string | null | undefined): Set<string> {
+  return new Set(parsePlaces(raw).map((p) => p.city))
+}
+
 function compatibleLocations(a: Job, b: Job): boolean {
-  const la = normalizedLocations(a.location), lb = normalizedLocations(b.location)
-  if (!la.size || !lb.size) return false
-  if ([...la].some((x) => lb.has(x))) return true
+  const la = parsePlaces(a.location), lb = parsePlaces(b.location)
+  if (!la.length || !lb.length) return false
+  if (la.some((x) => lb.some((y) => samePlace(x, y)))) return true
 
   // A compact location cell may say "+1" without storing the second city,
   // while Workday still includes that city in the application path. This is
-  // how the Regions duplicate appears live (Hoover +1 vs Birmingham).
+  // how the Regions duplicate appears live (Hoover +1 vs Birmingham), and how
+  // Graco's "French Lake, MN" meets "Dayton, MN" -- one Workday requisition
+  // whose URL spells out both.
+  //
+  // A city that is ALSO the employer's name proves nothing here, because the
+  // company name is in every one of that employer's URLs. Without this filter
+  // "Corning, NY" matched "Concord, NC" and "Hartford, CT" matched
+  // "Charlotte, NC" -- two different postings each, merged on the company name
+  // sitting in the path.
+  const employer = new Set([...companyWords(a.company), ...companyWords(b.company)])
+  const usable = (p: Place) => !p.city.split(' ').every((w) => employer.has(w))
   const ac = targetCorpus(a), bc = targetCorpus(b)
-  return [...la].some((x) => bc.includes(x)) || [...lb].some((x) => ac.includes(x))
+  return la.filter(usable).some((x) => bc.includes(x.city))
+    || lb.filter(usable).some((x) => ac.includes(x.city))
 }
 
 function applicationHref(job: Job): string {
@@ -404,6 +498,54 @@ function effectiveStatus(members: Job[]): Status {
   'new')
 }
 
+/* The leader is simply the first member, which is the newest by found_at — and
+ * newest is not best. Sources disagree about the SAME posting on exactly the
+ * fields the row displays: measured live, 61 groups differ on salary, 83 on
+ * title, 98 on location and 32 on tier. Showing whichever arrived last means
+ * the row can lose a stated salary, or show "SF" when its twin says "San
+ * Francisco, CA", for no reason the reader can see.
+ *
+ * So each displayed field is taken from whichever member has the best value
+ * for it, the same way status already is. Every source row stays reachable in
+ * `duplicates`, so nothing here hides anything — it only decides what the one
+ * visible line says. */
+
+/** A location is better when it names a state: "San Francisco, CA" over "SF",
+ * "Cary, NC" over "Cary,North Carolina,United States" once both parse. Among
+ * equals the shorter string wins, because the long ones are concatenated lists
+ * ("Middletown, RIManassas, VA") rather than extra information. */
+function betterLocation(a: string, b: string): string {
+  if (!a?.trim()) return b
+  if (!b?.trim()) return a
+  const sa = parsePlaces(a).some((p) => p.state) ? 1 : 0
+  const sb = parsePlaces(b).some((p) => p.state) ? 1 : 0
+  if (sa !== sb) return sa > sb ? a : b
+  return a.length <= b.length ? a : b
+}
+
+function mergeDisplayFields(members: Job[]): Partial<Job> {
+  let location = members[0].location
+  let salary = members[0].salary
+  let tier = members[0].tier
+  let suggested = members[0].suggested_resume
+  // An apply route that is not Easy Apply reaches a human, so it wins outright.
+  let best = members[0]
+  for (const m of members.slice(1)) {
+    location = betterLocation(location, m.location)
+    // A stated figure beats a blank one. Between two figures keep the leader's:
+    // they are the same pay written twice, and salary parsing already handles
+    // the wording differences.
+    if (!salary?.trim() && m.salary?.trim()) salary = m.salary
+    if (tier !== 'APPLY' && m.tier === 'APPLY') tier = m.tier
+    if (!suggested && m.suggested_resume) suggested = m.suggested_resume
+    if (best.is_easy_apply && !m.is_easy_apply) best = m
+  }
+  return {
+    location, salary, tier, suggested_resume: suggested,
+    is_easy_apply: best.is_easy_apply, apply_url: best.apply_url, url: best.url,
+  }
+}
+
 /** Returns one entry per group. Every source row remains attached and visible
  * in the drawer. The most advanced status wins so an already-applied copy can
  * never reappear in To apply merely because a newer duplicate was inserted. */
@@ -465,7 +607,12 @@ export function groupNearDuplicates(jobs: Job[]): Grouped[] {
     .map(([, members]) => {
       if (members.length === 1) return members[0]
       const [leader, ...duplicates] = members
-      return { ...leader, status: effectiveStatus(members), duplicates }
+      return {
+        ...leader,
+        ...mergeDisplayFields(members),
+        status: effectiveStatus(members),
+        duplicates,
+      }
     })
 }
 
