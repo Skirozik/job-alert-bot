@@ -70,7 +70,16 @@ export function matchesSearch(j: Job, q: string): boolean {
 /* ── Salary ──────────────────────────────────────────────────────────────
    The column is ~90px. "$4,000.00/wk - $6,000.00/wk" does not fit, so the
    table gets a compact form and the drawer keeps the original string
-   verbatim — normalising is for scanning, not a replacement for the source. */
+   verbatim — normalising is for scanning, not a replacement for the source.
+
+   THE FIGURES COME FROM bandFigures(), THE SAME READER THE SORT USES. This
+   function used to pull only numbers that carried their own "$", and a range
+   is usually written with one: "$20-71/hr" drew as "$20/hr" on 113 live rows,
+   and "$39.7–72.8k/yr" as "$40/yr". The column and the sort key then disagreed
+   about the same string — sorted as a $20–$71 band, shown as a flat $20 —
+   and a row that reads "$20/hr" on screen is exactly the one a reader would
+   dismiss as low-paid. The adder split is what stops "$25.00/hr + $2,000/month
+   housing stipend" drawing as a "$25–2k/hr" range (32 live rows). */
 export function compactSalary(raw: string | null): string {
   if (!raw) return ''
   const unit = /\/?\s*(hr|hour|wk|week|mo|month|yr|year)/i.exec(raw)?.[1]?.toLowerCase() ?? ''
@@ -78,10 +87,7 @@ export function compactSalary(raw: string | null): string {
           : unit.startsWith('wk') || unit.startsWith('week') ? '/wk'
           : unit.startsWith('mo') ? '/mo'
           : unit.startsWith('yr') || unit.startsWith('year') ? '/yr' : ''
-  const nums: number[] = []
-  const re = /\$\s*([\d,]+(?:\.\d+)?)/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(raw)) !== null) nums.push(parseFloat(m[1].replace(/,/g, '')))
+  const nums = bandFigures(raw.replace(NOISE, ' ').split(ADDER)[0])
   if (!nums.length) return raw.length > 12 ? raw.slice(0, 11) + '…' : raw
   // Integers only. "$39.7–72.8k/yr" wrapped to two lines inside a 44px
   // row; the decimal was never doing anything for triage.
@@ -255,6 +261,35 @@ const NOISE = /\d[\d\s–—.-]*\s*(?:hrs?|hours)\s*(?:\/|per\s+|a\s+)\s*(?:wk|w
 // equivalent here and universally supported.
 const NONUSD = /\b(?:CAD|AUD|NZD|SGD|HKD|MXN|EUR|GBP|INR)\b|(?:^|[^A-Za-z])(?:CA|A|NZ|S|HK)\$/i
 
+/** Every dollar figure in a band, in written order, with the k-suffix applied.
+ *
+ * Shared by compactSalary (what the column draws) and annualSalary (how the
+ * column sorts), so the two cannot read the same string differently. Callers
+ * strip NOISE and split off the ADDER first — that is deliberately not done
+ * here, because annualSalary needs the cleaned text afterwards for its unit
+ * and cross-scale checks. */
+function bandFigures(band: string): number[] {
+  const amounts: number[] = []
+  for (const m of band.matchAll(SALARY_MONEY)) {
+    const pair: ([number, boolean] | null)[] = []
+    for (const [raw, k] of [[m[1], m[2]], [m[3], m[4]]] as const) {
+      if (!raw) { pair.push(null); continue }
+      const n = Number(raw.replace(/,/g, '')) * (k ? 1000 : 1)
+      pair.push(Number.isFinite(n) ? [n, Boolean(k)] : null)
+    }
+    // "$39.7–72.8k" states the k once and means it twice. Only a bound still
+    // under 1000 inherits it, which is what stops "$100,000 - 401k" — were it
+    // not already stripped as noise — from becoming a $401,000 ceiling.
+    const [a, b] = pair
+    if (a && b) {
+      if (b[1] && !a[1] && a[0] < K_MAX) a[0] *= 1000
+      else if (a[1] && !b[1] && b[0] < K_MAX) b[0] *= 1000
+    }
+    for (const v of [a, b]) if (v) amounts.push(v[0])
+  }
+  return amounts
+}
+
 const HOURS_PER_YEAR = 2080
 
 // Above this the figure is a scraper artifact rather than pay. Intel posts
@@ -346,24 +381,7 @@ export function annualSalary(raw: string | null | undefined): number | null {
   // $5.09/hr differential" is a band and a bonus, and counting the bonus drags
   // the median down.
   const band = clean.split(ADDER)[0]
-  let amounts: number[] = []
-  for (const m of band.matchAll(SALARY_MONEY)) {
-    const pair: ([number, boolean] | null)[] = []
-    for (const [raw, k] of [[m[1], m[2]], [m[3], m[4]]] as const) {
-      if (!raw) { pair.push(null); continue }
-      const n = Number(raw.replace(/,/g, '')) * (k ? 1000 : 1)
-      pair.push(Number.isFinite(n) ? [n, Boolean(k)] : null)
-    }
-    // "$39.7–72.8k" states the k once and means it twice. Only a bound still
-    // under 1000 inherits it, which is what stops "$100,000 - 401k" — were it
-    // not already stripped as noise — from becoming a $401,000 ceiling.
-    const [a, b] = pair
-    if (a && b) {
-      if (b[1] && !a[1] && a[0] < K_MAX) a[0] *= 1000
-      else if (a[1] && !b[1] && b[0] < K_MAX) b[0] *= 1000
-    }
-    for (const v of [a, b]) if (v) amounts.push(v[0])
-  }
+  let amounts = bandFigures(band)
   if (!amounts.length) return null
   // A $0 floor is a placeholder, and the median hides it: "$0 - $200,000"
   // medians to a perfectly plausible $100,000. No real posting floors at zero.
