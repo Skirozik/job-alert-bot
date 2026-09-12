@@ -14,9 +14,9 @@ import {
   reconcileServerJobs, type StatusMutation,
 } from '@/lib/statusMutations'
 import {
-  matchesView, matchesRole, matchesSource, matchesDate, matchesSearch,
-  visibleOptionalColumns, sortJobs, relativeTime,
-  type ViewKey, type RoleFilter, type SourceFilter, type DateFilter,
+  matchesView, matchesRole, matchesSource, matchesSite, matchesDate, matchesSearch,
+  linkSite, visibleOptionalColumns, sortJobs, relativeTime, SITE_FILTERS,
+  type ViewKey, type RoleFilter, type SourceFilter, type SiteFilter, type DateFilter,
   type SortKey, type SortDir,
 } from '@/lib/jobView'
 import { matchesStar, type StarFilter } from '@/lib/goldStar'
@@ -102,12 +102,12 @@ export function JobList({
      The URL still round-trips: it seeds the initial state and is re-read on
      popstate, so bookmarks and the back button work as before. */
   type ViewState = {
-    view: ViewKey; q: string; role: RoleFilter; src: SourceFilter
+    view: ViewKey; q: string; role: RoleFilter; src: SourceFilter; site: SiteFilter
     date: DateFilter; star: StarFilter; sort: SortKey; dir: SortDir; job: string | null
   }
 
   const DEFAULTS: ViewState = {
-    view: 'to-apply', q: '', role: 'all', src: 'all', date: 'all', star: 'all',
+    view: 'to-apply', q: '', role: 'all', src: 'all', site: 'all', date: 'all', star: 'all',
     sort: 'found_at', dir: 'desc', job: null,
   }
 
@@ -116,6 +116,7 @@ export function JobList({
     q:    sp.get('q') ?? '',
     role: (sp.get('role') ?? 'all') as RoleFilter,
     src:  (sp.get('src') ?? 'all') as SourceFilter,
+    site: (SITE_FILTERS.includes(sp.get('site') as SiteFilter) ? sp.get('site') : 'all') as SiteFilter,
     date: (sp.get('date') ?? 'all') as DateFilter,
     star: (sp.get('star') ?? 'all') as StarFilter,
     sort: (sp.get('sort') ?? 'found_at') as SortKey,
@@ -124,7 +125,7 @@ export function JobList({
   }), [])
 
   const [st, setSt] = useState<ViewState>(() => readUrl(new URLSearchParams(params.toString())))
-  const { view, q: search, role, src: source, date, star, sort, dir, job: selectedId } = st
+  const { view, q: search, role, src: source, site, date, star, sort, dir, job: selectedId } = st
 
   const patch = useCallback((p: Partial<ViewState>) => setSt(prev => ({ ...prev, ...p })), [])
 
@@ -262,14 +263,26 @@ export function JobList({
     return c
   }, [jobs])
 
+  // A persona whose rows all land on one site (Beyonce and Hassan are
+  // LinkedIn-only scrapers) gets no Site dropdown: every option but one would
+  // empty the table. Mirrors showSource below. Early-exit `some`, not a Set --
+  // on the main persona this stops within the first few rows.
+  const showSite = useMemo(() => {
+    if (!jobs.length) return false
+    const first = linkSite(jobs[0])
+    return jobs.some(j => linkSite(j) !== first)
+  }, [jobs])
+
   const rows = useMemo(() => {
+    // matchesSite parses a URL per row, so it sits after the cheap tests and
+    // only runs on what survives them.
     const filtered = jobs.filter(j =>
       matchesView(j, view) && matchesRole(j, role) &&
       matchesSource(j, source) && matchesDate(j, date) && matchesStar(j, star)
-    && matchesSearch(j, search)
+    && matchesSite(j, site) && matchesSearch(j, search)
     )
     return sortJobs(filtered, sort, dir) as Grouped[]
-  }, [jobs, view, role, source, date, search, sort, dir])
+  }, [jobs, view, role, source, site, date, star, search, sort, dir])
 
   // The optional-column rule: one implementation, three columns. Computed from
   // the CURRENT filtered set, so a persona with no resume variants (Beyonce,
@@ -398,11 +411,13 @@ export function JobList({
           search={search} onSearch={v => patch({ q: v })}
           role={role} onRole={v => patch({ role: v })}
           source={source} onSource={v => patch({ src: v })}
+          site={site} onSite={v => patch({ site: v })}
           date={date} onDate={v => patch({ date: v })}
           star={star} onStar={v => patch({ star: v })}
           onRefresh={() => router.refresh()}
           lastSynced={relativeTime(lastSynced)}
           showSource={jobs.some(j => j.id.startsWith('ats:'))}
+          showSite={showSite}
           onMenu={() => setNavOpen(true)}
         />
 

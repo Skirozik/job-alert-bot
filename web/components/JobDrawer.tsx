@@ -5,7 +5,7 @@ import type { Job, Status } from '@/types/job'
 import { TailoredResume } from './TailoredResume'
 import { APPLIED_OR_LATER } from '@/types/job'
 import type { Grouped } from '@/lib/dupes'
-import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect } from '@/lib/jobView'
+import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect, applicationHref } from '@/lib/jobView'
 import { IconApplyFilled, IconApplyOutline, IconClose, IconBolt, IconStar } from './icons'
 import { starReasons, REASON_LABEL } from '@/lib/goldStar'
 
@@ -55,7 +55,7 @@ export function JobDrawer({
   const locations = splitLocations(job.location)
   const status = job.status ?? 'new'
   const easy = job.is_easy_apply
-  const applyHref = easy ? job.url : (job.apply_url ?? job.url)
+  const applyHref = applicationHref(job)
   const stars = starReasons(job)
 
   // Escape closes. Arrow keys are handled by the table so they keep working

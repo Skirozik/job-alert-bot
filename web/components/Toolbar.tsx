@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { IconSearch, IconRefresh, IconChevron, IconMenu } from './icons'
-import type { RoleFilter, SourceFilter, DateFilter } from '@/lib/jobView'
+import type { RoleFilter, SourceFilter, SiteFilter, DateFilter } from '@/lib/jobView'
 import type { StarFilter } from '@/lib/goldStar'
 import { useIsMobile } from '@/lib/useMediaQuery'
 
@@ -84,17 +84,21 @@ function Dropdown<T extends string>({
 }
 
 export function Toolbar({
-  search, onSearch, role, onRole, source, onSource, date, onDate, star, onStar,
-  onRefresh, lastSynced, showSource, onMenu,
+  search, onSearch, role, onRole, source, onSource, site, onSite, date, onDate, star, onStar,
+  onRefresh, lastSynced, showSource, showSite, onMenu,
 }: {
   search: string; onSearch: (v: string) => void
   role: RoleFilter; onRole: (v: RoleFilter) => void
   source: SourceFilter; onSource: (v: SourceFilter) => void
+  site: SiteFilter; onSite: (v: SiteFilter) => void
   date: DateFilter; onDate: (v: DateFilter) => void
   star: StarFilter; onStar: (v: StarFilter) => void
   onRefresh: () => void
   lastSynced: string
   showSource: boolean
+  /* Hidden when every loaded job lands on the same site -- see showSite in
+     JobList.tsx. */
+  showSite: boolean
   /* Opens the view rail. Mobile only — on desktop the rail is always on
      screen, so the button is not rendered at all. */
   onMenu?: () => void
@@ -118,7 +122,7 @@ export function Toolbar({
   return (
     <div
       /* Desktop keeps one fixed-height row. Mobile wraps, because search plus
-         three dropdowns plus refresh cannot share 390px on one line — without
+         the dropdowns plus refresh cannot share 390px on one line — without
          wrapping they either overflow or crush the search box to nothing. */
       className={
         isMobile
@@ -132,7 +136,7 @@ export function Toolbar({
       }}
     >
       {/* Mobile row 1: menu + search, claiming the full width via basis-full so
-          the three shrink-0 dropdowns are forced to wrap onto row 2. Without
+          the shrink-0 dropdowns are forced to wrap onto the rows below. Without
           this they win the space and the search field collapses to about the
           width of its own icon. On desktop this wrapper is transparent —
           `contents` makes its children lay out as direct flex items of the
@@ -187,6 +191,19 @@ export function Toolbar({
           { key: 'all', label: 'Any source' },
           { key: 'direct', label: 'Direct only' },
           { key: 'linkedin', label: 'LinkedIn only' },
+        ]} />
+      )}
+      {/* Where the Apply button sends you. The three the user asked for first,
+          then the two next-largest hosts in the live table, then the rest. */}
+      {showSite && (
+        <Dropdown label="Site" value={site} onChange={onSite} options={[
+          { key: 'all', label: 'Any site' },
+          { key: 'linkedin', label: 'LinkedIn' },
+          { key: 'workday', label: 'Workday' },
+          { key: 'ashby', label: 'Ashby' },
+          { key: 'greenhouse', label: 'Greenhouse' },
+          { key: 'icims', label: 'iCIMS' },
+          { key: 'other', label: 'Other' },
         ]} />
       )}
       <Dropdown label="Role" value={role} onChange={onRole} options={[
