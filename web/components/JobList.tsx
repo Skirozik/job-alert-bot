@@ -21,11 +21,31 @@ import {
 } from '@/lib/jobView'
 import { matchesStar, type StarFilter } from '@/lib/goldStar'
 
-const FULL_POLL_MS = 5 * 60_000
-const LINKEDIN_POLL_MS = 15_000
+// 30 minutes for the full refresh, 15 seconds for the delta. See the two
+// polling effects below for why those are the numbers. The delta endpoint's
+// MAX_LOOKBACK_MS is tied to FULL_POLL_MS -- change them together.
+const FULL_POLL_MS = 30 * 60_000
+const DELTA_POLL_MS = 15_000
+// Floor between count-triggered reconcile refreshes. A systematic local/server
+// count disagreement must degrade to "one extra refresh", never a loop.
+const RECONCILE_MIN_MS = 2 * 60_000
 
 const VIEWS: ViewKey[] = ['to-apply','caveat','my-list','applied','saved','dismissed',
                           'heard-back','interview','offer','rejected']
+
+/** Source rows (leaders AND duplicates) matching the delta endpoint's server
+ *  predicate: status=new, tier APPLY/APPLY_CAVEAT. Must count exactly what
+ *  the server counts or the reconcile check would refresh forever. */
+function countActionable(rows: Grouped[]): number {
+  let n = 0
+  const actionable = (j: Job) =>
+    (j.status ?? 'new') === 'new' && (j.tier === 'APPLY' || j.tier === 'APPLY_CAVEAT')
+  for (const row of rows) {
+    if (actionable(row)) n++
+    for (const d of row.duplicates ?? []) if (actionable(d)) n++
+  }
+  return n
+}
 
 const EMPTY: Record<ViewKey, string> = {
   'to-apply':  'Nothing clean to apply to right now.',
@@ -79,7 +99,7 @@ export function JobList({
   const [toast, setToast] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState(() => new Date().toISOString())
-  const linkedinCursor = useRef(new Date(Date.now() - 60_000).toISOString())
+  const deltaCursor = useRef(new Date(Date.now() - 60_000).toISOString())
 
   // Every producer of client job state goes through one synchronous ref. This
   // prevents two rapid actions from both reading the same pre-click render and
@@ -169,28 +189,54 @@ export function JobList({
     setLastSynced(now.toISOString())
     // Deliberate overlap closes the server-render/hydration race. Re-seeing an
     // id is cheap because mergeGroupedJobs keys by id.
-    linkedinCursor.current = new Date(now.getTime() - 60_000).toISOString()
+    deltaCursor.current = new Date(now.getTime() - 60_000).toISOString()
   }, [initialJobs, updateJobs])
 
-  // LinkedIn-only delta polling. A full router.refresh() is far too expensive
-  // to run every few seconds; this endpoint returns only newly-actionable
-  // LinkedIn rows and merges them into the current duplicate groups. Applied
-  // state wins during merging, so an in-flight "new" response cannot resurrect
-  // a job the user just marked Applied.
+  // One full server refresh, stamped so the focus listener below can
+  // rate-limit against it. Declared here because the delta poll is its first
+  // caller (a truncated delta answers with a full refresh).
+  const lastRefresh = useRef(Date.now())
+  const refreshNow = useCallback(() => { lastRefresh.current = Date.now(); router.refresh() }, [router])
+  // The last server count a reconcile refresh was spent on. Comparing against
+  // it means a count that stays wrong triggers exactly one refresh, not one
+  // per poll -- the loop guard the delta effect's comment promises.
+  const lastReconciledCount = useRef<number | null>(null)
+
+  // Delta polling, every source. A full router.refresh() is far too expensive
+  // to run every few seconds; this endpoint returns rows FIRST SEEN since the
+  // cursor and merges them into the current duplicate groups. Applied state
+  // wins during merging, so an in-flight "new" response cannot resurrect a
+  // job the user just marked Applied.
+  //
+  // This is how freshly-scraped rows reach the table -- from LinkedIn, the
+  // ATS watcher and the GitHub trackers alike, within 15 seconds. It started
+  // as a LinkedIn-only fast path; widening it is what let the full refresh
+  // below drop from every 5 minutes to every 30.
+  //
+  // What the found_at cursor CANNOT see: a row whose tier changed in place --
+  // a PENDING park promoted to APPLY by a later run keeps its original
+  // found_at. Those arrive through the queueCount check below: a promotion
+  // changes the server count, the local count cannot explain it, and one full
+  // refresh reconciles. Guarded three ways against turning into a refresh
+  // loop: never while a status write is in flight (the optimistic overlay
+  // makes counts disagree on purpose), never twice for the same server count,
+  // and never more than once per RECONCILE_MIN_MS.
   useEffect(() => {
     let cancelled = false
     let inFlight = false
 
-    const pollLinkedIn = async () => {
+    const pollDelta = async () => {
       if (cancelled || inFlight || document.visibilityState !== 'visible') return
       inFlight = true
       try {
         const res = await fetch(
-          `/api/jobs/linkedin-updates?after=${encodeURIComponent(linkedinCursor.current)}`,
+          `/api/jobs/updates?after=${encodeURIComponent(deltaCursor.current)}`,
           { cache: 'no-store' },
         )
         if (!res.ok) return
-        const body = await res.json() as { checkedAt: string, jobs: Job[] }
+        const body = await res.json() as {
+          checkedAt: string, jobs: Job[], truncated?: boolean, queueCount?: number | null,
+        }
         if (cancelled) return
         if (body.jobs.length) {
           updateJobs(current => overlayStatusMutations(
@@ -198,64 +244,79 @@ export function JobList({
             statusLedger.current,
           ))
         }
-        linkedinCursor.current = body.checkedAt
+        deltaCursor.current = body.checkedAt
         setLastSynced(body.checkedAt)
+        // The endpoint caps a response at 100 rows. A full page means a burst
+        // it could not carry in one answer -- rare, and the one case where a
+        // full refresh is worth its cost rather than waiting for the interval.
+        if (body.truncated) refreshNow()
+        // Reconcile check: a server count the local rows cannot explain means
+        // something changed that found_at cannot carry (a PENDING promotion,
+        // a Reset on another device). One full refresh answers it.
+        else if (typeof body.queueCount === 'number'
+                 && statusLedger.current.size === 0
+                 && body.queueCount !== countActionable(jobsRef.current)
+                 && body.queueCount !== lastReconciledCount.current
+                 && Date.now() - lastRefresh.current >= RECONCILE_MIN_MS) {
+          lastReconciledCount.current = body.queueCount
+          refreshNow()
+        }
       } catch {
-        // The five-minute full refresh remains the reconciliation path. A
-        // transient delta failure should not flash an error or disturb rows.
+        // The full refresh remains the reconciliation path. A transient delta
+        // failure should not flash an error or disturb rows.
       } finally {
         inFlight = false
       }
     }
 
-    void pollLinkedIn()
-    const id = window.setInterval(() => { void pollLinkedIn() }, LINKEDIN_POLL_MS)
+    void pollDelta()
+    const id = window.setInterval(() => { void pollDelta() }, DELTA_POLL_MS)
     return () => { cancelled = true; window.clearInterval(id) }
-  }, [updateJobs])
+  }, [updateJobs, refreshNow])
 
   // Poll instead of subscribing: NEXT_PUBLIC_* is build-time-inlined and so
   // single-valued, which cannot work on a multi-tenant deployment.
   //
-  // 5 minutes, not 60 seconds. Each refresh re-runs the full server fetch,
-  // which pulls 14.09 MB out of Supabase — measured, not estimated. At 60s
-  // that is 845 MB/hour with the tab open, and it put the project 192% over
-  // its 5 GB egress quota; the arithmetic said 23 minutes of daily use
-  // explains the whole 9.6 GB bill.
+  // 30 MINUTES. Each full refresh re-runs the server fetch: every review-queue
+  // row plus every tracked row, ~6,300 rows and ~4 MB uncompressed for the
+  // main persona (646 bytes a row, measured on the live table 2026-09-12, the
+  // day the project hit its 5.5 GB egress cap). At the old 5-minute cadence a
+  // tab left visible for eight hours a day moved ~380 MB/day -- ~4.4 GB over
+  // the twelve days it took to spend the whole allowance. The 14.09 MB figure
+  // this comment used to quote predates page.tsx dropping `description` from
+  // the select; the shape of the problem is the same, only smaller.
   //
-  // Costs almost nothing in freshness, because the interval is the LEAST
-  // important of three refresh paths: the focus listener below fires when you
-  // return to the tab (rate-limited — see below), the toolbar has a manual
-  // Refresh, and the
-  // scrapers only produce new rows every 5-20 minutes anyway — so a 5-minute
-  // poll now roughly matches the rate at which data can actually change.
-  // Notifications are unaffected either way: ntfy pushes at classification
-  // time and never waits on the dashboard.
+  // Freshness is not what this interval buys. New rows arrive through the
+  // delta poll above within 15 seconds, from every source. What only a full
+  // refresh can do is reconcile: a status changed on another device, a row
+  // Reset back to new, a row older than the delta's lookback. Thirty minutes
+  // is fine for all of those, and the toolbar's Refresh is one click when it
+  // is not. Notifications never touch this path: ntfy pushes at
+  // classification time.
   /* The focus path is rate-limited to the same FULL_POLL_MS as the interval.
      On a desktop that listener fires when you come back to the tab, which is
      what it was written for. On a phone it fires on every app switch, every
      lock and unlock, and every return from the browser's own UI — and each
-     one is another 14.09 MB server fetch. A minute of switching between this
+     one is another ~4 MB server fetch. A minute of switching between this
      and an email client was pulling tens of MB over cellular and stalling a
      mobile CPU that is already holding every row in memory.
 
      Rate-limiting rather than dropping the listener: coming back to the tab
-     after a while should still refresh immediately, which is the behaviour
-     the 5-minute interval above is explicitly relying on. Within the poll
-     window the interval has it covered anyway, so the suppressed calls cost
-     no freshness at all. */
-  const lastRefresh = useRef(Date.now())
+     after longer than FULL_POLL_MS still refreshes immediately, and the
+     delta's lookback (MAX_LOOKBACK_MS in app/api/jobs/updates/route.ts) is
+     sized to cover any shorter absence, so between the two nothing found
+     while the tab was hidden waits for the next tick. */
   useEffect(() => {
-    const refresh = () => { lastRefresh.current = Date.now(); router.refresh() }
-    const tick = () => { if (document.visibilityState === 'visible') refresh() }
+    const tick = () => { if (document.visibilityState === 'visible') refreshNow() }
     const onFocus = () => {
       if (document.visibilityState !== 'visible') return
       if (Date.now() - lastRefresh.current < FULL_POLL_MS) return
-      refresh()
+      refreshNow()
     }
     const id = setInterval(tick, FULL_POLL_MS)
     window.addEventListener('focus', onFocus)
     return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
-  }, [router])
+  }, [refreshNow])
 
   const counts = useMemo(() => {
     const c = {} as Record<ViewKey, number>
