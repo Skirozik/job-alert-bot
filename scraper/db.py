@@ -30,6 +30,61 @@ class DedupUnavailable(RuntimeError):
     fix is a one-time migration rather than a silent degradation nobody sees.
     """
 
+
+class QuotaExceeded(RuntimeError):
+    """Supabase is dropping every request because the org's plan quota is spent.
+
+    The fail-open branches in this module exist for TRANSIENT errors: a blip
+    that costs one wasted pass and clears itself. A spent quota is the other
+    kind -- every request fails the same way until the billing cycle turns --
+    and under fail-open that means "every candidate is new" on every run:
+    re-fetch every description, re-classify every listing with Claude, fail to
+    store any of it, repeat at the next cron. Measured 2026-09-12, the day the
+    egress cap hit: one Job Scraper run re-processed 724 jobs it already had,
+    took 12 minutes instead of one, and the watchers were being cancelled by
+    their own next run all afternoon. Nothing was stored and nobody was told.
+
+    So, like DedupUnavailable, this raises. The run dies before the first
+    description fetch or Claude call, the workflow goes red, and the fix is
+    the Supabase billing page rather than a bill that climbs silently.
+    """
+
+
+# What a quota refusal looks like from the Python client. The gateway answers
+# HTTP 402 with {"message": "Service for this project is restricted due to the
+# following violations: exceed_egress_quota. ..."}; postgrest-py wraps that in
+# an APIError whose str() carries the message. Matched on prose because that is
+# all the client surfaces (the same reason start_run matches text), and on the
+# status code where a lower-level httpx error exposes one.
+_QUOTA_MARKERS = (
+    "exceed_egress_quota",
+    "restricted due to the following violations",
+    "payment required",
+)
+
+
+def _raise_if_quota(exc: BaseException) -> None:
+    """Turn a spent-quota refusal into QuotaExceeded; do nothing for anything else.
+
+    Called first in every fail-open except block below whose swallowed error
+    could let another description fetch or Claude call happen afterwards.
+
+    DELIBERATELY NOT called in finish_run, get_state, set_state or clear_state:
+    those are end-of-run bookkeeping with nothing costly after them, and
+    finish_run runs inside run()'s finally -- raising there would replace
+    whatever exception was already propagating (possibly a real bug's
+    traceback) with a QuotaExceeded raised while cleaning up.
+    """
+    text = f"{exc} {getattr(exc, 'message', '') or ''}".lower()
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 402 or any(marker in text for marker in _QUOTA_MARKERS):
+        raise QuotaExceeded(
+            "Supabase is refusing requests for this project -- plan quota spent "
+            f"({str(exc)[:160]}). Stopping this run before any classification; "
+            "it will keep failing until the quota refills or the plan is upgraded."
+        ) from exc
+
+
 _client: Optional[Client] = None
 
 # Noise words stripped from company names during normalization
@@ -162,6 +217,7 @@ def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[
                 if row.get("norm_key"):
                     known_norm_keys.add(row["norm_key"])
     except Exception as exc:
+        _raise_if_quota(exc)
         log.error("Failed to check candidate dedup keys: %s — treating this batch as new", exc)
         return set(), set()
 
@@ -222,6 +278,7 @@ def find_unknown_candidates(jobs: Iterable[dict], batch_size: int = 5000) -> set
                 # returning an empty set, which would look like "nothing is new".
                 unknown.add(row if isinstance(row, str) else next(iter(row.values())))
     except Exception as exc:
+        _raise_if_quota(exc)
         message = str(exc).lower()
         if ("pgrst202" in message
                 or "could not find the function" in message
@@ -281,6 +338,7 @@ def get_job_row(job_id: str) -> Optional[dict]:
         rows = result.data or []
         return rows[0] if rows else None
     except Exception as exc:
+        _raise_if_quota(exc)
         log.warning("Existence check failed for %s (%s) — proceeding as if new", job_id, exc)
         return None
 
@@ -343,6 +401,9 @@ def start_run(source: str = "linkedin") -> Optional[int]:
         )
         return result.data[0]["id"] if result.data else -1
     except Exception as exc:
+        # The first database call of every run, so this is where a spent quota
+        # stops a run before it has fetched or classified anything.
+        _raise_if_quota(exc)
         # PostgREST reports a missing column through its schema-cache error.
         # Keep old deployments safe until their one-line migration is run.
         message = str(exc).lower()
@@ -351,6 +412,7 @@ def start_run(source: str = "linkedin") -> Optional[int]:
             try:
                 return _start_run_legacy()
             except Exception as legacy_exc:
+                _raise_if_quota(legacy_exc)
                 log.warning("scrape_runs table unavailable (%s) — proceeding without run-lock/stats",
                             legacy_exc)
                 return -1
@@ -410,6 +472,10 @@ def insert_job(job: dict) -> bool:
         log.info("DB: stored %s [%s]", job.get("id"), job.get("tier"))
         return True
     except Exception as exc:
+        # Raised here too, not only at the start of a run: a quota that runs
+        # out mid-run must stop the loop, not let it classify the next 700 jobs
+        # and fail to store every one of them.
+        _raise_if_quota(exc)
         log.error("DB insert failed for job %s: %s", job.get("id"), exc)
         return False
 
@@ -452,6 +518,7 @@ def claim_notification(job_id: str) -> tuple[bool, str]:
         # the strict direction is the expensive one -- every push would fall into
         # the fail-closed branch below and the pipeline would go silently mute
         # until someone noticed the absence of notifications.
+        _raise_if_quota(exc)
         message = str(exc).lower()
         if ("pgrst202" in message
                 or "could not find the function" in message
@@ -491,6 +558,7 @@ def fetch_pending_jobs(limit: int) -> list[dict]:
         )
         return result.data or []
     except Exception as exc:
+        _raise_if_quota(exc)
         log.error("Could not fetch pending jobs: %s", exc)
         return []
 
@@ -507,6 +575,7 @@ def count_pending_jobs() -> int:
         )
         return result.count or 0
     except Exception as exc:
+        _raise_if_quota(exc)
         log.error("Could not count pending jobs: %s", exc)
         return 0
 
@@ -539,6 +608,11 @@ def update_job_classification(job_id: str, tier: str, reason: str,
         log.info("DB: promoted %s [%s]", job_id, tier)
         return True
     except Exception as exc:
+        # Without this, retry_pending() keeps calling Claude for the next
+        # parked row after every refused UPDATE -- up to RETRY_PENDING_MAX
+        # classifications per run, none stored. The insert path already
+        # raises; the promote path must too.
+        _raise_if_quota(exc)
         log.error("DB update failed for job %s: %s", job_id, exc)
         return False
 
