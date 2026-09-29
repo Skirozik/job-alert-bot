@@ -54,8 +54,23 @@ def norm_company(c: str) -> str:
     return " ".join(final).strip()
 
 
-def norm_role(r: str) -> str:
+# Kept byte-for-byte identical in behaviour to scraper/db.py, which carries the
+# full rationale; scraper/test_norm_key.py fails if the three copies ever drift.
+_INTERN_WORDS = re.compile(r"\b(internship|intern|co\s*op|coop)\b")
+FULL_TIME_KEY_SUFFIX = "|ft"
+
+
+def _norm_role_parts(r: str) -> tuple[str, bool]:
+    """The normalised role, and whether an internship word was stripped from it."""
     r = (r or "").lower().strip()
+    r = re.sub(r"[^a-z0-9 ]", " ", r)
+    had_intern_word = bool(_INTERN_WORDS.search(r))
+    r = _INTERN_WORDS.sub("", r)
+    r = re.sub(r"\s+", " ", r)
+    return r.strip(), had_intern_word
+
+
+def norm_role(r: str) -> str:
     # Strip only a trailing "- Season YYYY" tag, not everything after the
     # first dash — otherwise "Coordinator - Front Desk - Days" and
     # "Coordinator - Front Desk - Nights" both collapse to the same key.
@@ -88,14 +103,27 @@ def norm_role(r: str) -> str:
     # into one key and one of them would never be surfaced. Heliux posts
     # exactly that pair. A duplicate notification is a nuisance; a hidden job
     # is a missed opportunity, so keep the season and let it distinguish them.
-    r = re.sub(r"[^a-z0-9 ]", " ", r)
-    r = re.sub(r"\b(internship|intern|co\s*op|coop)\b", "", r)
-    r = re.sub(r"\s+", " ", r)
-    return r.strip()
+    return _norm_role_parts(r)[0]
 
 
 def make_norm_key(company: str, title: str) -> str:
-    return f"{norm_company(company)}|{norm_role(title)}"
+    """The dedup key. An internship and a full-time job must never share one.
+
+    norm_role deletes "intern", so "Medical Receptionist Intern" and the
+    full-time "Medical Receptionist" used to be the same key. For this
+    pipeline the damage ran the OTHER way from the main one: the full-time
+    role is the target here, so a stored internship silently hid it.
+
+    A title from which norm_role stripped no internship word gets a "|ft"
+    suffix; one from which it did keeps exactly the key it always had. No
+    suffix on an empty role, so make_norm_key("", "") stays "|". Full
+    reasoning in scraper/db.py make_norm_key.
+    """
+    role, had_intern_word = _norm_role_parts(title)
+    key = f"{norm_company(company)}|{role}"
+    if role and not had_intern_word:
+        key += FULL_TIME_KEY_SUFFIX
+    return key
 
 
 def load_dedup_index() -> tuple[set[str], set[str]]:

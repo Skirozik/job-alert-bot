@@ -123,8 +123,31 @@ def norm_company(c: str) -> str:
     return " ".join(final).strip()
 
 
-def norm_role(r: str) -> str:
+# The words norm_role deletes, so that the "Intern", "Internship", "Co-op" and
+# "Coop" spellings of ONE internship share a key, in any word order. Also the
+# signal make_norm_key uses to keep an internship from ever sharing a key with
+# a full-time job — see make_norm_key.
+_INTERN_WORDS = re.compile(r"\b(internship|intern|co\s*op|coop)\b")
+
+# Appended to the key of a title that carries no internship word.
+FULL_TIME_KEY_SUFFIX = "|ft"
+
+
+def _norm_role_parts(r: str) -> tuple[str, bool]:
+    """The normalised role, and whether an internship word was stripped from it.
+
+    One pass, so the key and the flag can never disagree about what was
+    stripped. norm_role's comment below explains the normalisation itself.
+    """
     r = (r or "").lower().strip()
+    r = re.sub(r"[^a-z0-9 ]", " ", r)
+    had_intern_word = bool(_INTERN_WORDS.search(r))
+    r = _INTERN_WORDS.sub("", r)
+    r = re.sub(r"\s+", " ", r)
+    return r.strip(), had_intern_word
+
+
+def norm_role(r: str) -> str:
     # Strip only a trailing "- Season YYYY" tag, not everything after the
     # first dash — otherwise "Intern - iOS - Summer 2026" and
     # "Intern - Data - Summer 2026" both collapse to the same key.
@@ -157,14 +180,59 @@ def norm_role(r: str) -> str:
     # into one key and one of them would never be surfaced. Heliux posts
     # exactly that pair. A duplicate notification is a nuisance; a hidden job
     # is a missed opportunity, so keep the season and let it distinguish them.
-    r = re.sub(r"[^a-z0-9 ]", " ", r)
-    r = re.sub(r"\b(internship|intern|co\s*op|coop)\b", "", r)
-    r = re.sub(r"\s+", " ", r)
-    return r.strip()
+    return _norm_role_parts(r)[0]
 
 
 def make_norm_key(company: str, title: str) -> str:
-    return f"{norm_company(company)}|{norm_role(title)}"
+    """The cross-source dedup key: a listing whose key is already stored is
+    dropped as known BEFORE any fetch, pre-filter or classification.
+
+    AN INTERNSHIP MUST NEVER SHARE A KEY WITH A FULL-TIME JOB. norm_role
+    deletes "intern" so that one internship's spellings collapse together —
+    but that also made "Production Engineering Intern" and the full-time
+    "Production Engineering" the same key. Meta's full-time role had been
+    stored (INELIGIBLE) since July, so on 2026-09-25 the bot saw Meta's
+    Production Engineering internship 65 times and dropped it as a duplicate
+    every time: never fetched, never classified, never pushed. The logs showed
+    Ramp, Keysight, Emerson, SAIC and Hyra internships lost the same way, and
+    29 starred companies (Google, Cisco, IBM among them) had "software
+    engineer" owned only by a full-time row, waiting to swallow the next plain
+    "Software Engineer Intern" they posted.
+
+    So a title from which norm_role stripped NO internship word gets a "|ft"
+    suffix, and a title from which it did keeps exactly the key it always had:
+      "Production Engineering Intern" -> "meta|production engineering"
+      "Production Engineering"        -> "meta|production engineering|ft"
+
+    Why the suffix goes on the non-internship side: internship keys are
+    load-bearing — the notification ledger's sibling suppression
+    (claim_job_notification), the dashboard's status widening
+    (web/lib/siblings.ts) and the resume builder's sibling gate all match
+    them. Full-time rows are INELIGIBLE, never pushed and never shown, so only
+    dedup reads their keys. Changing only those is the smallest blast radius,
+    and needs no SQL change: no SQL computes a key, it only compares strings.
+
+    Why "an internship word was stripped" rather than the full pre-filter
+    predicate (main._is_non_internship_title): the key then depends on nothing
+    but this function, so tuning the pre-filter's vocabulary never silently
+    changes stored keys; db.py never has to import main.py; and the two persona
+    forks, whose key code is identical, can carry the same rule verbatim.
+    Titles marked as internships by other words ("Summer Analyst", "Trainee")
+    get the suffix, which can cost at worst a duplicate push, never a hidden
+    job — and the marker word stays in their key, so they only split from
+    identically-titled rows. Measured: 43 of 3,591 tracker rows (1.2%) have
+    no stripped word, and each carries a program word like "Apprentice".
+
+    No suffix on an empty role: make_norm_key("", "") must stay "|", the
+    literal the SQL guards (unknown_candidates, claim_job_notification) treat
+    as no key at all. "||ft" would slip past them and make every blank row
+    match every other.
+    """
+    role, had_intern_word = _norm_role_parts(title)
+    key = f"{norm_company(company)}|{role}"
+    if role and not had_intern_word:
+        key += FULL_TIME_KEY_SUFFIX
+    return key
 
 
 def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[set[str], set[str]]:
