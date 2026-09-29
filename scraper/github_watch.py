@@ -34,7 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
 import requests
 
 from github_sources import fetch_github_listings, _SOURCES
-from db import get_client, find_unknown_candidates, make_norm_key, start_run, finish_run
+from db import get_client, find_unknown_candidates, job_norm_key, make_norm_key, start_run, finish_run
 from main import process_job
 
 logging.basicConfig(
@@ -120,7 +120,7 @@ def run():
         # norm_key first: the dedup answer is computed server-side from both
         # keys, so it has to be on the row before the call.
         for j in listings:
-            j["norm_key"] = make_norm_key(j["company"], j["title"])
+            j["norm_key"] = job_norm_key(j)
 
         # Ask which are new rather than downloading the whole table to work it
         # out locally -- see ats_watch.py for the measurement. This path is

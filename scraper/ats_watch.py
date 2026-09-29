@@ -31,7 +31,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from ats_config import ATS_COMPANIES
 from ats_sources import fetch_all_listings
-from db import find_unknown_candidates, make_norm_key, start_run, finish_run, insert_job
+from db import find_unknown_candidates, job_norm_key, make_norm_key, start_run, finish_run, insert_job
 from main import process_job, _is_senior_role, _is_new_grad_role, _is_non_internship_title
 
 logging.basicConfig(
@@ -59,7 +59,7 @@ def run():
         # norm_key has to exist before the dedup call, because the answer is
         # computed server-side from both keys.
         for job in listings:
-            job["norm_key"] = make_norm_key(job["company"], job["title"])
+            job["norm_key"] = job_norm_key(job)
 
         # One bounded question instead of downloading the answer. The previous
         # load_dedup_index() pulled the entire jobs(id, norm_key) table -- 73

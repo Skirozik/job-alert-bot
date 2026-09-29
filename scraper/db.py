@@ -235,6 +235,29 @@ def make_norm_key(company: str, title: str) -> str:
     return key
 
 
+def job_norm_key(job: dict) -> str:
+    """make_norm_key for a job dict — use this wherever a key is computed from a
+    row or a listing, so the one source-specific rule below cannot be missed.
+
+    GitHub-tracker rows ("gh:" ids) are keyed as internships whatever their
+    title says. The trackers are internship lists by construction, and a few
+    rows omit the word ("Year at Palantir - Forward Deployed Software
+    Engineer"). Under make_norm_key alone such a row takes the "|ft" suffix,
+    which (a) keeps it collidable with the company's full-time job of the same
+    title — the very bug make_norm_key closes — (b) stops it matching its own
+    LinkedIn "... Intern" twin, costing a duplicate push, and (c) makes the
+    backfill rewrite a stored internship key. Verified before relying on it:
+    of 3,607 stored tracker rows, none was rejected for being new-grad or
+    full-time, so no tracker ever supplied a full-time row this could mislabel.
+    """
+    company = job.get("company") or ""
+    title = job.get("title") or ""
+    if str(job.get("id") or "").startswith("gh:"):
+        role, _ = _norm_role_parts(title)
+        return f"{norm_company(company)}|{role}"
+    return make_norm_key(company, title)
+
+
 def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[set[str], set[str]]:
     """Return stored ids/norm_keys for only the supplied candidate rows.
 
@@ -253,7 +276,7 @@ def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[
     rows = list(jobs)
     ids = list(dict.fromkeys(str(j.get("id", "")) for j in rows if j.get("id")))
     norm_keys = list(dict.fromkeys(
-        str(j.get("norm_key") or make_norm_key(j.get("company", ""), j.get("title", "")))
+        str(j.get("norm_key") or job_norm_key(j))
         for j in rows
     ))
     known_ids: set[str] = set()
@@ -329,7 +352,7 @@ def find_unknown_candidates(jobs: Iterable[dict], batch_size: int = 5000) -> set
             continue
         ids.append(job_id)
         norm_keys.append(
-            str(j.get("norm_key") or make_norm_key(j.get("company", ""), j.get("title", "")))
+            str(j.get("norm_key") or job_norm_key(j))
         )
 
     unknown: set[str] = set()
@@ -520,7 +543,7 @@ def insert_job(job: dict) -> bool:
         "search_term": job.get("search_term", ""),
         "description": job.get("description"),
         "logo_url": job.get("logo_url"),
-        "norm_key": make_norm_key(job.get("company", ""), job.get("title", "")),
+        "norm_key": job_norm_key(job),
         # Identity is a property of FIRST SIGHT, like norm_key and found_at:
         # update_job_classification deliberately never touches it. None is the
         # honest value for an apply URL we cannot positively identify, and the

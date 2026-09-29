@@ -125,6 +125,20 @@ check("Summer and Winter postings of one role stay distinct",
 check("two spellings of one full-time job still share a key",
       key("Meta", "Production Engineering") == key("Meta", "Production-Engineering"))
 
+SPELLINGS = ["Software Engineer Intern", "Software Engineer Internship", "SOFTWARE ENGINEER INTERN",
+             "Software Engineer Co-op", "Software Engineer Co-Op", "Software Engineer Coop",
+             "Software Engineer Co op", "Software Engineer Co–op", "Software Engineer Co_op",
+             "Intern - Software Engineer", "Intern, Software Engineer", "Software Engineer (Intern)",
+             "Software Engineer Intern/Co-op", "  Software   Engineer   Intern  "]
+check("every spelling of one internship, including en-dash and underscore co-ops, is one key",
+      {key("Acme", t) for t in SPELLINGS} == {"acme|software engineer"},
+      str(sorted({key("Acme", t) for t in SPELLINGS})))
+FT_SPELLINGS = ["Software Engineer", "SOFTWARE ENGINEER", "Software-Engineer",
+                "Software Engineer,", "(Software Engineer)"]
+check("every spelling of the full-time job is one |ft key",
+      {key("Acme", t) for t in FT_SPELLINGS} == {"acme|software engineer|ft"},
+      str(sorted({key("Acme", t) for t in FT_SPELLINGS})))
+
 
 print("\n-- the blank keys the SQL guards rely on --")
 # unknown_candidates and claim_job_notification treat '' and '|' as no key at
@@ -134,6 +148,96 @@ check("a blank company and title stays '|'", key("", "") == "|", repr(key("", ""
 check("a blank title stays 'acme|'", key("Acme", "") == "acme|", repr(key("Acme", "")))
 check("a title that is only 'Intern' stays 'acme|'", key("Acme", "Intern") == "acme|")
 check("no key ever ends in '||ft'", not any(key(c, t).endswith("||ft") for c, t in FIXTURES))
+check("None company and title also give '|'", key(None, None) == "|", repr(key(None, None)))
+check("punctuation-only title stays 'acme|'", key("Acme", "!!!") == "acme|")
+check("a blank company with a full-time title", key("", "Software Engineer") == "|software engineer|ft")
+check("a blank company with an internship title", key("", "Software Engineer Intern") == "|software engineer")
+
+
+print("\n-- documented residual collisions and |ft titles that keep their word --")
+# A full-time job ABOUT internships keeps a plain key and still collides with a
+# same-base internship. Measured on the live table: no instance exists, and the
+# internship it could hide ("Program Manager Intern") is rejected by the senior
+# filter anyway. Pinned so a change to this behaviour is a decision, not drift.
+check("'Coop/Internship Program Manager' and 'Program Manager Intern' share a key (known, harmless)",
+      key("Acme", "Coop Program Manager") == key("Acme", "Internship Program Manager")
+      == key("Acme", "Program Manager Intern") == "acme|program manager")
+for t in ("Software Engineer Interns", "Director of Internships", "Internal Tools Engineer",
+          "Co-operative Education Engineer", "Software Engineer Extern", "Software Apprentice",
+          "Software Engineer Summer Analyst", "Year at Palantir - Software Engineer"):
+    k = key("Acme", t)
+    check(f"'{t}' takes |ft yet keeps its own words, so it cannot equal a plain full-time key",
+          k.endswith("|ft") and k != key("Acme", "Software Engineer"), k)
+
+
+print("\n-- key shape --")
+shape = [(t, key("Acme", t)) for t in SPELLINGS + FT_SPELLINGS]
+check("internship keys have one '|', full-time keys two and end in |ft",
+      all(k.count("|") == (2 if k.endswith("|ft") else 1) for _, k in shape),
+      str([k for _, k in shape if k.count("|") != (2 if k.endswith("|ft") else 1)]))
+
+
+print("\n-- GitHub-tracker rows are keyed as internships whatever the title says --")
+# The trackers are internship lists; of 3,607 stored tracker rows none was
+# rejected for being new-grad or full-time. A tracker title without "Intern"
+# must not become collidable with the company's full-time job.
+gh = {"id": "gh:0123456789abcdef", "company": "Palantir Technologies",
+      "title": "Year at Palantir - Forward Deployed Software Engineer"}
+check("a gh: row without an intern word keeps an internship-class key",
+      db.job_norm_key(gh) == "palantir|year at palantir forward deployed software engineer",
+      db.job_norm_key(gh))
+check("the same title from LinkedIn or an ATS takes |ft",
+      db.job_norm_key({**gh, "id": "4414769839"}).endswith("|ft")
+      and db.job_norm_key({**gh, "id": "ats:ab12"}).endswith("|ft"))
+check("a gh: 'Software Engineer' row matches its LinkedIn '... Intern' twin, not the full-time job",
+      db.job_norm_key({"id": "gh:x", "company": "Acme", "title": "Software Engineer"})
+      == key("Acme", "Software Engineer Intern")
+      != key("Acme", "Software Engineer"))
+check("job_norm_key equals make_norm_key for every non-tracker row",
+      all(db.job_norm_key({"id": "4470115507", "company": c, "title": t}) == key(c, t)
+          for c, t in FIXTURES))
+
+
+print("\n-- insert_job stores the job_norm_key --")
+
+
+class _UpsertTable:
+    def __init__(self, sink):
+        self.sink = sink
+
+    def upsert(self, payload, **kw):
+        self.sink.append(payload)
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": []})()
+
+
+class _UpsertClient:
+    def __init__(self, sink):
+        self.sink = sink
+
+    def table(self, name):
+        return _UpsertTable(self.sink)
+
+
+_sink: list = []
+_orig = db.get_client
+db.get_client = lambda: _UpsertClient(_sink)
+try:
+    db.insert_job({"id": "gh:feedfacefeedface", "company": "Acme", "title": "Software Engineer",
+                   "location": "NYC", "url": "https://example.test/x", "tier": "APPLY",
+                   "reason": "", "suggested_resume": "General"})
+    db.insert_job({"id": "4301092859", "company": "Meta", "title": "Production Engineering",
+                   "location": "Menlo Park", "url": "https://example.test/y", "tier": "INELIGIBLE",
+                   "reason": "", "suggested_resume": "General"})
+finally:
+    db.get_client = _orig
+stored = {row["id"]: row["norm_key"] for row in _sink}
+check("insert_job writes a tracker row's internship-class key",
+      stored.get("gh:feedfacefeedface") == "acme|software engineer", str(stored))
+check("insert_job writes a full-time row's |ft key",
+      stored.get("4301092859") == "meta|production engineering|ft", str(stored))
 
 
 print("\n-- replay of the 2026-09-25 page that swallowed the Meta internship --")
@@ -212,7 +316,38 @@ for name in ("scraper_beyonce", "scraper_hassan"):
     spec.loader.exec_module(mod)
     forks[name] = mod
 
+import ast
+import inspect
+
+
+def _key_code_shape(module):
+    """The AST of every function and constant the key depends on, docstrings
+    removed. Comments are already absent from an AST, so forks may differ in
+    commentary but not in logic."""
+    src = Path(module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    wanted = {"norm_company", "_norm_role_parts", "norm_role", "make_norm_key"}
+    parts = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in wanted:
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant):
+                body = body[1:]
+            parts.append((node.name, ast.dump(ast.Module(body=body, type_ignores=[]))))
+    parts.append(("_COMPANY_NOISE", tuple(sorted(module._COMPANY_NOISE))))
+    parts.append(("_INTERN_WORDS", module._INTERN_WORDS.pattern))
+    parts.append(("FULL_TIME_KEY_SUFFIX", module.FULL_TIME_KEY_SUFFIX))
+    return sorted(parts)
+
+
+main_shape = _key_code_shape(db)
+check("the main copy's key code has all four functions",
+      {n for n, _ in main_shape} >= {"norm_company", "_norm_role_parts", "norm_role", "make_norm_key"})
+
 for name, mod in forks.items():
+    check(f"{name}'s key code is structurally identical to the main copy",
+          _key_code_shape(mod) == main_shape,
+          "compare norm_company / _norm_role_parts / norm_role / make_norm_key and the constants")
     mismatches = [(c, t, mod.make_norm_key(c, t), key(c, t))
                   for c, t in FIXTURES if mod.make_norm_key(c, t) != key(c, t)]
     check(f"{name} computes exactly the same key for every fixture", not mismatches,
