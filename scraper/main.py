@@ -45,7 +45,7 @@ from external_descriptions import fetch_external_description
 from classifier import classify
 from notifier import push_job, push_canary
 from db import (
-    find_known_candidates, make_norm_key, norm_company, insert_job, start_run,
+    find_known_candidates, job_norm_key, make_norm_key, norm_company, insert_job, start_run,
     finish_run, fetch_pending_jobs, count_pending_jobs, update_job_classification,
     get_job_row, claim_notification, get_state, set_state, clear_state,
 )
@@ -484,7 +484,7 @@ def scan_linkedin(max_pages_per_search: int = MAX_PAGES_PER_SEARCH) -> tuple[int
 
                 total_raw += len(jobs)
                 for job in jobs:
-                    job["norm_key"] = make_norm_key(job["company"], job["title"])
+                    job["norm_key"] = job_norm_key(job)
                 db_ids, db_norm_keys = find_known_candidates(jobs)
 
                 all_db_duplicate = True
@@ -537,7 +537,7 @@ def scan_github_fallback() -> tuple[int, int]:
     """Run the tracker fallback without downloading the lifetime dedup index."""
     candidates = fetch_github_listings()
     for job in candidates:
-        job["norm_key"] = make_norm_key(job["company"], job["title"])
+        job["norm_key"] = job_norm_key(job)
     known_ids, known_norm_keys = find_known_candidates(candidates)
 
     batch: list[dict] = []

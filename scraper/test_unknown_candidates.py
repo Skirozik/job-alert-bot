@@ -22,10 +22,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 import db
 
 _fails = 0
+_ran = 0
 
 
 def check(label, cond, why=""):
-    global _fails
+    # Counted here rather than totalled by hand at the bottom, where a literal
+    # sum silently goes stale every time a check is added.
+    global _fails, _ran
+    _ran += 1
     if cond:
         print(f"  PASS  {label}")
     else:
@@ -201,9 +205,31 @@ check("two listings sharing a norm_key in one sweep are processed once",
       len([p for p in processed if p.startswith("ats:dup")]) == 1,
       f"got {processed} — the within-sweep sets are what catch this now")
 
+print("\n-- an internship listed after its full-time twin in the same sweep --")
+# A company board dumps every role at once, so a full-time "Production
+# Engineering" and a "Production Engineering Intern" can arrive in one sweep,
+# neither stored yet. When both had one key, whichever came first claimed it in
+# the within-sweep set and the internship was dropped before anything read it.
+
+processed.clear()
+inserted: list = []
+w.insert_job = lambda job: (inserted.append((job["id"], job.get("tier"))), True)[1]
+TWINS = [
+    {"id": "ats:meta-ft", "company": "Meta", "title": "Production Engineering",        "location": "Menlo Park"},
+    {"id": "ats:meta-in", "company": "Meta", "title": "Production Engineering Intern", "location": "Menlo Park"},
+]
+w.fetch_all_listings = lambda cfg: [dict(j) for j in TWINS]
+w.find_unknown_candidates = lambda jobs: {j["id"] for j in jobs}
+
+w.run()
+
+check("the internship reaches the classifier even though its full-time twin came first",
+      "ats:meta-in" in processed, f"processed={processed}")
+check("the full-time twin is still stored INELIGIBLE by the title pre-filter",
+      ("ats:meta-ft", "INELIGIBLE") in inserted, f"inserted={inserted}")
+
 for k, v in _w_orig.items():
     setattr(w, k, v)
 
-total = 5 + 1 + 4 + 3 + 2 + 3 + 2 + 4
-print(f"\n{total - _fails} passed, {_fails} failed")
+print(f"\n{_ran - _fails} passed, {_fails} failed")
 sys.exit(1 if _fails else 0)
