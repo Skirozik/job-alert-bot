@@ -7,8 +7,8 @@
  *     missing column with a hard 400, NOT a silent omission (verified live),
  *     and fetchJobs returns [] on a failed response — so one wrong name
  *     renders that persona's entire dashboard empty. Only the original
- *     project has suggested_resume; scraper_beyonce/schema.sql and
- *     scraper_hassan/schema.sql omit it.
+ *     project has suggested_resume; scraper_beyonce/schema.sql,
+ *     scraper_hassan/schema.sql and scraper_brice/schema.sql omit it.
  *
  *  2. description creeping back into the list. It is 90% of the compressed
  *     bytes leaving Supabase and nothing renders it.
@@ -34,7 +34,7 @@ check('COLS_BASE is defined', base !== null)
 const cols = base[1].split(',')
 
 // ── Every base column must exist in EVERY persona's schema ───────────────
-const schemas = ['scraper_beyonce/schema.sql', 'scraper_hassan/schema.sql']
+const schemas = ['scraper_beyonce/schema.sql', 'scraper_hassan/schema.sql', 'scraper_brice/schema.sql']
 for (const rel of schemas) {
   let sql
   try { sql = readFileSync(join(root, rel), 'utf8') } catch { continue }

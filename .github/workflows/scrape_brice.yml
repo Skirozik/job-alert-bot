@@ -1,0 +1,61 @@
+name: Job Scraper (Brice)
+
+# Brice's full-time, entry-level search: LinkedIn, 26 company ATS boards and jobright's new-grad
+# lists, classified against his rubric. Separate from every other persona: its own Supabase
+# project, ntfy topic, profile secret and concurrency group. Infrastructure alerts go to the
+# OWNER's topic (secrets.NTFY_TOPIC), never to Brice's.
+
+on:
+  schedule:
+    # Odd hours at :40, offset from the other forks' even-hour :00 runs. GitHub defers scheduled
+    # runs (about 4.5 a day actually arrive); the 24 h LinkedIn window covers the gaps.
+    - cron: '40 1-23/2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scrape-brice
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    # 60, against a 75-minute run-lock in scraper_brice/db.py (the lock must outlast this).
+    # main.py stops starting new work at 48 minutes.
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper_brice/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper_brice/requirements.txt
+
+      # The rubric is gitignored (a real person's details; this repo is public), so it is
+      # written from a secret at job start. Passed via env: so multi-line content survives.
+      - name: Materialize candidate profile
+        env:
+          PROFILE: ${{ secrets.BRICE_PROFILE_MD }}
+        run: |
+          printf '%s' "$PROFILE" > Brice_Candidate_Profile_and_Filters.md
+          test -s Brice_Candidate_Profile_and_Filters.md || {
+            echo "::error::BRICE_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+          echo "profile materialized: $(wc -c < Brice_Candidate_Profile_and_Filters.md) bytes"
+
+      - name: Run scraper
+        working-directory: scraper_brice
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL_BRICE }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY_BRICE }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC_BRICE }}
+          OWNER_NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python main.py
