@@ -9,8 +9,14 @@ Kept from the main pipeline:
   * the billing/auth breaker and `failed_kind`, so a failed classification is
     PARKED as PENDING by main.process_job rather than dropped or stored with a
     made-up verdict, and a credit outage costs one API call per run;
-  * three deterministic overrides, applied in this order after the tier is
+  * deterministic overrides, applied in this order after the tier is
     validated:
+      family net      an I-5 ("outside his families") verdict on a title the
+                      family filter places in a target family, with no
+                      software/hardware role noun, becomes APPLY_CAVEAT: the
+                      rubric makes every close call APPLY_CAVEAT (scraper_brice
+                      only; Jump Trading's "Campus Systems Engineer" came back
+                      I-5 on four runs of four);
       non-US          a posting located only outside the US, with no US or
                       US-remote option, is INELIGIBLE (the ATS boards and
                       jobright lists include foreign sites);
@@ -34,6 +40,8 @@ import time
 from typing import Optional
 
 import anthropic
+import families
+import title_gate
 from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH
 from salary_extraction import extract_salary
 
@@ -43,6 +51,10 @@ _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
 MODEL = "claude-haiku-4-5-20251001"
+# Per request, in seconds. The SDK default is 600 s per attempt, and with the SDK's own two retries one hung call
+# could outlast the 12 minutes between the 48-minute work budget and the 60-minute workflow timeout. A normal call
+# takes a few seconds.
+REQUEST_TIMEOUT_S = 60.0
 
 # A job whose classification fails is PARKED as tier="PENDING" (main.process_job)
 # and retried on later runs (main.retry_pending) -- never stored with a fallback
@@ -160,7 +172,7 @@ def _get_client() -> anthropic.Anthropic:
     if _client is None:
         if not ANTHROPIC_API_KEY:
             raise RuntimeError("ANTHROPIC_API_KEY must be set")
-        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=REQUEST_TIMEOUT_S)
     return _client
 
 
@@ -237,6 +249,7 @@ Description: {job.get("description") or "(not available — classify on title/co
                 log.warning("Unexpected tier %s for job %s — defaulting to APPLY_CAVEAT", shown, job.get("id"))
                 result["tier"] = "APPLY_CAVEAT"
 
+            result = _apply_family_net(job, result)
             result = _apply_non_us_override(job, result)
             result = _apply_salary_fallback(job, result)
             result = _apply_title_only_override(job, result)
@@ -298,11 +311,20 @@ _FOREIGN_RE = re.compile(
     r"sydney|melbourne|auckland|sao paulo|bogota)\b",
     re.I,
 )
+# The three regexes above are byte-identical to scraper/classifier.py's (test_classifier_tool.py checks). This
+# fork's boards and lists add places main never sees; they reached the 2026-09-30 candidates.
+_FOREIGN_EXTRA_RE = re.compile(
+    r"\b(?:tunisia|kuwait|bahrain|morocco|casablanca|ecuador|quito|united arab emirates|jalisco|nuevo le[oó]n"
+    r"|monterrey|guadalajara|tijuana)\b",
+    re.I,
+)
 
 
 def _apply_non_us_override(job: dict, result: dict) -> dict:
     """Force INELIGIBLE when the posting's location is outside the US and no US
-    option is offered. ANY US signal exempts the posting."""
+    option is offered. ANY US signal exempts the posting -- in this fork also a
+    spelled-out state or a stand-alone U.S. city (families.names_us_location):
+    "Vienna, Virginia", "Paris, Texas", "Chicago, New York, London"."""
     if result.get("tier") not in ("APPLY", "APPLY_CAVEAT"):
         return result
     loc = job.get("location") or ""
@@ -310,13 +332,49 @@ def _apply_non_us_override(job: dict, result: dict) -> dict:
         return result
     if _US_STATE_RE.search(loc) or _US_WORD_RE.search(loc):
         return result
-    m = _FOREIGN_RE.search(loc)
+    m = _FOREIGN_RE.search(loc) or _FOREIGN_EXTRA_RE.search(loc)
     if not m:
+        return result
+    if families.names_us_location(loc):
         return result
     log.info("  Non-US override: job %s located in %r", job.get("id"), loc[:40])
     result["tier"] = "INELIGIBLE"
     result["hard_ineligible"] = True
     result["reason"] = f"Overridden: based in {m.group(0).title()} with no US or US-remote option stated."
+    return result
+
+
+_I5_RE = re.compile(r"^\W*I-5\b")
+FAMILY_NET_REASON = "Verify duties: flagged as outside the target families"
+
+
+def _apply_family_net(job: dict, result: dict) -> dict:
+    """An I-5 verdict on an in-family title becomes APPLY_CAVEAT.
+
+    I-5 is "outside all his families". When the title itself sits in one of
+    them (families.classify_family, the same test the ATS and jobright passes
+    use) and names no software, hardware or science role, calling it out of
+    family is a judgment about the duties -- and the rubric's asymmetry rule
+    makes every close call APPLY_CAVEAT, never INELIGIBLE. Hiding the job costs
+    a real opportunity; the caveat costs a look. Jump Trading's "Campus Systems
+    Engineer", an infrastructure role that lists Python and shell scripting,
+    came back "I-5: software development" on four runs of four.
+
+    Never touches another numbered block (I-1 years, I-2 seniority, ...), a
+    help-desk title (the owner's floor), or a title with a software/hardware
+    role noun. Runs FIRST, so the non-US override and the title-only cap still
+    see the tier it settles on.
+    """
+    if result.get("tier") != "INELIGIBLE" or not _I5_RE.match(str(result.get("reason") or "")):
+        return result
+    title = " ".join(str(job.get("title") or "").split())
+    fam, sub = families.classify_family(title, job.get("company") or "")
+    if (fam not in title_gate.ALLOWED_FAMILIES or (fam, sub) in title_gate.EXCLUDED_SUBFAMILIES
+            or families.SWE_HW_SCI.search(title)):
+        return result
+    log.debug("  Family net: job %s", job.get("id"))
+    result["tier"] = "APPLY_CAVEAT"
+    result["reason"] = FAMILY_NET_REASON
     return result
 
 
