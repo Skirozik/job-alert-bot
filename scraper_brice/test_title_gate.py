@@ -1,10 +1,11 @@
 """title_gate.gate: which new LinkedIn titles may cost a description fetch and a Claude call.
 
 A false DROP is invisible (stored INELIGIBLE "Pre-filtered: <rule>"), a false
-PASS costs one classification -- so these fixtures pin both directions: 79
-titles that must reach Claude and 62 that must not, each with the rule that
+PASS costs one classification -- so these fixtures pin both directions: 92
+titles that must reach Claude and 70 that must not, each with the rule that
 drops it. They are the field study's measured fixtures plus real titles from
-the verified company boards, adjusted to the owner's engineer-level floor.
+the verified company boards, adjusted to the owner's engineer-level floor, and
+the false drops and passes the 2026-09-30 reviews found in live results.
 
 Run:  cd scraper_brice && python -X utf8 test_title_gate.py
 """
@@ -58,6 +59,17 @@ MUST_PASS = [
     "Jr-Sr. Systems Administrator", "Associate/Senior Solutions Engineer",
     # a strong new-grad marker outranks a level suffix or an architect noun
     "Associate Sales Engineer II (New Grad)", "AI GPU Power Architect - New College Grad",
+    # multi-level postings are judged at their lowest level (live titles, 2026-09-30)
+    "Technical Architect (Pre-Sales) - All Levels", "Solution Architect/Senior Solution Architect - Data 360",
+    "Solution Architect / Senior Solution Architect - PubSec - FedCiv", "TDCJ - Network Specialist I,II,III - Field Support",
+    "Technical Support Engineer - Senior Technical Support Engineer", "Data Center L2/L3 Support Engineer (Junior)",
+    "Jr. Mid Level Security Engineer – Cloud & Infrastructure Security",
+    "Network / Hybrid Engineer (Senior & Junior level) - Active Secret clearance",
+    # L2 before a technology is the layer; a product named "... Manager" is not a manager
+    "Technical Support Engineer - L2 Switching", "Systems Engineer I - Mission Sensor Manager (Onsite)",
+    "Endpoint Manager Engineer I", "Configuration Manager (SCCM) Engineer - Entry Level",
+    # a support phrase in parentheses beside an administrator role noun is left to the rubric (I-3, by duties)
+    "Network Administrator (Network + Desktop Support)",
 ]
 
 SENIOR = "seniority/leadership title"
@@ -85,10 +97,15 @@ MUST_DROP = [
     ("Leader, Solutions Engineer-US Commercial", SENIOR), ("Learning and Development Program Manager, Quality", SENIOR),
     # a new-grad marker never outranks a seniority word
     ("Senior Sales Engineer - New Grad Program Mentor", SENIOR),
+    # SVP/AVP and plural seniority words (live board titles), and a senior twin of a senior role
+    ("SVP, Global Solution Engineering - Tableau", SENIOR), ("AVP — Network Automation & Infrastructure AI", SENIOR),
+    ("Systems Administrator Seniors- Unity Application Engineer", SENIOR),
+    ("Cyber Security Analyst Leads – Cyber Threat Hunting", SENIOR), ("Lead Engineer / Senior Lead Engineer", SENIOR),
     # level II and above
     ("Sales Engineer 2 (Customer Success) - Denver", LEVEL), ("Commercial Sales Engineer 2 (AMER - West)", LEVEL),
     ("SOC Analyst, Tier II", LEVEL), ("Network Engineer III", LEVEL), ("Systems Administrator Level 3", LEVEL),
     ("Security Analyst L2", LEVEL), ("Network Engineer 3", LEVEL), ("Technology Risk Analyst Associate-2", LEVEL),
+    ("L2 Network Engineer", LEVEL),                    # a level: "network" is not a layer-2 technology
     # pure sales (technical pre-sales only, while config.DROP_PURE_SALES holds)
     ("Account Executive", SALES), ("Enterprise Account Executive", SALES), ("Associate Account Executive", SALES),
     ("Sales Development Representative", SALES), ("Business Development Representative", SALES),
@@ -98,6 +115,7 @@ MUST_DROP = [
     # engineer-level floor: help desk / service desk / desktop support never pass ...
     ("Help Desk Associate", DESK), ("IT Support Specialist I", DESK), ("Help Desk Technician - New Grad", DESK),
     ("Desktop Support Engineer", DESK), ("Service Desk Analyst", DESK),
+    ("IT Support (Operations) Specialist", DESK), ("IT Specialist (Help Desk)", DESK),
     # ... and a technician title passes only if it also names an engineer role
     ("NOC Technician", TECH), ("Network Operations Center Technician", TECH), ("Data Center Technician", TECH),
     ("Datacenter Networking Technician", TECH), ("Data Center Operations Technician", TECH),
@@ -111,7 +129,7 @@ MUST_DROP = [
 
 section("fixture lists")
 drop_titles = [t for t, _ in MUST_DROP]
-check("79 must-pass and 62 must-drop titles", len(MUST_PASS) == 79 and len(MUST_DROP) == 62,
+check("92 must-pass and 70 must-drop titles", len(MUST_PASS) == 92 and len(MUST_DROP) == 70,
       f"{len(MUST_PASS)} / {len(MUST_DROP)}")
 check("no duplicates inside either list",
       len(set(MUST_PASS)) == len(MUST_PASS) and len(set(drop_titles)) == len(drop_titles))

@@ -10,7 +10,10 @@ Adapted from the field study's proposed gate (measured on real LinkedIn and ATS 
   * no cohort-year rule: the rubric judges graduation windows;
   * 'mid' is a level only as mid-level / mid-career / mid-senior / "Mid to ..." or a trailing "Mid"
     ("SE Desk - Mid West" and "Mid-Market" are regions and segments);
-  * a range that starts at an entry level ("I/II", "Junior/Mid", "Entry to Mid") passes;
+  * a range that includes an entry level ("I/II", "I,II,III", "Junior/Mid", "Entry to Mid", "Senior & Junior") and
+    "All Levels" pass (the rubric judges the lowest level); so does "X / Senior X" when X itself is not senior;
+  * "L2"/"L3" before a networking technology is the layer, and a product "... Manager" (SCCM's Configuration
+    Manager) is not a people manager;
   * a strong new-grad or program marker outranks a level suffix or an architect noun, never a seniority word;
   * pure-sales titles drop only while config.DROP_PURE_SALES holds.
 """
@@ -38,6 +41,10 @@ FLOOR_ALWAYS_RE = re.compile(
     r"\bhelp[\s-]*desk\b|\bservice[\s-]*desk\b|\bdesktop\s+support\b|\bdeskside\b"
     r"|\b(?:it|computer|pc|end[\s-]?user|desktop)\s+support\s+(?:specialist|technician|tech|representative|rep|agent)\b",
     re.I)
+# A support phrase only inside parentheses, next to an engineer or administrator role noun, is a duty, not the role:
+# "Network Administrator (Network + Desktop Support)" goes to the rubric, which judges the floor by duties (I-3).
+PARENS_RE = re.compile(r"\([^)]*\)")
+FLOOR_ROLE_OUTSIDE_RE = re.compile(r"\b(?:engineer(?:ing)?|administrator)\b", re.I)
 FLOOR_TECHNICIAN_RE = re.compile(
     r"\btechnicians?\b"
     r"|\b(?:it|noc|field|network|desktop|computer|pc|bench|repair|service|installation|install|cable|cabling"
@@ -49,28 +56,43 @@ STRONG_ENTRY_RE = re.compile(
     r"\bnew\s+(?:college\s+)?grad(?:uate)?s?\b|\brecent\s+(?:college\s+)?grad(?:uate)?s?\b"
     r"|\b(?:university|college)\s+grad(?:uate)?s?\b|\bncg\b|\bearly[\s-]+(?:in[\s-]+)?career\b|\bemerging\s+talent\b"
     r"|\bcampus\b|\bclass\s+of\s+20\d\d\b|\b20\d\d\s+(?:start|grad(?:uate)?s?|new\s+grads?)\b"
-    r"|\b(?:graduate|university|rotational|rotation|associate)\s+program\b|\bacademy\b",
+    r"|\b(?:graduate|university|rotational|rotation|associate)\s+program\b|\bacademy\b"
+    r"|\((?:junior|jr\.?|entry[\s-]level)\)",           # "Data Center L2/L3 Support Engineer (Junior)"
     re.I)
 ENTRY_RE = re.compile(
     r"\b(?:associate|junior|jr|entry[\s-]?level|graduate|university|campus|college|apprentice|trainee|rotational"
     r"|academy|tier\s*(?:1|i)|level\s*(?:1|i)|l1)\b|\b20\d\d\b"
     r"|(?<![/&\w])\b(?:i|1)\b(?![/&])",
     re.I)
+# A posting open at several levels is judged at its lowest (rubric section 3), so a range that starts at an entry
+# level passes, in either order and with any separator ("I,II,III", "Jr. Mid Level", "(Senior & Junior level)"),
+# and so does "All Levels".
 MULTI_LEVEL_RE = re.compile(
-    r"\b(?:i|1|jr|junior|entry(?:[\s-]level)?)\s*(?:/|-|–|&|\bor\b|\bto\b|\bthrough\b)\s*"
+    r"\b(?:i|1|jr\.?|junior|entry(?:[\s-]level)?)\s*(?:/|-|–|&|,|\bor\b|\bto\b|\bthrough\b)\s*"
     r"(?:ii|iii|2|3|mid|intermediate|senior|sr|experienced)\b"
-    r"|\bassociate\s*(?:/|&|\bor\b|\bto\b|\bthrough\b)\s*(?:mid|intermediate|senior|sr|experienced)\b",
+    r"|\bassociate\s*(?:/|&|\bor\b|\bto\b|\bthrough\b)\s*(?:mid|intermediate|senior|sr|experienced)\b"
+    r"|\b(?:jr\.?|junior)\s+(?:mid|intermediate)\b"
+    r"|\b(?:senior|sr\.?)\s*(?:/|&|-|–|\band\b|\bor\b)\s*(?:junior|jr\b|entry)"
+    r"|\b(?:all|multiple|various)\s+levels\b",
     re.I)
+# "Solution Architect/Senior Solution Architect", "Technical Support Engineer - Senior Technical Support Engineer":
+# one role offered at two levels. The senior twin is removed before the seniority rule reads the title.
+SENIOR_TWIN_RE = re.compile(r"\b(?P<x>[a-z][\w&]*(?:\s+[\w&]+){0,5}?)\s*(?:/|-|–|—)\s*(?:senior|sr\.?)\s+(?P=x)\b", re.I)
+# Products named "... Manager" are not people managers: RTX's "Mission Sensor Manager", Microsoft's Endpoint and
+# Configuration Manager (SCCM).
+PRODUCT_MANAGER_RE = re.compile(r"\b(?:endpoint|configuration|sensor|device|patch)\s+manager\b", re.I)
 
 SENIOR_RE = re.compile(
-    r"\b(?:senior|sr|principal|lead|director|head\s+of|vp|vice\s+president|chief|president|distinguished|fellow"
-    r"|leader|supervisor|manager|intermediate|sme|expert)\b"
+    r"\b(?:seniors?|sr|principal|leads?|director|head\s+of|[sae]?vp|vice\s+president|chief|president|distinguished"
+    r"|fellow|leader|supervisor|manager|intermediate|sme|expert)\b"
     r"|\bmid[\s-]*(?:level|career|senior)\b|\bmid\s+to\b|\bmid\b(?=\s*(?:$|[(),|/]))"
     r"|\bstaff\s+(?:\w+\s+){0,2}(?:engineer|architect|consultant|analyst|administrator)\b|^\s*staff\b|\bstaff\s*[-–:,]",
     re.I)
 TAM_RE = re.compile(r"\btechnical\s+account\s+manager\b", re.I)
+# "L2"/"L3" before a networking technology is the OSI layer, not a level ("Technical Support Engineer - L2 Switching").
 LEVEL_RE = re.compile(
-    r"\b(?:ii|iii|iv|v)\b|\b(?:level|lvl|tier)\s*(?:[2-5]|ii|iii|iv)\b|\bl[2-5]\b"
+    r"\b(?:ii|iii|iv|v)\b|\b(?:level|lvl|tier)\s*(?:[2-5]|ii|iii|iv)\b"
+    r"|\bl[2-5]\b(?!\s*(?:/\s*l[2-7]\s*)?(?:switch|rout|networking|protocol|vpn|ethernet|vlan|multicast|forwarding))"
     r"|\b(?:engineer|analyst|administrator|admin|specialist|technician|tech|consultant|architect|associate)\s*[-,]?\s*[2-5]\b",
     re.I)
 ARCHITECT_RE = re.compile(r"\barchitect\b", re.I)
@@ -82,13 +104,20 @@ def is_entry_marked(title: str) -> bool:
     return bool(ENTRY_RE.search(t) or STRONG_ENTRY_RE.search(t))
 
 
+def _below_desk_floor(t: str) -> bool:
+    outer = PARENS_RE.sub(" ", t)
+    if FLOOR_ALWAYS_RE.search(outer):
+        return True
+    return bool(FLOOR_ALWAYS_RE.search(t)) and not FLOOR_ROLE_OUTSIDE_RE.search(outer)
+
+
 def gate(title: str) -> Optional[str]:
     t = " ".join((title or "").split())
     if INTERN_RE.search(t):
         return "internship/co-op title"
     if DROP_PURE_SALES and PURE_SALES_RE.search(t) and not TECH_MARKER_RE.search(t):
         return "pure-sales title (AE/SDR/BDR/account manager)"
-    if FLOOR_ALWAYS_RE.search(t):
+    if _below_desk_floor(t):
         return "below the engineer floor (help desk/service desk/desktop support)"
     if FLOOR_TECHNICIAN_RE.search(t) and not ENGINEER_RE.search(t):
         return "below the engineer floor (technician)"
@@ -96,7 +125,7 @@ def gate(title: str) -> Optional[str]:
         return None if is_entry_marked(t) else "technical account manager without an entry marker"
     if MULTI_LEVEL_RE.search(t):
         return None
-    if SENIOR_RE.search(t):
+    if SENIOR_RE.search(PRODUCT_MANAGER_RE.sub("product", SENIOR_TWIN_RE.sub(lambda m: m.group("x"), t))):
         return "seniority/leadership title"
     if STRONG_ENTRY_RE.search(t):
         return None            # a new-grad/program marker outranks a level suffix or an architect noun

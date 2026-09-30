@@ -195,9 +195,9 @@ check("an empty or missing README is 0 rows, 0 unparsed",
 # ─────────────────────────────────────────────────────────────────────────────
 section("rows_to_jobs: the filter, one copy per posting, and the job dicts")
 EXPECTED = {
-    "Engineering": ({"SYSTEMS_IT": 3, "SECURITY": 4, "DATA_CENTER": 1, "SUPPORT_ENG": 2, "NETWORK_INFRA": 4,
+    "Engineering": ({"SYSTEMS_IT": 4, "SECURITY": 4, "DATA_CENTER": 1, "SUPPORT_ENG": 2, "NETWORK_INFRA": 4,
                      "SALES_SOLUTIONS": 4},
-                    {"off-family": 17, "non-US location": 2, "seniority/leadership title": 2,
+                    {"off-family": 17, "non-US location": 2, "seniority/leadership title": 1,
                      "below the engineer floor (technician)": 2, "internship/co-op title": 2, "level II+/2+ title": 1,
                      "duplicate within the list": 5}),
     "Sales": ({"SALES_SOLUTIONS": 14, "SECURITY": 1},
@@ -222,7 +222,7 @@ for name in URL:
     check(f"{name}: every row is accounted for (kept + dropped == rows)",
           len(jobs) + sum(dropped.values()) == len(parsed[name][0]))
 all_jobs = [j for name in URL for j in results[name][0]]
-check("65 candidates across the five lists", len(all_jobs) == 65, str(len(all_jobs)))
+check("66 candidates across the five lists", len(all_jobs) == 66, str(len(all_jobs)))
 
 impact = next(j for j in results["Software-Engineer"][0] if j["company"] == "impact.com")
 check("a job dict, field by field (README fields only; the work model joins the location)", impact == {
@@ -474,16 +474,16 @@ check("every request went to raw.githubusercontent.com; none to jobright.ai",
       get.hosts() == {"raw.githubusercontent.com"} and not any("jobright.ai" in u for u, _k in get.calls))
 check("no ETag in a dry run", not any("If-None-Match" in k["headers"] for _u, k in get.calls))
 check("paced 1-2 s between lists", p.clock.sleeps == [1.0] * 4, str(p.clock.sleeps))
-check("the jobright summary line", "jobright: 5 lists | rows 157 | kept 65 | new in run 65 | dropped: " in out, out[:600])
+check("the jobright summary line", "jobright: 5 lists | rows 157 | kept 66 | new in run 66 | dropped: " in out, out[:600])
 check("one line per list: HTTP, rows, in window, kept, new, canary",
-      "  jobright Engineering: HTTP 200 | rows 49 (0 unparsed) | in window 49 | kept 18 | new 18 | canary: none" in out
+      "  jobright Engineering: HTTP 200 | rows 49 (0 unparsed) | in window 49 | kept 19 | new 19 | canary: none" in out
       and "  jobright Support: HTTP 200 | rows 35 (0 unparsed) | in window 35 | kept 14 | new 14 | canary: none" in out)
 check("...with that list's drops by rule",
       "    dropped: below the engineer floor (technician) 2, duplicate within the list 5, internship/co-op title 2, "
-      "level II+/2+ title 1, non-US location 2, off-family 17, seniority/leadership title 2" in out)
-check("what the cap allows", "would classify: ats 0 / linkedin 0 / jobright 65; leftover 0" in out)
+      "level II+/2+ title 1, non-US location 2, off-family 17, seniority/leadership title 1" in out)
+check("what the cap allows", "would classify: ats 0 / linkedin 0 / jobright 66; leftover 0" in out)
 check("kept samples in queue order: entry-marked, primary family first",
-      "kept sample (jobright, 3 of 65): company | title | location | family\n"
+      "kept sample (jobright, 3 of 66): company | title | location | family\n"
       "  Motorola Solutions | Presales Systems Engineer - Entry Level | Chicago, IL, United States (Remote) | SALES_SOLUTIONS\n"
       "  IBM | Solution Architect - Entry Level Sales Program 2027 | New York, NY, United States (Hybrid) | SALES_SOLUTIONS\n"
       "  Motive | Associate Solutions Engineer, Commercial (Nashville - Onsite) | Nashville, Tennessee, United States | "
@@ -500,7 +500,7 @@ with env_cleared(), p.install(main), patched(main, jobright=jobright, db=Forbidd
     main.run(["--dry-run", "--no-linkedin", "--no-ats"])
 out = out.getvalue()
 check("read on 2026-10-09, the report counts only the rows inside the 10-day window",
-      "  jobright Engineering: HTTP 200 | rows 49 (0 unparsed) | in window 37 | kept 14 |" in out
+      "  jobright Engineering: HTTP 200 | rows 49 (0 unparsed) | in window 37 | kept 15 |" in out
       and "posted more than 10 days ago 12" in out, out[:900])
 
 p = Pipeline(real_db)
@@ -543,8 +543,8 @@ check("exit 0; the five lists are read once each, with no ETag yet",
       code == 0 and len(get.calls) == 5 and not any("If-None-Match" in k["headers"] for _u, k in get.calls))
 check("every request went to raw.githubusercontent.com; none to jobright.ai",
       get.hosts() == {"raw.githubusercontent.com"} and not any("jobright.ai" in u for u, _k in get.calls))
-check("all 65 candidates are classified, after all five READMEs are read",
-      len(classified) == 65 and all(c.startswith("jr:") for c in classified)
+check("all 66 candidates are classified, after all five READMEs are read",
+      len(classified) == 66 and all(c.startswith("jr:") for c in classified)
       and p.log.index(("classifier.classify", classified[0])) > max(
           i for i, (n, _d) in enumerate(p.log) if n == "requests.get"))
 check("...each one title-only: the classifier sees no description",
@@ -553,17 +553,17 @@ check("...and not one per-job fetch of any kind (never jobright.ai)",
       not p.linkedin.described and not p.ats_pass.workday_fetches and len(get.calls) == 5)
 stored = {j["id"]: j for j in p.db.inserted}
 check("stored rows carry the README fields and jobright:<list> as search_term",
-      len(stored) == 65 and stored["jr:6ab68370634ec6aa7c0d2dec"]["search_term"] == "jobright:Software-Engineer"
+      len(stored) == 66 and stored["jr:6ab68370634ec6aa7c0d2dec"]["search_term"] == "jobright:Software-Engineer"
       and stored["jr:6ab68370634ec6aa7c0d2dec"]["location"] == "United States (Remote)"
       and stored["jr:6ab68370634ec6aa7c0d2dec"]["posted_at"] == "2026-09-27T00:00:00+00:00")
-check("the first run pings what it stores (the fake classifier says APPLY to all)", len(p.notifier.jobs) == 65)
+check("the first run pings what it stores (the fake classifier says APPLY to all)", len(p.notifier.jobs) == 66)
 check("each list's ETag is saved (nothing was left behind)",
       {k: v for k, v in p.db.state.items() if k.startswith("jobright_etag:")}
       == {f"jobright_etag:{n}": f'W/"{n}-1"' for n in URL})
-check("the per-list log line", "jobright Engineering: HTTP 200 | 49 rows (0 unparsed, 49 in window) | kept 18 | new 18"
+check("the per-list log line", "jobright Engineering: HTTP 200 | 49 rows (0 unparsed, 49 in window) | kept 19 | new 19"
       in logs.text())
-check("finish_run counts them", p.db.finished and p.db.finished[0][1]["jobright_candidates"] == 65
-      and p.db.finished[0][1]["new_jobs"] == 65 and p.db.finished[0][1]["leftover"] == 0)
+check("finish_run counts them", p.db.finished and p.db.finished[0][1]["jobright_candidates"] == 66
+      and p.db.finished[0][1]["new_jobs"] == 66 and p.db.finished[0][1]["leftover"] == 0)
 check("no owner alert on a healthy run", p.notifier.alerts == [])
 
 state1, stored1 = dict(p.db.state), set(stored)
@@ -587,8 +587,8 @@ get = FakeGet(readme_routes())
 code, p, logs = real_run(get, caps={"ats": 100, "linkedin": 180, "jobright": 60})
 done = {d for n, d in p.log if n == "classifier.classify"}
 left_lists = {n for n in URL if any(j["id"] not in done for j in results[n][0])}
-check("a capped run (60) classifies 60 and leaves the other 5 unstored",
-      len(done) == 60 and len(p.db.inserted) == 60 and p.db.finished[0][1]["leftover"] == 5)
+check("a capped run (60) classifies 60 and leaves the other 6 unstored",
+      len(done) == 60 and len(p.db.inserted) == 60 and p.db.finished[0][1]["leftover"] == 6)
 check("...lists with leftovers have their ETag cleared (the next run re-reads them); the others keep theirs",
       left_lists and set(URL) - left_lists
       and all(f"jobright_etag:{n}" not in p.db.state and ("db.clear_state", f"jobright_etag:{n}") in p.log
