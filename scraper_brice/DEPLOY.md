@@ -97,9 +97,14 @@ empty boards, a broken jobright list, the Supabase quota, crashes, and preflight
 
 ### 2.2 ntfy topic
 
-- Pick a unique, hard-to-guess topic: characters `[-_A-Za-z0-9]` only, at most 64 of them, and
-  different from every other persona's.
-- The topic name *is* the password: anyone who knows it can read the pings.
+- Pick a topic with a random part: characters `[-_A-Za-z0-9]` only, at most 64 of them, and
+  different from every other persona's. For example, a short word followed by the output of
+  `openssl rand -hex 10`.
+- The topic name *is* the password: anyone who knows it can read the pings, and ntfy.sh keeps
+  each message for 12 hours. Every ping carries the classifier's reason, which can mention his own
+  details (a GPA floor, a start date). A topic made only of guessable words, such as anything that
+  appears in this public repo, can be found and read, so the random part is not optional. Keep the
+  name only in the secret and in his ntfy app.
 - Subscribe to it in the ntfy app on Brice's phone.
 - Send one test push by hand before the first run. ntfy auto-creates topics, so a mistyped topic
   still returns HTTP 200 and looks like success in the logs.
@@ -145,8 +150,7 @@ own at the next odd hour :40:
 ### 2.4 Vercel (Brice's dashboard login)
 
 The dashboard finds people from environment variables, so no code changes are needed. Two Vercel
-projects deploy from master: `job-alert-for-all` (the one linked locally) and `job-alert-bot`. Set
-these in the one the friends log into:
+projects deploy from master. Set these in the one the friends log into:
 
 | Variable | Value |
 |---|---|
@@ -382,10 +386,18 @@ Other signatures in the log:
   `assert len(ATS_BOARDS) == 26` together with `test_ats_pass.py`, which pins the count.
 - **Rate limits.** If `Rate limited: N/22` is often above 0, set `ALL_DUP_PAGES_TO_STOP` back to 1
   (config.py).
-- **Sales scope.** When Brice answers the sales-scope question: to include AE/SDR/BDR and
-  sales-program roles, set `DROP_PURE_SALES = False` (config.py; `test_config.py` pins it). Then
-  move rubric rule I-4 to `APPLY_CAVEAT` or delete it, and re-upload `BRICE_PROFILE_MD`. Either
-  way, disable `.github/workflows/reminder.yml`, as its header asks.
+- **Sales scope.** When Brice answers the sales-scope question, disable
+  `.github/workflows/reminder.yml` either way, as its header asks. What `DROP_PURE_SALES = False`
+  (config.py; `test_config.py` pins it) does on its own is narrow:
+  - LinkedIn: AE/SDR/BDR and account-manager titles pass `title_gate.gate`, but none of the 22
+    search terms is a sales term, so few would arrive. Add sales terms to `SEARCH_TERMS` (and
+    `EXPECTED_TERMS` in `test_config.py`).
+  - Company boards: sales-program titles ("Sales Development Program") pass as `PROGRAM`.
+  - Plain AE/SDR/BDR titles from the boards and from jobright are still dropped. The family filter's
+    `NON_TECH_ROLE` in `families.py` excludes them whatever the flag says, and jobright has no
+    program pass-through. Including them needs a sales family in `families.py` and
+    `title_gate.ALLOWED_FAMILIES`.
+  - Then move rubric rule I-4 to `APPLY_CAVEAT` or delete it, and re-upload `BRICE_PROFILE_MD`.
 - **Caps.** If leftovers persist after the backlog has drained, raise `MAX_CLASSIFY_PER_RUN`. Watch
   the run durations in `scrape_runs`, which must stay under the 48-minute budget.
 
@@ -395,7 +407,9 @@ Other signatures in the log:
 
 - **Dedup is by `company|title`** (`norm_key`). One title posted in several cities is stored once,
   and a later posting with a stored title is never re-classified. Regional re-posts with the region
-  in the title, like "SE Desk - Northeast", ping once per region.
+  in the title, like "SE Desk - Northeast", ping once per region. When two sources spell the company
+  or the title differently (LinkedIn's "Tempus AI" against the board key "Tempus", an abbreviated
+  LinkedIn title), one posting is classified, and can be pinged, once per source.
 - **jobright** is a third-party feed, read from its GitHub READMEs only; jobright.ai is never
   requested, per its robots.txt. Its repos are named by year (`2026-…`). When a new year's repos
   appear, edit `JOBRIGHT_LISTS`; the canary alert fires on a 404, zero rows, or format drift.
