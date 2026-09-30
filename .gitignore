@@ -1,6 +1,7 @@
 .env
 .env.user_a
 .env.user_c
+.env.user_b
 
 # These contain real third parties' identifying details (name, school, employer,
 # and the fact that they are job-hunting while still employed). This GitHub
@@ -11,6 +12,7 @@
 # repo private or stripping the identifying details.
 User_A_Candidate_Profile_and_Filters.md
 User_C_Candidate_Profile_and_Filters.md
+User_B_Candidate_Profile_and_Filters.md
 
 __pycache__/
 *.pyc
