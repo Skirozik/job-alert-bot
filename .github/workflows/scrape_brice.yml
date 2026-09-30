@@ -50,7 +50,17 @@ jobs:
           }
           echo "profile materialized: $(wc -c < Brice_Candidate_Profile_and_Filters.md) bytes"
 
+      # The structure classifier.py depends on (headings, the numbered INELIGIBLE list, size). It prints check
+      # labels only, never rubric text. A wrong upload -- another persona's rubric, an old draft -- stops here
+      # instead of classifying and pinging against it.
+      - name: Check the rubric's structure
+        working-directory: scraper_brice
+        env:
+          CANDIDATE_PROFILE_PATH: ../Brice_Candidate_Profile_and_Filters.md
+        run: python -X utf8 test_rubric_contract.py
+
       - name: Run scraper
+        id: scraper
         working-directory: scraper_brice
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL_BRICE }}
@@ -59,3 +69,21 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC_BRICE }}
           OWNER_NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python main.py
+
+      # main.py alerts the owner itself whenever it gets to run and fails (exit 1). This covers the runs it
+      # never got to -- a failed install, an empty profile secret, a rubric that fails its check -- and a run
+      # cancelled or killed by the 60-minute timeout. The owner's topic only, never Brice's.
+      - name: Alert the owner if the scraper did not run
+        if: ${{ always() && steps.scraper.outcome != 'success' && steps.scraper.outcome != 'failure' }}
+        env:
+          OWNER_NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          test -n "$OWNER_NTFY_TOPIC" || exit 0
+          # The response echoes the topic, so it goes to /dev/null, not the log.
+          curl -fsS --max-time 20 \
+            -H "Title: Brice: workflow failed" \
+            -H "Priority: high" \
+            -H "Tags: warning,robot" \
+            -d "Job Scraper (Brice) stopped before main.py ran, or was cancelled or timed out: $RUN_URL" \
+            "https://ntfy.sh/$OWNER_NTFY_TOPIC" > /dev/null || true

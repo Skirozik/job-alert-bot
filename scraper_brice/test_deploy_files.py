@@ -120,9 +120,10 @@ check("main.py stops starting work before the timeout (config.RUN_TIME_BUDGET_S)
 check("...and the search budget fits inside the run budget", config.SEARCH_TIME_BUDGET_S < config.RUN_TIME_BUDGET_S)
 
 st = steps(wf)
-check("steps: checkout, Python 3.12, install, profile, run",
+check("steps: checkout, Python 3.12, install, profile, rubric check, run, owner alert",
       list(st) == ["Checkout", "Set up Python 3.12", "Install dependencies", "Materialize candidate profile",
-                   "Run scraper"], str(list(st)))
+                   "Check the rubric's structure", "Run scraper", "Alert the owner if the scraper did not run"],
+      str(list(st)))
 check("Python 3.12 (the grammar test_config.py parses every module against)",
       "python-version: '3.12'" in st.get("Set up Python 3.12", ""))
 REQ = "scraper_brice/requirements.txt"
@@ -164,6 +165,27 @@ readers = sorted(p.name for p in HERE.glob("*.py")
                  if not p.name.startswith("test") and p.name not in ("config.py", "run_tests.py")
                  and re.search(r"os\.environ|os\.getenv", read(p)))
 check("...and no module but config.py reads the environment (so that list is complete)", not readers, str(readers))
+
+rubric_step = st.get("Check the rubric's structure", "")
+check("the rubric's structure is checked before the scraper runs: test_rubric_contract.py from scraper_brice/",
+      re.search(r"^\s+working-directory:\s*scraper_brice\s*$", rubric_step, re.M) is not None
+      and re.search(r"^\s+run:\s*python -X utf8 test_rubric_contract\.py\s*$", rubric_step, re.M) is not None)
+check(f"...against the materialized ../{profile_name}, with no secret in reach",
+      re.search(rf"^\s+CANDIDATE_PROFILE_PATH:\s*\.\./{re.escape(profile_name)}\s*$", rubric_step, re.M) is not None
+      and "secrets." not in rubric_step)
+check("...a check that prints labels only (its own docstring's promise; the Actions log is public)",
+      "It prints check labels and counts, NEVER rubric text." in read(HERE / "test_rubric_contract.py"))
+check("the scraper step has id 'scraper' (the alert step reads its outcome)",
+      re.search(r"^\s+id:\s*scraper\s*$", run_step, re.M) is not None)
+alert_step = st.get("Alert the owner if the scraper did not run", "")
+check("the last step alerts when the scraper was skipped or cancelled (main.py alerts on its own failures)",
+      "if: ${{ always() && steps.scraper.outcome != 'success' && steps.scraper.outcome != 'failure' }}" in alert_step)
+alert_env = dict(re.findall(r"^\s+([A-Z_]+):\s*\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}\s*$", alert_step, re.M))
+alert_run = alert_step.split("run: |", 1)[-1]
+check("...to the owner's topic only, passed through env:, never Brice's",
+      alert_env == {"OWNER_NTFY_TOPIC": "NTFY_TOPIC"} and "NTFY_TOPIC_BRICE" not in alert_step, str(alert_env))
+check("...with no ${{ }} inside the script, and curl's reply (it echoes the topic) sent to /dev/null",
+      "${{" not in alert_run and '"https://ntfy.sh/$OWNER_NTFY_TOPIC" > /dev/null' in alert_run)
 
 
 # ── schema.sql ───────────────────────────────────────────────────────────────

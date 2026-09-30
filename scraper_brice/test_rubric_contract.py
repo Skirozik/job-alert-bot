@@ -1,8 +1,10 @@
-"""The rubric's structural contract with classifier.py. LOCAL ONLY.
+"""The rubric's structural contract with classifier.py. Locally, and in CI before every run.
 
 The rubric is gitignored (it describes a real person and this repo is public),
 so this runs only where the file exists: CANDIDATE_PROFILE_PATH (env) or the
 repo-root Brice_Candidate_Profile_and_Filters.md. Without it: SKIP, exit 0.
+scrape_brice.yml runs it on the rubric it just wrote from the secret; a
+failure stops the run before main.py, and its output is the public log.
 
 It prints check labels and counts, NEVER rubric text.
 
