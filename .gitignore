@@ -1,6 +1,7 @@
 .env
 .env.beyonce
 .env.hassan
+.env.brice
 
 # These contain real third parties' identifying details (name, school, employer,
 # and the fact that they are job-hunting while still employed). This GitHub
@@ -11,6 +12,7 @@
 # repo private or stripping the identifying details.
 Beyonce_Candidate_Profile_and_Filters.md
 Hassan_Candidate_Profile_and_Filters.md
+Brice_Candidate_Profile_and_Filters.md
 
 __pycache__/
 *.pyc
