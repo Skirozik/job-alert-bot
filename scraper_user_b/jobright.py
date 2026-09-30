@@ -77,6 +77,10 @@ _MONTHS = {m: i for i, m in enumerate(("Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                        "Nov", "Dec"), 1)}
 _LINK_MARK = "jobright.ai/jobs/info/"
 _CONTINUED = "↳"
+# Hundreds of titles end in the scraped page's breadcrumb: "Systems Engineer I Job Details / Aflac, Incorporated".
+# It is not part of the title: left in, it splits one posting's company|title key from its LinkedIn copy and shows
+# up in the ping. (About 630 rows on 2026-09-30.)
+_JOB_DETAILS_RE = re.compile(r"\s+Job Details\s*/.*$", re.I)
 
 
 # ── fetch ────────────────────────────────────────────────────────────────────
@@ -198,7 +202,7 @@ def parse_readme(text: str, list_name: str, today: date) -> tuple[list[dict], in
         if raw_company != _CONTINUED:
             last_company = company       # a blank company cell also ends the run of "↳" rows
         cells = [c.strip() for c in m["rest"].strip().strip("|").split("|")]
-        title = _clean(m["title"])
+        title = _JOB_DETAILS_RE.sub("", _clean(m["title"]))
         if not company or not title or len(cells) < 3:
             unparsed += 1                # "↳" with no company above it, a blank cell, or cells missing
             continue

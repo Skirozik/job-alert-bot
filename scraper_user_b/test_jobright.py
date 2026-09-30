@@ -188,6 +188,18 @@ check("an unreadable date leaves the row in, undated", find(rows, "Systems Admin
 check("a last row without its closing '|' does not swallow the comment after it",
       find(rows, "Last Row Engineer")[0]["posted"] == "2026-09-28")
 check("CRLF line endings read the same", jobright.parse_readme(SYN.replace("\n", "\r\n"), "Synthetic", TODAY) == (rows, bad))
+crumbs = "\n".join([*HEADER,
+                    syn_row("Aflac", "Systems Engineer I Job Details / Aflac, Incorporated", "00000000000000000000b001"),
+                    syn_row("Mott MacDonald", "Graduate Cybersecurity Specialist - 2026 Job Details / Mott MacDonald",
+                            "00000000000000000000b002"),
+                    syn_row("Initech", "Job Details Analyst", "00000000000000000000b003")])
+crumb_rows, _ = jobright.parse_readme(crumbs, "Synthetic", TODAY)
+check("a trailing 'Job Details / <employer>' breadcrumb is cut from the title (about 630 live rows had one)",
+      [r["title"] for r in crumb_rows] == ["Systems Engineer I", "Graduate Cybersecurity Specialist - 2026",
+                                           "Job Details Analyst"], str([r["title"] for r in crumb_rows]))
+check("...so the row keys like its LinkedIn copy ('Aflac | Systems Engineer I')",
+      bool(crumb_rows) and make_norm_key(crumb_rows[0]["company"], crumb_rows[0]["title"])
+      == make_norm_key("Aflac", "Systems Engineer I"))
 check("an empty or missing README is 0 rows, 0 unparsed",
       jobright.parse_readme("", "X", TODAY) == ([], 0) and jobright.parse_readme(None, "X", TODAY) == ([], 0))
 
