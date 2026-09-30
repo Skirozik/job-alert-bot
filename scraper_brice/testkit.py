@@ -21,6 +21,7 @@ import os
 import socket
 import sys
 import types
+from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -325,3 +326,239 @@ class Forbidden(types.ModuleType):
             return object.__getattribute__(self, attr)
         object.__getattribute__(self, "touched").append(attr)
         raise AssertionError(f"{object.__getattribute__(self, '__name__')}.{attr} used in a path that must not touch it")
+
+
+# ── a fake pipeline for main.py ──────────────────────────────────────────────
+# Recording stand-ins for every collaborator main.py reaches through a module
+# attribute. `Pipeline.install(main)` swaps them in (plus a FakeClock and a
+# deterministic random.uniform that returns the lower bound) and restores the
+# originals on exit. Every call lands in `pipeline.log` as (name, detail).
+
+class FakeDb:
+    def __init__(self, pipeline, real_db):
+        self._p = pipeline
+        self.QuotaExceeded = real_db.QuotaExceeded
+        self.DbUnavailable = real_db.DbUnavailable
+        self.RUN_LOCK_MINUTES = real_db.RUN_LOCK_MINUTES
+        self.stored_ids: set = set()
+        self.stored_nks: set = set()
+        self.rows: dict = {}                 # id -> {"id", "tier", "status"} for get_job_row
+        self.pending: list = []              # rows fetch_pending_jobs returns
+        self.state: dict = {}                # bot_state
+        self.start_run_result = 7            # an id, None (locked) or an exception instance
+        self.insert_ok = True
+        self.update_ok = True
+        self.quota_on_insert = None          # raise QuotaExceeded once this many inserts have landed
+        self.count_pending = 0
+        self.inserted: list = []
+        self.updated: list = []
+        self.finished: list = []
+
+    def _rec(self, name, detail=None):
+        self._p.log.append(("db." + name, detail))
+
+    def find_known_candidates(self, jobs):
+        jobs = list(jobs)
+        self._rec("find_known_candidates", [j["id"] for j in jobs])
+        ids = {j["id"] for j in jobs if j["id"] in self.stored_ids}
+        nks = {j["norm_key"] for j in jobs if j.get("norm_key") in self.stored_nks}
+        return ids, nks
+
+    def get_job_row(self, job_id):
+        self._rec("get_job_row", job_id)
+        return self.rows.get(job_id)
+
+    def insert_job(self, job):
+        self._rec("insert_job", job["id"])
+        if self.quota_on_insert is not None and len(self.inserted) >= self.quota_on_insert:
+            raise self.QuotaExceeded("quota spent (test)")
+        if self.insert_ok:
+            self.inserted.append(dict(job))
+        return self.insert_ok
+
+    def update_job_classification(self, job_id, tier, reason, salary=None):
+        self._rec("update_job_classification", job_id)
+        self.updated.append({"id": job_id, "tier": tier, "reason": reason, "salary": salary})
+        return self.update_ok
+
+    def fetch_pending_jobs(self, limit):
+        self._rec("fetch_pending_jobs", limit)
+        return [dict(r) for r in self.pending[:limit]]
+
+    def count_pending_jobs(self):
+        self._rec("count_pending_jobs")
+        return self.count_pending
+
+    def get_state(self, key):
+        self._rec("get_state", key)
+        return self.state.get(key)
+
+    def set_state(self, key, value):
+        self._rec("set_state", key)
+        self.state[key] = value
+
+    def clear_state(self, key):
+        self._rec("clear_state", key)
+        self.state.pop(key, None)
+
+    def start_run(self):
+        self._rec("start_run")
+        if isinstance(self.start_run_result, BaseException):
+            raise self.start_run_result
+        return self.start_run_result
+
+    def finish_run(self, run_id, **stats):
+        self._rec("finish_run", run_id)
+        self.finished.append((run_id, stats))
+
+
+class FakeClassifier:
+    def __init__(self, pipeline):
+        self._p = pipeline
+        self.seen: list = []                 # the job dicts classify() received
+        self.verdict = lambda job: {"tier": "APPLY", "reason": "fit"}
+        self.cost_s = 0.0                    # clock seconds each call takes
+
+    def classify(self, job):
+        self._p.log.append(("classifier.classify", job["id"]))
+        self.seen.append(dict(job))
+        self._p.clock.advance(self.cost_s)
+        return dict(self.verdict(job))
+
+
+class FakeNotifier:
+    def __init__(self, pipeline):
+        self._p = pipeline
+        self.jobs: list = []
+        self.alerts: list = []               # (message, title, priority)
+
+    def push_job(self, job):
+        self._p.log.append(("notifier.push_job", job["id"]))
+        self.jobs.append(dict(job))
+        return True
+
+    def push_owner_alert(self, message, *, title="Brice pipeline alert", priority="urgent", tags="warning,robot"):
+        self._p.log.append(("notifier.push_owner_alert", title))
+        self.alerts.append((message, title, priority))
+        return True
+
+
+class FakeLinkedIn:
+    """`pages(term, start)` returns a list of jobs, "rate_limited", or another error string."""
+
+    def __init__(self, pipeline):
+        self._p = pipeline
+        self.requests: list = []             # (clock time, term, location, start)
+        self.described: list = []
+        self.pages = lambda term, start: []
+        self.cost_s = 0.0
+
+    def fetch_listings(self, keyword, location, lookback_seconds=0, start=0):
+        self._p.log.append(("linkedin.fetch_listings", (keyword, start)))
+        self.requests.append((self._p.clock.now, keyword, location, start))
+        self._p.clock.advance(self.cost_s)
+        out = self.pages(keyword, start)
+        if isinstance(out, str):
+            return [], out
+        return [dict(j) for j in out], None
+
+    def fetch_description(self, job_id):
+        self._p.log.append(("linkedin.fetch_description", job_id))
+        self.described.append(job_id)
+        return "LinkedIn description. " * 20, None, None, False, None
+
+
+class FakeAtsPass:
+    def __init__(self, pipeline):
+        self._p = pipeline
+        self.candidates: list = []
+        self.stats = {"boards": 26, "boards_with_listings": 26, "listings": 1000, "dropped_by": {}}
+        self.workday_fetches: list = []
+
+    def collect_ats_candidates(self):
+        self._p.log.append(("ats_pass.collect_ats_candidates", None))
+        return [dict(j) for j in self.candidates], dict(self.stats, kept=len(self.candidates))
+
+    def fetch_workday_description(self, url):
+        self._p.log.append(("ats_pass.fetch_workday_description", url))
+        self.workday_fetches.append(url)
+        return "Workday description. " * 20
+
+
+class FakeJobright:
+    """`lists[name]` = {"url", "status", "etag", "rows", "unparsed", "jobs", "dropped_by", "problems"}."""
+
+    def __init__(self, pipeline):
+        self._p = pipeline
+        self.lists: dict = {}
+        self.fetches: list = []              # (url, etag sent)
+        self._current = None
+
+    def fetch_readme(self, url, etag=None):
+        self._p.log.append(("jobright.fetch_readme", url))
+        self.fetches.append((url, etag))
+        self._current = next((n for n, info in self.lists.items() if info.get("url") == url), None)
+        info = self.lists.get(self._current, {})
+        return info.get("status", 0), "README", info.get("etag")
+
+    def parse_readme(self, text, list_name, today):
+        info = self.lists.get(list_name, {})
+        return [{"row": i} for i in range(info.get("rows", 0))], info.get("unparsed", 0)
+
+    def rows_to_jobs(self, rows, list_name, *, support_only, today):
+        info = self.lists.get(list_name, {})
+        return [dict(j) for j in info.get("jobs", [])], Counter(info.get("dropped_by", {}))
+
+    def canary_problems(self, status, parsed_rows, unparsed_link_rows):
+        return list(self.lists.get(self._current, {}).get("problems", []))
+
+
+class Pipeline:
+    """Every fake plus the clock. `with pipeline.install(main): ...`"""
+
+    def __init__(self, real_db):
+        self.log: list = []
+        self.clock = FakeClock()
+        self.db = FakeDb(self, real_db)
+        self.classifier = FakeClassifier(self)
+        self.notifier = FakeNotifier(self)
+        self.linkedin = FakeLinkedIn(self)
+        self.ats_pass = FakeAtsPass(self)
+        self.jobright = FakeJobright(self)
+        self.random = types.SimpleNamespace(uniform=lambda a, b: a)
+
+    def calls(self, prefix: str) -> list:
+        return [(name, detail) for name, detail in self.log if name.startswith(prefix)]
+
+    @contextlib.contextmanager
+    def install(self, main_module):
+        with patched(main_module, db=self.db, classifier=self.classifier, notifier=self.notifier,
+                     linkedin=self.linkedin, ats_pass=self.ats_pass, jobright=self.jobright,
+                     time=self.clock.as_time_module(), _monotonic=self.clock.monotonic, random=self.random):
+            yield self
+
+
+def li_job(n: int, title: str = "Associate Network Engineer", company: str = "") -> dict:
+    """A LinkedIn search card as linkedin._parse_listings returns it."""
+    return {"id": str(4_000_000_000 + n), "title": title, "company": company or f"Company {n}",
+            "location": "Remote - US", "url": f"https://www.linkedin.com/jobs/view/{4_000_000_000 + n}/",
+            "posted_at": None, "description": None, "is_easy_apply": False}
+
+
+def ats_job(n: int, title: str, company: str, *, family: str = "NETWORK_INFRA", workday: bool = True,
+            description=None) -> dict:
+    """An ATS candidate as ats_pass.collect_ats_candidates returns it (already through source_gate)."""
+    url = (f"https://acme.wd5.myworkdayjobs.com/External/job/Austin-TX/Role_{n}" if workday
+           else f"https://job-boards.greenhouse.io/acme/jobs/{n}")
+    return {"id": f"ats:{n:016x}", "title": title, "company": company, "location": "Austin, TX", "url": url,
+            "apply_url": url, "posted_at": None, "description": description, "source": "ats", "family": family,
+            "search_term": f"ats:{company}"}
+
+
+def jr_job(n: int, title: str, company: str, list_name: str, family: str = "SALES_SOLUTIONS") -> dict:
+    """A jobright candidate as jobright.rows_to_jobs returns it (title-only)."""
+    return {"id": f"jr:{n:016x}", "title": title, "company": company, "location": "Remote - US",
+            "url": f"https://jobright.ai/jobs/info/{n:016x}", "apply_url": None, "posted_at": None,
+            "description": None, "is_easy_apply": False, "logo_url": None, "source": "jobright",
+            "family": family, "search_term": f"jobright:{list_name}"}
+
