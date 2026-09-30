@@ -14,6 +14,7 @@ testkit.block_network()
 
 import contextlib  # noqa: E402
 import random  # noqa: E402
+import shutil  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -532,4 +533,5 @@ check("the interface log formats are present",
       and "  Pre-filter SKIP (seniority/leadership title)" in text and "  -> APPLY | id=" in text
       and "  Description: " in text)
 
+shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(testkit.finish())
