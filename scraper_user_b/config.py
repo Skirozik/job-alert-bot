@@ -61,7 +61,7 @@ DROP_PURE_SALES = True
 
 # ── jobright-ai new-grad lists: README fields only. Never fetch jobright.ai itself (robots.txt). ────────
 JOBRIGHT_LISTS = [
-    # (name, raw README URL, support-engineer titles only)
+    # (name, raw README URL, the Support list's rule: support-type titles only if support-ENGINEER titles)
     ("Engineering", "https://raw.githubusercontent.com/jobright-ai/2026-Engineering-New-Grad/master/README.md", False),
     ("Sales", "https://raw.githubusercontent.com/jobright-ai/2026-Sales-New-Grad/master/README.md", False),
     ("Software-Engineer", "https://raw.githubusercontent.com/jobright-ai/2026-Software-Engineer-New-Grad/master/README.md", False),

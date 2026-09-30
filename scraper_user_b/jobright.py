@@ -22,8 +22,9 @@ main.collect_jobright() calls, per list:
 
   rows_to_jobs(rows, list_name, *, support_only, today, samples=None) -> (jobs, dropped_by)
       Drops rows posted more than config.JOBRIGHT_MAX_AGE_DAYS ago, runs title_gate.source_gate
-      (family filter + title gate; no program pass-through; the Support list keeps only
-      support-engineer titles) and keeps one copy per company + title. dropped_by counts rules.
+      (family filter + title gate; no program pass-through; on the Support list a support-type
+      title must be a support-ENGINEER title, while solutions, network and IT-systems titles
+      pass as on any list) and keeps one copy per company + title. dropped_by counts rules.
 
   canary_problems(status, parsed_rows, unparsed_link_rows) -> [problem, ...]
       [] when the list read cleanly; main alerts the owner per list, throttled 24 h.
