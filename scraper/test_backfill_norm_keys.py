@@ -152,6 +152,25 @@ except db.QuotaExceeded:
 check("QuotaExceeded propagates instead of being counted as 50 failures", stopped)
 
 
+print("\n-- write_all: one client per worker thread when a factory is given --")
+
+made: list = []
+
+
+def _factory():
+    c = _WriteClient(count=1)
+    made.append(c)
+    return c
+
+
+written, skipped, failed = b.write_all(None, [(ROWS[0], "meta|production engineering|ft")] * 40,
+                                       workers=4, make_client=_factory)
+check("every row is written through a thread's own client", (written, skipped, failed) == (40, 0, 0),
+      str((written, skipped, failed)))
+check("at most one client per worker thread", 1 <= len(made) <= 4, f"{len(made)} clients for 4 workers")
+check("each client carried real writes", sum(len(c.log) for c in made) > 0)
+
+
 print("\n-- load_all_jobs: keyset paging never skips or repeats a row --")
 
 

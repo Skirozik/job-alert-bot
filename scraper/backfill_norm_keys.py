@@ -42,6 +42,7 @@ Run from the scraper directory:
 import argparse
 import logging
 import sys
+import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -173,15 +174,35 @@ def write_one(client, job: dict, new_key: str) -> int:
             time.sleep(0.5 * (2 ** attempt))
 
 
-def write_all(client, stale: list[tuple[dict, str]], workers: int) -> tuple[int, int, int]:
+def write_all(client, stale: list[tuple[dict, str]], workers: int,
+              make_client=None) -> tuple[int, int, int]:
     """One request per row: PostgREST has no bulk update-to-different-values
     short of an RPC. Threaded, like backfill_target_keys.py, so ~100k rows take
-    minutes rather than hours; a modest pool, because these are writes."""
+    minutes rather than hours; a modest pool, because these are writes.
+
+    make_client, when given, builds one client per worker thread. A single
+    supabase client multiplexes every thread over ONE HTTP/2 connection, and on
+    Windows that fails under load with WinError 10035 (WSAEWOULDBLOCK) -- often
+    after the server has already applied the write, so the retry then finds the
+    key changed and counts the row as skipped. Measured on the first run: 24
+    rows/s, 355 "failed" and 3,757 "skipped", yet a dry run afterwards found
+    all of them written. The dry run, not these counts, is the verdict."""
     written = skipped = failed = 0
     started = time.monotonic()
+    local = threading.local()
+
+    def _client():
+        if make_client is None:
+            return client
+        if not hasattr(local, "client"):
+            local.client = make_client()
+        return local.client
+
+    def _write(job, key):
+        return write_one(_client(), job, key)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(write_one, client, job, key): job for job, key in stale}
+        futures = {pool.submit(_write, job, key): job for job, key in stale}
         for done in as_completed(futures):
             job = futures[done]
             try:
@@ -232,7 +253,8 @@ def main() -> int:
         log.info("Re-run with --apply to write these %d corrections.", len(stale))
         return 0
 
-    written, skipped, failed = write_all(client, stale, args.workers)
+    written, skipped, failed = write_all(client, stale, args.workers,
+                                         make_client=lambda: client_for(env_path))
     log.info("=== Done: %d updated, %d skipped (changed since read), %d failed ===",
              written, skipped, failed)
     if skipped or failed:
