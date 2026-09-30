@@ -247,8 +247,8 @@ Processing: '<title>' @ <company> [<id>]
   Pre-filter SKIP (seniority/leadership title)
 Processing: '<title>' @ <company> [<id>]
   Description: 4213 chars
-  -> APPLY | id=<id>
-Push sent: <company> — <title> [APPLY]
+  -> classified | id=<id>
+DB: stored <id>
 ...
 Run summary: ats cand 3 | linkedin new 52 (claude 38, pre-filtered 14) | jobright cand 9 | classified 50 | parked 0 | pushed 7 | leftover 0
 ```
@@ -258,7 +258,10 @@ In steady state, expect roughly 25–50 LinkedIn classifications per run, 1–2 
 jobright (estimates).
 
 The log never contains a classifier reason, the rubric, a topic, or a Supabase URL or key. It does
-show the company and title of every job processed; Actions logs are public.
+show the company and title of every job processed (Actions logs are public), so it never shows a
+job's tier or whether it was pinged: titles next to their verdicts would let a reader work out
+private rubric rules. Look a job up by its id on the dashboard or with the SQL in section 6; the
+run summary has the totals.
 
 ---
 
@@ -393,5 +396,7 @@ Other signatures in the log:
   - Gold stars follow the owner's company and pay rules, not Brice's.
 - **Shared Anthropic key.** This is a fourth consumer on one balance. A credit outage parks jobs as
   PENDING and alerts the owner; auto-reload or the balance is the owner's call.
-- **Public logs.** Actions logs show the company and title of every job processed and every ping.
-  They never show the reason, the rubric or a topic.
+- **Public logs.** Actions logs show the company and title of every job processed, but not its tier,
+  its reason or whether it was pinged; only the run summary's totals (classified, pushed). They never
+  show the rubric or a topic. A run that classifies a single job still reveals, through those totals,
+  whether it was pinged.

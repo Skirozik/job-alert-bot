@@ -469,7 +469,7 @@ def insert_job(job: dict) -> bool:
         get_client().table("jobs").upsert(
             payload, on_conflict="id", ignore_duplicates=True, returning=ReturnMethod.minimal,
         ).execute()
-        log.info("DB: stored %s [%s]", job.get("id"), job.get("tier"))
+        log.info("DB: stored %s", job.get("id"))          # never the tier: the log is public (main.process_job)
         return True
     except Exception as exc:
         # Raised here too, not only at the start of a run: a quota that runs
@@ -547,7 +547,7 @@ def update_job_classification(job_id: str, tier: str, reason: str,
 
     try:
         get_client().table("jobs").update(payload, returning=ReturnMethod.minimal).eq("id", job_id).execute()
-        log.info("DB: promoted %s [%s]", job_id, tier)
+        log.info("DB: promoted %s", job_id)
         return True
     except Exception as exc:
         # Without this, retry_pending() keeps calling Claude for the next

@@ -209,6 +209,13 @@ try:
           str(sorted(payload)))
     check("...norm_key computed with make_norm_key (full-time |ft)",
           payload["norm_key"] == "initech|associate network engineer|ft", payload["norm_key"])
+    with captured_logs() as logs:
+        use(client(data=[]))
+        db.insert_job({"id": "ats:bbb", "title": "Associate Network Engineer", "tier": "INELIGIBLE"})
+        db.update_job_classification("ats:bbb", "APPLY_CAVEAT", "asks 2+ years")
+    check("the store and promote log lines name the id, never the tier (the Actions log is public)",
+          "DB: stored ats:bbb" in logs.text() and "DB: promoted ats:bbb" in logs.text()
+          and "INELIGIBLE" not in logs.text() and "APPLY" not in logs.text(), logs.text())
 
     section("PENDING helpers")
     use(client(exc=QUOTA))

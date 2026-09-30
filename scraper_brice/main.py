@@ -27,7 +27,8 @@ apply link, full description); jobright rows are title-only and lose to both.
 
 Pings: APPLY sounds, APPLY_CAVEAT is silent (notifier.py). The first run pings
 everything it classifies -- there is no silent seed. Infrastructure alerts go
-to the owner's topic only. Classifier reasons are never logged.
+to the owner's topic only. No per-job line logs a tier, a reason or a ping:
+the log shows each title, so a verdict beside it would publish the rubric.
 
 --dry-run touches no database, no Claude and no ntfy, needs no secrets, keeps
 every LinkedIn request >= 5 s from the previous one and prints what a run
@@ -418,8 +419,7 @@ def process_job(job: dict, state: RunState) -> str:
     existing = db.get_job_row(job["id"])
     pending_row = existing is not None and existing.get("tier") == "PENDING"
     if existing is not None and not pending_row:
-        log.info("  Already stored [tier=%s status=%s] — no re-fetch, no re-classify, no push",
-                 existing.get("tier"), existing.get("status"))
+        log.info("  Already stored — no re-fetch, no re-classify, no push")
         return "skipped"
 
     _describe(job)
@@ -453,8 +453,10 @@ def process_job(job: dict, state: RunState) -> str:
     new_salary = result.get("salary") if not job.get("salary") else None
     if new_salary:
         job["salary"] = new_salary
-    # The reason is deliberately not logged: public logs. Look it up by id.
-    log.info("  -> %s | id=%s", job["tier"], job["id"])
+    # Neither the tier nor the reason is logged, and neither is a ping: Actions logs are public, and a title
+    # printed next to its verdict lets a reader infer private rubric rules (a graduation window, a clearance
+    # rule) from which titles pass. Look them up by id; the run summary has the totals.
+    log.info("  -> classified | id=%s", job["id"])
 
     if pending_row:
         # insert_job would change nothing on an existing row; promote it instead.

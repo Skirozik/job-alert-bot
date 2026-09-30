@@ -13,7 +13,8 @@ The topic name IS the password on ntfy, and Actions logs are public, so
 nothing here logs a topic, a request URL or an exception message (a
 raise_for_status() message contains the URL). Failures are logged by exception
 type and HTTP status only. The classifier's reason goes to the phone, never to
-the log.
+the log -- and a delivered ping is not logged at all: beside the job's
+"Processing" line it would show which titles were actionable.
 """
 
 import logging
@@ -82,7 +83,7 @@ def push_job(job: dict) -> bool:
         "Click": job.get("url", ""),
     }
     if _post(topic, body, headers):
-        log.info("Push sent: %s — %s [%s]", job.get("company"), job.get("title"), tier)
+        log.debug("Push sent for job %s", job.get("id"))
         return True
     return False
 

@@ -10,6 +10,7 @@ import testkit
 
 testkit.block_network()
 
+import logging  # noqa: E402
 import sys  # noqa: E402
 import types  # noqa: E402
 
@@ -120,5 +121,11 @@ check("...name the exception type and status instead",
       "ntfy post failed (RuntimeError, status=None)" in text and "status=503" in text)
 check("...never the classifier reason (it goes to the phone only)", "Pre-sales role" not in text)
 check("...and never an owner alert's body", "secret alert body" not in text)
+with captured_logs() as logs:
+    ok, _ = run(lambda: notifier.push_job(dict(APPLY)))
+    run(lambda: notifier.push_job(dict(CAVEAT)))
+shown = [r.getMessage() for r in logs.records if r.levelno >= logging.INFO]
+check("a delivered ping logs nothing at INFO: no company, title or tier beside the job's 'Processing' line",
+      ok is True and not any(w in m for m in shown for w in ("Initech", "Associate Sales Engineer", "APPLY")), str(shown))
 
 sys.exit(testkit.finish())
