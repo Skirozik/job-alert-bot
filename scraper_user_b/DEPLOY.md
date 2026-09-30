@@ -13,7 +13,9 @@ files describe older behaviour, so don't copy steps from them.
 ## 1. What it is
 
 One workflow (`Job Scraper (User B)`), scheduled for :40 past every odd hour (`'40 1-23/2 * * *'`).
-Each run is one process: `scraper_user_b/main.py`.
+Each run is one process: `scraper_user_b/main.py`. Before it, the workflow writes the rubric from its
+secret and checks the rubric's structure (`test_rubric_contract.py`, labels only); after it, a last
+step alerts the owner if `main.py` never ran or the run was cancelled or timed out.
 
 **Collect** (listing fields only; nothing is fetched per job, and nothing goes to the model yet):
 
@@ -134,7 +136,9 @@ gh secret set USER_B_PROFILE_MD -R Skirozik/job-alert-bot < /path/to/User_B_Cand
 **Set all four before the merge.** Once `scrape_user_b.yml` is on master, its schedule starts on its
 own at the next odd hour :40:
 
-- Without `USER_B_PROFILE_MD`, every run fails at the profile step: a red run and no ping.
+- Without `USER_B_PROFILE_MD`, every run fails at the profile step: a red run, no ping to User B, and a
+  `User B: workflow failed` alert to the owner. A rubric that fails the structure check stops the run
+  the same way.
 - With the profile set but another secret missing, every run fails preflight and sends the owner a
   `User B: run did not start` alert. That alert is not throttled, so it comes once per run.
 
@@ -343,6 +347,7 @@ The owner gets these on the `NTFY_TOPIC` topic; User B never does.
 | `User B: ATS sweep cut short` | the sweep hit its 10-minute budget and refused the rest of its requests; a board is slow or stuck | 24 h | 0 |
 | `User B: jobright <list> list` | HTTP other than 200/304, 0 parsed rows, or > 5 % of link rows unparsed (format drift) | 24 h per list | 0 |
 | `User B: pings failing` | ≥ 3 pings tried this run and ntfy accepted none (a wrong or reserved topic); the jobs are stored and are not pinged later | 6 h | 0 |
+| `User B: workflow failed` | sent by the workflow's last step, not `main.py`: the scraper never ran (install, profile or rubric check failed) or the run was cancelled or hit the 60-minute timeout | none | — |
 
 Other signatures in the log:
 
