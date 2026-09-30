@@ -30,7 +30,8 @@ Each run is one process: `scraper_brice/main.py`.
    entry-marked and primary-family titles first. Each job first passes the already-stored guard.
    Then it gets its description: LinkedIn's detail page, or one Workday API call; Greenhouse and
    Ashby rows already carry one, and jobright rows have none. Then it is classified, stored, and pinged.
-3. Up to 40 `PENDING` rows are retried: jobs whose classification failed on an earlier run.
+3. Up to 200 `PENDING` rows are retried, oldest first: jobs whose classification failed on an earlier
+   run. A full run parked during a Claude outage (up to 380 rows) drains in two healthy runs.
 4. jobright ETags are saved for each list that left nothing behind, so an unchanged README costs a
    304 next time.
 
@@ -218,7 +219,7 @@ Send him:
 - **Nothing is seeded silently.** The database starts empty, so every open listing is new, and
   every `APPLY` / `APPLY_CAVEAT` the run stores is pinged. Tens of `APPLY` pings with sound are
   possible on day one. jobright rows are title-only, so they arrive silently.
-- **The caps bound each run: 100 ATS, 180 LinkedIn, 100 jobright classifications**, plus 40
+- **The caps bound each run: 100 ATS, 180 LinkedIn, 100 jobright classifications**, plus up to 200
   PENDING retries.
   - The 2026-09-30 dry run found 242 ATS and 236 jobright candidates. At 100 per run, each backlog
     drains in about three runs.

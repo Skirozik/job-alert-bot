@@ -45,7 +45,8 @@ check("...so the sweep and the searches together leave at least 10 min of the 48
 
 section("caps and budgets")
 check("per-source classification caps", config.MAX_CLASSIFY_PER_RUN == {"ats": 100, "linkedin": 180, "jobright": 100})
-check("40 PENDING retries per run", config.RETRY_PENDING_MAX == 40)
+check("200 PENDING retries per run: a full run parked in an outage drains in two", config.RETRY_PENDING_MAX == 200
+      and 2 * config.RETRY_PENDING_MAX >= sum(config.MAX_CLASSIFY_PER_RUN.values()))
 check("run budget 48 min, under the 60-min workflow timeout", config.RUN_TIME_BUDGET_S == 48 * 60 < 60 * 60)
 check("the search budget is inside the run budget", config.SEARCH_TIME_BUDGET_S < config.RUN_TIME_BUDGET_S)
 check("pure sales dropped at the gate until the owner hears back", config.DROP_PURE_SALES is True)

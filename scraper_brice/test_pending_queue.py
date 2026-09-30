@@ -126,6 +126,8 @@ def drain(results, *, rows=PENDING, state=None, advance=0.0):
 p, st = drain([{"tier": "APPLY", "reason": "good", "salary": "$40/hr"},
                {"tier": "INELIGIBLE", "reason": "no"},
                {"tier": "APPLY", "reason": "good"}])
+check("the drain asks for up to config.RETRY_PENDING_MAX (200) parked rows",
+      p.calls("db.fetch_pending_jobs") == [("db.fetch_pending_jobs", 200)], str(p.calls("db.fetch_pending_jobs")))
 check("every row is promoted with update_job_classification", [u["id"] for u in p.db.updated] == ["p1", "p2", "p3"])
 check("...never through insert_job", p.db.inserted == [])
 check("an APPLY promotion of a 'new' row pings; INELIGIBLE never does; an 'applied' row never does",

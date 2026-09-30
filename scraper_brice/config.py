@@ -55,7 +55,10 @@ ATS_SWEEP_BUDGET_S = 10 * 60         # the whole board sweep (76-91 s measured 2
 # again (LinkedIn: while inside the 24 h window, paging past stored results; ATS: while open; jobright: 7-day
 # README window).
 MAX_CLASSIFY_PER_RUN = {"ats": 100, "linkedin": 180, "jobright": 100}
-RETRY_PENDING_MAX = 40
+# Parked (PENDING) rows retried per run, oldest first. Main retries 40 on 72 runs a day; about 4.5 of this
+# fork's 12 scheduled runs arrive a day, and one full run under a Claude outage parks up to 380 rows. Still bounded
+# by RUN_TIME_BUDGET_S and the billing breaker; the read is 8 narrow columns per row.
+RETRY_PENDING_MAX = 200
 RUN_TIME_BUDGET_S = 48 * 60          # stop starting new jobs after this; workflow timeout is 60, run-lock 75
 
 # Owner decision pending (see .github/workflows/reminder.yml): technical pre-sales only. False lets AE /
