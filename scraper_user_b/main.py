@@ -288,12 +288,13 @@ def scan_linkedin(state: RunState) -> list[dict]:
 
 
 def collect_jobright(state: RunState) -> list[dict]:
-    """jobright pass (SPEC section 9). Integration point, per config.JOBRIGHT_LISTS entry:
+    """jobright pass (SPEC section 9), per config.JOBRIGHT_LISTS entry (jobright.py):
       jobright.fetch_readme(url, etag) -> (status, text, etag)   raw.githubusercontent.com only
       jobright.parse_readme(text, name, today) -> (rows, unparsed_link_rows)
-      jobright.rows_to_jobs(rows, name, support_only=..., today=...) -> (jobs, dropped_by)
+      jobright.rows_to_jobs(rows, name, support_only=..., today=..., samples=...) -> (jobs, dropped_by)
       jobright.canary_problems(status, parsed_rows, unparsed_link_rows) -> [problem, ...]
-    The ETag comes from bot_state (never in a dry run); a 304 yields no rows.
+    The ETag comes from bot_state (never in a dry run); a 304 yields no rows. Rows are README fields
+    only: nothing is fetched per job, and never from jobright.ai.
     """
     today = datetime.now(timezone.utc).date()
     queue: list[dict] = []
@@ -302,8 +303,8 @@ def collect_jobright(state: RunState) -> list[dict]:
             time.sleep(random.uniform(*_JOBRIGHT_PACE))
         etag = None if state.dry_run else db.get_state(ETAG_KEY_PREFIX + name)
         status, text, new_etag = jobright.fetch_readme(url, etag)
-        info = {"status": status, "etag": new_etag, "rows": 0, "unparsed": 0, "kept": 0, "new": 0,
-                "dropped_by": Counter(), "problems": []}
+        info = {"status": status, "etag": new_etag, "rows": 0, "unparsed": 0, "window": 0, "kept": 0, "new": 0,
+                "dropped_by": Counter(), "dropped_samples": {}, "problems": []}
         state.jobright[name] = info
         if status == 304:
             log.info("jobright %s: not modified since the last complete read", name)
@@ -311,15 +312,18 @@ def collect_jobright(state: RunState) -> list[dict]:
         rows, unparsed = jobright.parse_readme(text, name, today) if status == 200 else ([], 0)
         info["rows"], info["unparsed"] = len(rows), unparsed
         info["problems"] = list(jobright.canary_problems(status, len(rows), unparsed))
-        jobs, dropped_by = jobright.rows_to_jobs(rows, name, support_only=support_only, today=today)
+        jobs, dropped_by = jobright.rows_to_jobs(rows, name, support_only=support_only, today=today,
+                                                 samples=info["dropped_samples"])
         info["kept"], info["dropped_by"] = len(jobs), Counter(dropped_by)
+        info["window"] = len(rows) - info["dropped_by"].get(jobright.STALE_RULE, 0)
         new = _new_candidates(state, list(jobs), "jobright")
         for job in new:
             job["_list"] = name
         info["new"] = len(new)
         queue += new
-        log.info("jobright %s: HTTP %s | %d rows (%d unparsed) | kept %d | new %d%s", name, status, len(rows),
-                 unparsed, len(jobs), len(new), f" | CANARY: {'; '.join(info['problems'])}" if info["problems"] else "")
+        log.info("jobright %s: HTTP %s | %d rows (%d unparsed, %d in window) | kept %d | new %d%s", name, status,
+                 len(rows), unparsed, info["window"], len(jobs), len(new),
+                 f" | CANARY: {'; '.join(info['problems'])}" if info["problems"] else "")
     return queue
 
 
@@ -827,7 +831,10 @@ def print_dry_report(state: RunState, queues: dict, prefiltered: list[dict], ran
             f" | dropped: {_counts(dropped)}")
         for name, info in state.jobright.items():
             out(f"  jobright {name}: HTTP {info['status']} | rows {info['rows']} ({info['unparsed']} unparsed) | "
-                f"kept {info['kept']} | new {info['new']} | canary: {'; '.join(info['problems']) or 'none'}")
+                f"in window {info.get('window', 0)} | kept {info['kept']} | new {info['new']} | "
+                f"canary: {'; '.join(info['problems']) or 'none'}")
+            if info["dropped_by"]:
+                out(f"    dropped: {_counts(info['dropped_by'])}")
 
     would, left = [], []
     for source in SOURCES:
@@ -855,6 +862,10 @@ def print_dry_report(state: RunState, queues: dict, prefiltered: list[dict], ran
             by_rule.setdefault(f"ats, {rule}", []).extend(titles)
             # the ATS pass keeps only the first few titles per rule; the count is the rule's total
             totals[f"ats, {rule}"] = state.ats["dropped_by"].get(rule, 0)
+        for info in state.jobright.values():
+            for rule, titles in info.get("dropped_samples", {}).items():
+                by_rule.setdefault(f"jobright, {rule}", []).extend(titles)
+                totals[f"jobright, {rule}"] = totals.get(f"jobright, {rule}", 0) + info["dropped_by"].get(rule, 0)
         for label, titles in sorted(by_rule.items()):
             total = max(len(titles), totals.get(label, 0))
             out(f"\ndropped sample ({label}, {min(len(titles), sample)} of {total}):")
