@@ -38,7 +38,10 @@ check("f_E is '2,3' (Entry level + Associate)", config.LINKEDIN_EXPERIENCE_FILTE
 check("24 h lookback", config.LOOKBACK_SECONDS == 86400)
 check("10 pages per search", config.MAX_PAGES_PER_SEARCH == 10)
 check("a search stops after 2 consecutive all-duplicate pages", config.ALL_DUP_PAGES_TO_STOP == 2)
-check("search phase budget 25 min", config.SEARCH_TIME_BUDGET_S == 25 * 60)
+check("search phase budget 25 min (from the LinkedIn pass's own start)", config.SEARCH_TIME_BUDGET_S == 25 * 60)
+check("ATS sweep budget 10 min", config.ATS_SWEEP_BUDGET_S == 10 * 60)
+check("...so the sweep and the searches together leave at least 10 min of the 48-min run for classifying",
+      config.RUN_TIME_BUDGET_S - config.ATS_SWEEP_BUDGET_S - config.SEARCH_TIME_BUDGET_S >= 10 * 60)
 
 section("caps and budgets")
 check("per-source classification caps", config.MAX_CLASSIFY_PER_RUN == {"ats": 100, "linkedin": 180, "jobright": 100})
