@@ -94,7 +94,7 @@ def _raise_if_quota(exc: BaseException) -> None:
     if status == 402 or any(marker in text for marker in _QUOTA_MARKERS):
         raise QuotaExceeded(
             "Supabase is refusing requests for this project -- plan quota spent "
-            f"({str(exc)[:160]}). Stopping this run before any classification; "
+            f"({_redact(exc)[:160]}). Stopping this run before any classification; "
             "it will keep failing until the quota refills or the plan is upgraded."
         ) from exc
 

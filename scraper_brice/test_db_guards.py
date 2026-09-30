@@ -77,6 +77,15 @@ try:
     except QuotaExceeded as e:
         check("the message names the cause and chains the original",
               "quota" in str(e).lower() and e.__cause__ is QUOTA)
+    with patched(db, SUPABASE_URL="https://abcdefghijkl.supabase.co", SUPABASE_SERVICE_KEY="sb_secret_TESTKEY"):
+        try:
+            db._raise_if_quota(RuntimeError("402 Payment Required for https://abcdefghijkl.supabase.co/rest/v1/jobs "
+                                            "(apikey sb_secret_TESTKEY)"))
+            msg = "did not raise"
+        except QuotaExceeded as e:
+            msg = str(e)
+        check("QuotaExceeded's own message is redacted (no Supabase URL, host or key)",
+              "abcdefghijkl" not in msg and "sb_secret_TESTKEY" not in msg and "***" in msg, msg)
 
     # ── 2. start_run: the run-lock ──────────────────────────────────────────
     section("start_run: quota raises, anything else fails CLOSED")
