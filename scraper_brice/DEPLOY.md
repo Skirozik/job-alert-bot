@@ -21,7 +21,7 @@ Each run is one process: `scraper_brice/main.py`.
 |---|---|---|---|
 | A | 26 company career boards (`ats_boards.py`) | Greenhouse / Ashby / Workday public APIs, via the vendored `ats_sources.py` | `title_gate.source_gate`: U.S. location, a target family or an early-career program, and the title gate |
 | B | LinkedIn guest search | 22 terms × `United States`, 24 h window, `f_E=2,3`, up to 10 pages per term | `title_gate.gate`: internships, pure sales, the engineer floor (help desk / desktop support / technician), seniority, level II+, architects other than solutions architects, TAM titles without an entry marker |
-| C | jobright-ai new-grad lists | 5 READMEs on `raw.githubusercontent.com` (Engineering, Sales, Software-Engineer, Consultant, and Support, where only support-*engineer* titles are kept) | `source_gate` (family only) and a 10-day age limit. jobright.ai itself is never requested |
+| C | jobright-ai new-grad lists | 5 READMEs on `raw.githubusercontent.com` (Engineering, Sales, Software-Engineer, Consultant, and Support, where a support-type title is kept only if it is a support-*engineer* title; solutions, network and IT-systems titles are kept as on any list) | `source_gate` (family only) and a 10-day age limit. jobright.ai itself is never requested |
 
 **Process**, in this order:
 

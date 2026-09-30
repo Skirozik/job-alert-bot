@@ -40,10 +40,13 @@ I = re.I
 
 # ── global exclusions: role nouns that are never one of his families ──────────
 # Recruiters/sourcers for an SE org, counsel, account executives, marketing,
-# finance "securities", etc. Checked before any family regex.
+# finance "securities", etc. Checked before any family regex. The sales clauses
+# never fire on an engineer title: Samsara's pre-sales "Associate Specialist
+# Sales Engineer" is a sales engineer, not a sales specialist.
 NON_TECH_ROLE = re.compile(
     r"\brecruit|\bsourc(er|ing)\b|\btalent\s+(acq|partner)|\benablement\b|\bcounsel\b|\battorney\b|\bparalegal\b"
-    r"|\baccount\s+executive\b|\bspecialist\s+sales\b|\bsales\s+executive\b|\bsales\s+(specialist|representative|development|manager)\b|\bbdr\b|\bsdr\b"
+    r"|\baccount\s+executive\b|\bspecialist\s+sales\b(?!\s+engineer)|\bsales\s+executive\b"
+    r"|\bsales\s+(specialist|representative|development|manager)\b(?!\s+engineer)|\bbdr\b|\bsdr\b"
     r"|\bmarketing\s+manager\b|\baccountant\b|\bsecurities\b|\bbuyer\b|\bsourcing\s+manager\b"
     r"|\bchief\s+of\s+staff\b|\bprogram\s+manager\b|\bproduct\s+manager\b|\bproject\s+manager\b|\bprogram\s+analyst\b|\bprogram\s+coordinator\b"
     r"|\bstrategy\s*&\s*operations\b|\bbusiness\s+partner\b", I)
@@ -65,10 +68,13 @@ SWE_HW_SCI = re.compile(
 # se:  "Sales Engineer", "Solutions/Solution Engineer", "Presales/Pre-Sales ...",
 #      Cloudflare's presales title "Customer Engineer", Pure Storage's presales
 #      "Systems Engineer" when qualified (Territory / SE Excellence Center /
-#      Pre-Sales), Databricks' "Scale Solution Engineer".
+#      Pre-Sales), Databricks' "Scale Solution Engineer", Palo Alto Networks'
+#      pre-sales specialist "Domain Consultant", HPE's "Proof of Concept
+#      Consultant".
 #      NOT: Micron "Test Solutions Engineer" (semiconductor test), "IT Solutions
 #      Engineer" (corporate IT -> SYSTEMS_IT), "Forward Deployed Solution Engineer"
-#      (reported separately as ADJACENT_FDE).
+#      (reported separately as ADJACENT_FDE), Cisco's "Quality Engineer – Solution
+#      Engineering".
 # sa:  "Solution(s) Architect" incl. Partner/Delivery/Specialist SA; NOT internal
 #      enterprise-apps architects (SAP/PLM/Total Rewards/People Tech/Procurement/
 #      Supply Chain/Business Process).
@@ -78,7 +84,7 @@ SE_RE = re.compile(
     r"|\bcustomer\s+engineer(ing)?\b|\bsales\s+architect\b|\bterritory\s+systems?\s+engineer\b"
     r"|\bse\s+excellence\s+center\b|\bexcellence\s+center\s+systems\s+engineer\b"
     r"|(?<!global\s)\bfield\s+engineering\b(?!\s+operations)(?!.*broadcast)"
-    r"|\btechnical\s+architect\s*\(pre", I)
+    r"|\btechnical\s+architect\s*\(pre|\bdomain\s+consultant\b|\bproof[\s-]+of[\s-]+concept\s+(consultant|engineer)\b", I)
 SA_RE = re.compile(r"\bsolutions?\s+architect(ure)?\b", I)
 SA_INTERNAL = re.compile(
     r"\bsap\b|s/4hana|\bplm\b|total\s+rewards|people\s+tech|procurement|supply\s+chain|business\s+process|\bsku\b|\bworkday\b"
@@ -92,7 +98,8 @@ DC_RE = re.compile(r"\bdata\s*cent(er|re)s?\b|\bdatacent(er|re)s?\b|\bdcim\b", I
 DC_EXCLUDE = re.compile(
     r"electrical|mechanical|\bmep\b|controls\s+engineer|safety|design\s+engineer|construction|site\s+selection|capacity\s+planner"
     r"|quality|manufacturing|\bssd\b|firmware|validation|buyer|counsel|power|cooling|facilities|architect|compliance|financ"
-    r"|program\s+manager|real\s+estate|energy|hvac|developer|community|engagement|supply|supplier|capacity|logistics|business|campaign|field\s+applications|commissioning|selection|reporting|planning", I)
+    r"|program\s+manager|real\s+estate|energy|hvac|developer|community|engagement|supply|supplier|capacity|logistic|business|campaign|field\s+applications|commissioning|selection|reporting|planning"
+    r"|acquisition|\brma\b|\bbuilds\b", I)   # site acquisition; a logistics firm's RMA and rack-build associates
 
 # ── NETWORK_INFRA (primary) ──────────────────────────────────────────────────
 # net: "network(ing)" followed within two words by an IT role noun; or a role
@@ -111,7 +118,8 @@ NET_EXCLUDE = re.compile(
     r"|network\s+strategy|network\s+value|network\s+brand|network\s+product|network\s+partner|network\s+supply|network\s*&\s*supply"
     r"|power\s+delivery\s+network|partner\s+network|integration\s+network|network\s+analytics|network\s+participant"
     r"|network\s+compliance|network\s+risk|network\s+audit|network\s+recruit|fulfillment\s+network|dram\s+network"
-    r"|networked\s+battlefield|vehicle|network\s+delivery\s+program|test\s*&\s*evaluation", I)
+    r"|networked\s+battlefield|vehicle|network\s+delivery\s+program|test\s*&\s*evaluation"
+    r"|networking\s+event|out[\s-]+of[\s-]+network", I)   # a hiring event; a health plan's out-of-network claims
 INFRA_RE = re.compile(
     r"\b(it|corporate|enterprise|cloud|hybrid|systems?|network)\s+infrastructure\s+(engineer|administrator|admin|specialist|technician|analyst|operations|coordinator)\b"
     r"|\binfrastructure\s+(engineer|administrator|specialist|technician|analyst)\b"
@@ -126,23 +134,30 @@ INFRA_EXCLUDE = re.compile(
 # ── SECURITY ─────────────────────────────────────────────────────────────────
 # A cyber term AND an analyst/engineer-type role noun. "SOC" only counts in
 # security context (it is also "System-on-Chip" at Micron/Astera/SpaceX).
+# Managed detection and response counts too: Palo Alto's "MDR Analyst", CrowdStrike's
+# "Analyst I, Falcon Complete" (its MDR service; the title names no cyber word),
+# "Incident Handler", "Junior SOC DCO" (defensive cyber operations).
 SEC_TERM = re.compile(
     r"secur|\bcyber|\binfosec\b|threat|vulnerab|\bvuln\b|incident\s+respon|detection|\bpentest|penetration\s+test|red\s+team"
     r"|blue\s+team|offensive|\bgrc\b|\biam\b|identity\s+(and|&)\s+access|data\s+loss\s+prevention|\bdlp\b|\bsiem\b|\bisso\b"
-    r"|\bsoc\s+(analyst|engineer|l[123]|tier)|\(soc\)|security\s+operations\s+cent", I)
+    r"|\bsoc\s+(analyst|engineer|l[123]|tier)|\(soc\)|security\s+operations\s+cent"
+    r"|\bmdr\b|falcon\s+complete|\bintrusion\b|incident\s+handl|\bsoc\s+dco\b|defensive\s+cyber", I)
+# "Engr" (Bechtel), "Asc" (Lockheed's associate), "DCO" and apprenticeships are role nouns here too.
 SEC_ROLE = re.compile(
     r"engineer|analyst|specialist|investigator|hunter|responder|consultant|associate|information\s+systems?\s+security\s+officer"
-    r"|\bisso\b|administrator|architect|tester|\bprogram\b", I)
+    r"|\bisso\b|administrator|architect|tester|\bprogram\b|\bengr\b|\basc\b|\bdco\b|handler|apprentic", I)
 SEC_EXCLUDE = re.compile(
     r"physical\s+security|facility\s+security|personnel\s+security|industrial\s+security|(?<!systems\s)(?<!system\s)security\s+officer"
     r"|security\s+operator|\bgsoc\b|console\s+operator|protective|concierge|security\s+uas|security\s+controller"
     r"|counterintelligence|transportation\s+security|anti-tamper|secured\s+spaces|security\s+technology|pedestrian|perception"
     r"|safety\s+threat|cyber\s+harm|critical\s+harm|security\s+risk\s+&\s+compliance,\s+data|logistics\s+security"
-    r"|security\s+assessment\s+specialist|embedded\s+security|mission\s+integration|product\s+associate|ai\s+safety|fraud|global\s+safety", I)
+    r"|security\s+assessment\s+specialist|embedded\s+security|mission\s+integration|product\s+associate|ai\s+safety|fraud|global\s+safety"
+    r"|counter[\s-]*intrusion|regulatory|\beu\s+mdr\b", I)   # Anduril's Counter Intrusion product line; the EU medical-device MDR
 
 # ── SUPPORT_ENG ──────────────────────────────────────────────────────────────
+# "Technical Consulting Engineer" is Cisco's (and HPE's) TAC title: product support engineering.
 SUPPORT_RE = re.compile(
-    r"\bsupport\s+engineer(ing)?\b|\btechnical\s+services\s+engineer\b|\bescalation\s+engineer\b"
+    r"\bsupport\s+engineer(ing)?\b|\btechnical\s+services\s+engineer\b|\bescalation\s+engineer\b|\btechnical\s+consulting\s+engineer\b"
     r"|\btechnical\s+support\s+(analyst|specialist|spec|associate|technician|expert|representative)\b"
     r"|\bproduct\s+technical\s+support\b|\btechnical\s+product\s+support\b|\btechnical\s+customer\s+support\s+(engineer|specialist)\b|\bproduction\s+support\s+analyst\b"
     r"|\bapplication\s+(maintenance\s+&\s+)?support\s+(analyst|engineer)\b|\bcustomer\s+reliability\s+engineer\b", I)
@@ -158,7 +173,7 @@ SUPPORT_EXCLUDE = re.compile(r"\bit\s+support\b|\bweld\b|\bcad\b|mission\s+suppo
 #           "Systems Engineer, <team>"). Flagged 'plain' because it is ambiguous.
 SYSADMIN_RE = re.compile(
     r"\b(systems?|sys|it|linux|windows|unix|m365|office\s*365|microsoft|server|online|classified|network|identity"
-    r"|active\s+directory|vmware|citrix|video\s*&\s*voice)\s+(systems\s+)?admin(istrator)?\b|\bsysadmin\b|\bit\s+administrator\b"
+    r"|active\s+directory|vmware|citrix|video\s*&\s*voice)\s+(systems\s+)?admin(istrator|istration)?\b|\bsysadmin\b|\bit\s+administrator\b"
     r"|\bsystems?\s+administrator\s+(specialist|ii?i?|i)\b", I)
 SYSADMIN_EXCLUDE = re.compile(
     r"\bhr\b|people|payroll|workday|atlassian|salesforce\s+admin|teamcenter|hris|finance|fund|subcontract|sales\s+admin"
@@ -171,20 +186,32 @@ IT_SYS_RE = re.compile(
     r"server|virtualization)\s+(systems?\s+)?engineer\b|\bsystems\s+engineering\s+associate\b|\bcampus\s+systems\s+engineer\b"
     r"|\bsystems?\s+engineer\s*\((linux|windows|operations)|\bsystems\s+engineer\s*/\s*storage|\bbroadcast\s+it\b"
     r"|\bit\s+field\s+engineer\b|\bbit\s+field\s+engineer\b|\bsystems\s+engineer,\s+corporate\s+security\b|\bsystems\s+generalist\b|\bhpc\s+systems\s+engineer\b|\bot\s+systems\s+engineer\b"
-    r"|\bsystems?\s+engineer\b.*\bgovcloud\b", I)
+    r"|\bsystems?\s+engineer\b.*\bgovcloud\b"
+    r"|\bsystems\s+specialty\b|\bproduction\s+systems?\s+engineer\b", I)   # San Francisco's 1041 Technology Engineer; ByteDance's server-management PSE
 IT_SYS_EXCLUDE = re.compile(r"business\s+systems|finance\s+systems|workday|sales\s+systems|people\s+systems|\bplm\b|\beda\b", I)
 PLAIN_SYS_RE = re.compile(r"^\s*(associate\s+|junior\s+|jr\.?\s+|entry[\s-]level\s+|senior\s+|sr\.?\s+|staff\s+|principal\s+|lead\s+)?systems?\s+engineer(ing)?\b", I)
 HW_AERO_COMPANIES = {"SpaceX", "Anduril", "Rocket Lab", "Waymo", "Nuro", "Kairos Power", "Medtronic",
                      "Micron Technology", "Astera Labs", "Cloudflare"}
+# Matched as a leading name, so jobright's "Anduril Industries" and "Waymo LLC" count as the board keys do.
+_HW_AERO_RE = re.compile(r"^\s*(?:" + "|".join(re.escape(c) for c in sorted(HW_AERO_COMPANIES)) + r")\b", I)
+
+
+def is_hw_aero_company(company: str) -> bool:
+    """True for the aerospace/hardware employers whose plain "Systems Engineer" is not IT systems work."""
+    return bool(_HW_AERO_RE.match(company or ""))
+
 
 # ── ENDPOINT_ITSUP ───────────────────────────────────────────────────────────
+# "endpoint" may sit up to three words before the role noun: "Junior Endpoint Systems Analyst",
+# "Endpoint Infrastructure and AVD Engineer", "End Point Management Solutions".
 ENDPOINT_RE = re.compile(
-    r"\bendpoint\s+(engineer|administrator|admin|specialist|analyst|management)\b|\bdesktop\s+(engineer|support|administrator|technician|analyst)\b"
+    r"\bend[\s-]?point\s+(?:[\w/&-]+\s+){0,3}?(engineer|engineering|administrator|admin|specialist|analyst|management)\b"
+    r"|\bdesktop\s+(engineer|support|administrator|technician|analyst)\b"
     r"|\bclient\s+platform\s+engineer|\bclient\s+engineering\b|\bend[\s-]user\s+(computing|support|services)\b|\beuc\b"
     r"|\bintune\b|\bjamf\b|\bmdm\s+(engineer|administrator)\b|\bmac(os)?\s+(engineer|administrator|admin)\b"
     r"|\bworkplace\s+(technology|engineer|it)\b|\bit\s+system\s+engineer\s*\(workplace\)|\bworkstation\s+support\b"
     r"|\bit\s+administrator\s*\(email|\bwindows\s+administration\b|\bbigfix\b|\bsccm\b|\bmecm\b|\bpatch(ing)?\s+(management|engineer)", I)
-ENDPOINT_EXCLUDE = re.compile(r"endpoint\s+security\s+architect|security\s+software", I)
+ENDPOINT_EXCLUDE = re.compile(r"endpoint\s+security\s+architect|security\s+software|clinical|adjudicat|\btrials?\b", I)
 ITSUP_RE = re.compile(
     r"\bit\s+(support|analyst|specialist|technician|field\s+service|associate|service\s+desk|help\s*desk)\b|\bhelp\s*desk\b"
     r"|\bservice\s*desk\b|\bit\s+support\b|\bit\s+(\w+\s+)?(specialist|technician|technologist)\b|\btechnician,\s+it\b|\bfield\s+support\s+technician\b|\bdesktop\s+support\b|\buser\s+support\s+analyst\b", I)
@@ -202,7 +229,8 @@ def classify_family(title: str, company: str = "") -> tuple[str | None, str | No
         return "ADJACENT_FDE", "forward_deployed"
 
     # SALES_SOLUTIONS first: "Security Solutions Engineer", "Pre-Sales Systems Engineer"
-    if SE_RE.search(t) and not re.search(r"\btest\s+solutions\b|\brecruit|\bbusiness\s+solutions", t, I):
+    if SE_RE.search(t) and not re.search(r"\btest\s+solutions\b|\brecruit|\bbusiness\s+solutions|^quality\s+engineer\b",
+                                         t, I):
         if not re.search(r"\bsupport\s+engineer\b", t, I):
             return "SALES_SOLUTIONS", "sales_solutions_engineer"
     if company == "Pure Storage" and re.search(r"\bsystems?\s+engineer(ing)?\b", t, I) and not re.search(
@@ -250,7 +278,7 @@ def classify_family(title: str, company: str = "") -> tuple[str | None, str | No
             return "SYSTEMS_IT", "it_systems_engineer"
         if ITSUP_RE.search(t) and not ITSUP_EXCLUDE.search(t):
             return "ENDPOINT_ITSUP", "it_support_helpdesk"
-        if PLAIN_SYS_RE.search(t) and company not in HW_AERO_COMPANIES:
+        if PLAIN_SYS_RE.search(t) and not is_hw_aero_company(company):
             return "SYSTEMS_IT", "plain_systems_engineer"
     return None, None
 
@@ -285,7 +313,10 @@ NON_US = ["canada", "toronto", "vancouver", "montreal", "ontario", "british colu
           "bulgaria", "sofia", "slovakia", "cyprus", "malta", "pakistan", "sri lanka", "bangladesh", "nepal",
           "peru", "lima", "uruguay", "montevideo", "guatemala", "panama", "puerto rico", "dominican",
           "ho chi minh", "hanoi", "cebu", "auckland", "wellington", "perth", "brisbane", "tunglo", "kyoto",
-          "nagoya", "hangzhou", "guangzhou", "chengdu", "wuhan", "xi'an", "nanjing", "suzhou", "dalian", "xiamen"]
+          "nagoya", "hangzhou", "guangzhou", "chengdu", "wuhan", "xi'an", "nanjing", "suzhou", "dalian", "xiamen",
+          # scraper_brice port: places that reached the 2026-09-30 candidates with an unknown verdict
+          "tunisia", "kuwait", "bahrain", "morocco", "casablanca", "ecuador", "quito", "united arab emirates",
+          "frankfurt", "monterrey", "guadalajara", "jalisco", "nuevo leon", "nuevo león", "tijuana"]
 # Three-letter ISO codes ("(Remote, GBR)", "(Hybrid, IND)") are matched only in
 # that parenthesised/comma form, so "ind"/"che"/"can" never hit ordinary words.
 # Puerto Rico is left unknown rather than non-U.S.
@@ -343,7 +374,7 @@ _FALSE_FRIENDS = {k: set(v.split()) for k, v in {
     "milan": "tn mi oh il in nm", "wellington": "fl ks oh co tx", "panama": "fl", "london": "ky oh ct",
     "berlin": "nh ct md nj pa wi vt ma ny", "amsterdam": "ny", "cairo": "il ga ny wv", "belgrade": "mt me",
     "lisbon": "me oh nh nd ia", "zurich": "il", "vancouver": "wa", "perth": "nj", "bogota": "nj",
-    "delhi": "ny la", "denmark": "sc wi me",
+    "delhi": "ny la", "denmark": "sc wi me", "morocco": "in",
 }.items()}
 _FF_RE = re.compile(r"(?<![a-z])(" + "|".join(sorted(_FALSE_FRIENDS, key=len, reverse=True))
                     + r")(?:\s+[a-z]+)?\s*,\s*([a-z]{2})(?![a-z])")
@@ -362,7 +393,9 @@ _FOREIGN_COUNTRY_RE = re.compile(
         "norway", "finland", "italy", "israel", "uae", "qatar", "saudi", "egypt", "nigeria", "kenya",
         "south africa", "serbia", "greece", "turkey", "ukraine", "emea", "apac", "apj", "latam", "luxembourg",
         "lithuania", "estonia", "latvia", "croatia", "bulgaria", "slovakia", "cyprus", "malta", "pakistan",
-        "sri lanka", "bangladesh", "nepal", "peru", "uruguay", "guatemala", "panama", "dominican"],
+        "sri lanka", "bangladesh", "nepal", "peru", "uruguay", "guatemala", "panama", "dominican",
+        "tunisia", "kuwait", "bahrain", "morocco", "ecuador", "united arab emirates", "jalisco", "nuevo leon",
+        "nuevo león"],
         key=len, reverse=True)) + r")(?![a-z])"
     r"|,\s*(?:on|bc|ab|qc|mb|sk|ns|nb|nl|pe)\s*,\s*ca(?![a-z])")
 

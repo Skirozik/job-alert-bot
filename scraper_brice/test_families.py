@@ -46,11 +46,29 @@ FAMILY_CASES = [
     ("Account Executive", "", (None, None)),
     ("Data Center Electrical Engineer", "", ("EXCLUDED_DC_FACILITIES", "dc_facilities_or_product")),
     ("Forward Deployed Engineer", "", ("ADJACENT_FDE", "forward_deployed")),
+    # the sales exclusions never fire on an engineer title...
+    ("Specialist Sales Engineer", "Samsara", ("SALES_SOLUTIONS", "sales_solutions_engineer")),
+    ("Sales Specialist", "", (None, None)),
+    ("Sales Development Representative", "", (None, None)),
+    # ...and vendor titles for pre-sales, TAC and managed detection are in the families
+    ("Domain Consultant", "Palo Alto Networks", ("SALES_SOLUTIONS", "sales_solutions_engineer")),
+    ("Technical Consulting Engineer", "Cisco", ("SUPPORT_ENG", "support_engineer")),
+    ("MDR Analyst", "", ("SECURITY", "security_analyst_ops")),
+    ("Quality Engineer – Solution Engineering", "Cisco", (None, None)),
+    # lookalikes stay out
+    ("Field Technical Specialist, Counter Intrusion", "Anduril", (None, None)),
+    ("EU MDR Regulatory Specialist", "", (None, None)),
+    ("Clinical Endpoint Adjudication Specialist", "", (None, None)),
+    ("Systems Engineer", "Anduril Industries", (None, None)),        # jobright's spelling of a board key
 ]
 for title, company, want in FAMILY_CASES:
     got = F.classify_family(title, company)
     check(f"{title!r}{' @ ' + company if company else ''} -> {want[0]}", got == want, str(got))
 check("empty title -> (None, None)", F.classify_family("") == (None, None))
+check("hardware/aerospace employers match by leading name ('Anduril Industries', 'Waymo LLC')",
+      F.is_hw_aero_company("Anduril Industries") and F.is_hw_aero_company("Waymo LLC")
+      and F.is_hw_aero_company("Micron Technology") and not F.is_hw_aero_company("Nurosene Health")
+      and not F.is_hw_aero_company(""))
 check("the level section of the field module is not ported (title_gate owns levels)",
       not any(hasattr(F, n) for n in ("classify_level", "all_levels_flag", "TITLE_YOE", "SENIOR_RE")))
 
@@ -89,6 +107,14 @@ US_CASES = [
     ("Washington, England, United Kingdom", "", "", False),
     ("Tijuana, Baja California, Mexico", "", "", False),
     ("Distributed", "", "Senior Named Account Executive, Federal Government (Ottawa)", False),
+    # places that reached the 2026-09-30 candidates with an unknown verdict
+    ("Ariana, Ariana, Tunisia", "", "", False),
+    ("Quito, Ecuador", "", "", False),
+    ("Remote - United Arab Emirates", "", "Systems Engineer - Kuwait", False),
+    ("Frankfurt", "", "", False),
+    ("Monterrey, Nuevo León, Mexico", "", "", False),
+    ("Morocco, IN", "", "", True),                    # an Indiana town
+    ("Monterey, CA", "", "", True),                   # one r: California
 ]
 for loc, url, title, want in US_CASES:
     got = F.is_us(loc, url, title)
@@ -236,6 +262,98 @@ bad = [(t, want, title_gate.source_gate(t, c, loc, url)) for c, t, loc, url, wan
 check(f"{len(DROP_ROWS) - len(bad)}/{len(DROP_ROWS)} non-US / internship / senior copies dropped by the named rule",
       not bad, "; ".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad))
 
+section("source_gate: in-family entry-level titles the filter used to drop (live 2026-09-30 rows)")
+ATS_KEEP_LIVE = [
+    ('Samsara', 'Associate Specialist Sales Engineer', 'Remote - US',
+     'https://www.samsara.com/company/careers/roles/7717258?gh_jid=7717258', 'SALES_SOLUTIONS'),
+    ('Samsara', 'Specialist Sales Engineer', 'Remote - US',
+     'https://www.samsara.com/company/careers/roles/8105738?gh_jid=8105738', 'SALES_SOLUTIONS'),
+    ('CrowdStrike', 'Analyst I, Falcon Complete (Hybrid, San Antonio)', 'USA - Remote',
+     'https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers/job/USA---Remote/Analyst-I--Falcon-Complete--Remote-_R29479',
+     'SECURITY'),
+    ('CrowdStrike', 'Analyst I, Falcon Complete GovCloud (Hybrid, St Louis)', '2 Locations',
+     'https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers/job/USA---Remote/Analyst-I--Falcon-Complete-GovCloud--Hybrid--St-Louis-_R29933-1',
+     'SECURITY'),
+    ('Palo Alto Networks', 'Domain Consultant  1', 'Boston, United States of America',
+     'https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers/job/Boston-United-States-of-America/Domain-Consultant--1_JR-020743',
+     'SALES_SOLUTIONS'),
+    ('Palo Alto Networks', 'Domain Consultant', 'Dallas, United States of America',
+     'https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers/job/Dallas-United-States-of-America/Domain-Consultant_JR-021711',
+     'SALES_SOLUTIONS'),
+    ('Palo Alto Networks', 'Domain Consultant - End Point Management Solutions', '5 Locations',
+     'https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers/job/Remote---USA---CA/Domain-Consultant---End-Point-Management-solutions_JR-020360',
+     'SALES_SOLUTIONS'),
+    ('Palo Alto Networks', 'MDR Shift Analyst (Unit 42) - WEST COAST, REMOTE', 'Santa Clara, United States of America',
+     'https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers/job/Santa-Clara-United-States-of-America/MDR-Shift-Analyst--Unit-42----WEST-COAST--REMOTE_JR-022376',
+     'SECURITY'),
+    ('Cisco', 'Technical Consulting Engineer', 'RTP, North Carolina, US',
+     'https://cisco.wd5.myworkdayjobs.com/Cisco_Careers/job/RTP-North-Carolina-US/Technical-Consulting-Engineer_2024773-1',
+     'SUPPORT_ENG'),
+    ('Hewlett Packard Enterprise', 'HPE Networking Proof of Concept Consultant',
+     'Roseville, California, United States of America',
+     'https://hpe.wd5.myworkdayjobs.com/Jobsathpe/job/Roseville-California-United-States-of-America/HPE-Networking-Proof-of-Concept-Consultant_1204308-2',
+     'SALES_SOLUTIONS'),
+    ('Anduril', 'Entry Level Systems Engineer, C2 Integration, Clearance Eligible', 'Costa Mesa, California, United States',
+     'https://boards.greenhouse.io/andurilindustries/jobs/5243880007?gh_jid=5243880007', 'PROGRAM'),
+]
+bad = [(t, want, title_gate.source_gate(t, c, loc, url)) for c, t, loc, url, want in ATS_KEEP_LIVE
+       if title_gate.source_gate(t, c, loc, url) != (True, want)]
+check(f"{len(ATS_KEEP_LIVE) - len(bad)}/{len(ATS_KEEP_LIVE)} board rows kept with the expected label", not bad,
+      "; ".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad))
+
+JR_KEEP_LIVE = [   # (company, title, location, support list?, label) -- jobright rows: no program pass-through
+    ('Bechtel Corporation', '27 New Grad / US / Cybersecurity Engr', 'United States', False, 'SECURITY'),
+    ('Lockheed Martin', 'Classified Cyber Security Asc - E1', 'Moorestown, NJ, United States', False, 'SECURITY'),
+    ('FEDITC', 'Junior SOC DCO', 'Schriever SFB', False, 'SECURITY'),
+    ('Zachary Piper Solutions', 'Junior Endpoint Systems Analyst', 'Honolulu, HI, United States', False, 'ENDPOINT_ITSUP'),
+    ('RSM US LLP', 'Endpoint Infrastructure and AVD Engineer - Associate', 'Chicago, IL, United States', False,
+     'ENDPOINT_ITSUP'),
+    ('Peraton', 'VTC/VOIP Systems Administration, Associate', 'Fort Huachuca, AZ, United States', False, 'SYSTEMS_IT'),
+    ('Peraton', 'Incident Handler - Associate', 'Fort Huachuca, AZ, United States', False, 'SECURITY'),
+    ('City and County of San Francisco',
+     'Technology Engineer - Associate (1041) - Systems Specialty - Citywide (C00089)', 'San Francisco, CA, United States',
+     False, 'SYSTEMS_IT'),
+    ('ByteDance', 'Production System Engineer Graduate (Server Management) - 2027 Start', 'San Jose, CA, United States',
+     False, 'SYSTEMS_IT'),
+    ('Caterpillar Inc.', 'Secure Technology Apprentice (Cybersecurity Apprenticeship)', 'East Peoria, IL, United States',
+     False, 'SECURITY'),
+    ('Google', 'Customer Solutions Engineer, Compute, Google Cloud', 'Kirkland, WA, United States', True,
+     'SALES_SOLUTIONS'),                                                   # posted only on the Support list
+]
+bad = [(t, want, title_gate.source_gate(t, c, loc, support_list=s, program_passthrough=False))
+       for c, t, loc, s, want in JR_KEEP_LIVE
+       if title_gate.source_gate(t, c, loc, support_list=s, program_passthrough=False) != (True, want)]
+check(f"{len(JR_KEEP_LIVE) - len(bad)}/{len(JR_KEEP_LIVE)} jobright rows kept with the expected label", not bad,
+      "; ".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad))
+
+NOISE_DROP = [   # (company, title, location, support list?, program pass-through?, rule)
+    ('AECOM', 'Entry-Level Civil Engineer - Networking Event with AECOM – Boston, MA', 'Boston, MA, United States',
+     False, False, 'off-family'),
+    ('Hamaspik Choice, MLTC', 'Out Of Network Specialist', 'Spring Valley, NY, United States', False, False, 'off-family'),
+    ('Anduril Industries', 'Systems Engineer, Space Emerging Talent', 'Costa Mesa, CA, United States', False, False,
+     'off-family'),
+    ('ByteDance', 'Data Center Site Acquisition Specialist Graduate (Data Center Development) - 2027 Start',
+     'Seattle, WA, United States', False, False, 'off-family'),
+    ('DSV - Global Transport and Logistics', 'Data Center Associate - RMA D Shift (TH-SU 6AM-4:30PM)',
+     'Lockbourne, OH, United States', False, False, 'off-family'),
+    ('DSV - Global Transport and Logistics', 'Data Center Associate - Builds (D-Shift TH-SU 6AM-4:30PM)',
+     'USA - Lancaster, 35 Technology Pl', False, False, 'off-family'),
+    ('Target', 'Target Security Specialist', 'Woburn, MA, United States', True, False,
+     'support list: not a support-engineer title'),
+    ('Wesco', 'Data Center Logistic Associate', 'Cheektowaga, NY, United States', True, False,
+     'support list: not a support-engineer title'),
+    ('Cisco', 'Quality Engineer – Solution Engineering', 'RTP, North Carolina, US', False, True, 'off-family'),
+    ('Hewlett Packard Enterprise', 'IaC & Automation Solution Architect', 'Ariana, Ariana, Tunisia', False, True,
+     'non-US location'),
+    ('Palo Alto Networks', 'Solutions Consultant', 'Quito, Ecuador', False, True, 'non-US location'),
+    ('Palo Alto Networks', 'Systems Engineer - Kuwait', 'Remote - United Arab Emirates', False, True, 'non-US location'),
+]
+bad = [(t, want, title_gate.source_gate(t, c, loc, support_list=s, program_passthrough=pp))
+       for c, t, loc, s, pp, want in NOISE_DROP
+       if title_gate.source_gate(t, c, loc, support_list=s, program_passthrough=pp) != (False, want)]
+check(f"{len(NOISE_DROP) - len(bad)}/{len(NOISE_DROP)} off-target and foreign rows dropped by the named rule", not bad,
+      "; ".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad))
+
 section("source_gate: early-career program pass-through (ATS rows only)")
 PROGRAMS = [("AT&T Technology Development Program", "AT&T", "4 Locations"),
             ("Early Career Consult Program – Network Support Associate", "Kyndryl", "Dallas (USDALFRI) Frisco AI HUB"),
@@ -268,6 +386,13 @@ check("'Customer Service Representative' dropped",
 check("'Technical Support Specialist' dropped from the Support list (not an engineer title)",
       title_gate.source_gate("Technical Support Specialist", "Acme", "Remote - US", support_list=True,
                              program_passthrough=False)[0] is False)
+check("Cisco's TAC title 'Technical Consulting Engineer' counts as a support-engineer title there",
+      title_gate.source_gate("Technical Consulting Engineer", "Cisco", "RTP, North Carolina, US", support_list=True,
+                             program_passthrough=False) == (True, "SUPPORT_ENG"))
+check("the rule leaves the engineering families alone: a solutions engineer on the Support list is kept",
+      title_gate.source_gate("Customer Solutions Engineer, Compute, Google Cloud", "Google",
+                             "Kirkland, WA, United States", support_list=True, program_passthrough=False)
+      == (True, "SALES_SOLUTIONS"))
 
 section("source_gate: the engineer floor and the family filter")
 check("help desk / IT support subfamily is excluded (owner floor)",

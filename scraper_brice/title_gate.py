@@ -114,13 +114,14 @@ FAMILY_RANK = {"SALES_SOLUTIONS": 0, "NETWORK_INFRA": 1, "PROGRAM": 2, "DATA_CEN
                "SUPPORT_ENG": 5, "ENDPOINT_ITSUP": 6, "SECURITY": 7}
 
 # Early-career PROGRAM titles with no family noun (AT&T "Technology Development Program", Kyndryl "Early Career
-# Consult Program - Network Support Associate", Palo Alto "Academy Systems Engineer"). ATS rows only.
+# Consult Program - Network Support Associate", Palo Alto "Academy Systems Engineer", Anduril "Entry Level Systems
+# Engineer, C2 Integration" -- whose "New Grad" twin already passed). ATS rows only.
 PROGRAM_RE = re.compile(
     r"\b(?:development|rotational|rotation|graduate|university|campus|associate|academy|leadership\s+development"
     r"|early[\s-]+career(?:\s+\w+)?)\s+program\b"
     r"(?!\s+(?:manager|engineer|director|lead|coordinator|specialist|analyst|officer|administrator|associate)\b)"
     r"|\bacademy\b|\bnew\s+(?:college\s+)?grad(?:uate)?s?\b|\b(?:university|college|recent)\s+grad(?:uate)?s?\b"
-    r"|\bncg\b|\bearly[\s-]+(?:in[\s-]+)?career\b|\bemerging\s+talent\b",
+    r"|\bncg\b|\bearly[\s-]+(?:in[\s-]+)?career\b|\bemerging\s+talent\b|\bentry[\s-]+level\b",
     re.I)
 # A program title that names a role outside the families is not passed through.
 PROGRAM_EXCLUDE_RE = re.compile(
@@ -136,7 +137,13 @@ PROGRAM_EXCLUDE_RE = re.compile(
 PROGRAM_SALES_RE = re.compile(r"\bsales\b|\baccount\s+rep\w*|\bprosales\b", re.I)
 # jobright's Support list: only support-ENGINEER titles (owner floor; the list is 5,000+ rows a day).
 SUPPORT_ENGINEER_RE = re.compile(
-    r"\b(?:support|escalation|technical\s+services|customer\s+reliability)\s+engineer(?:ing)?\b", re.I)
+    r"\b(?:support|escalation|technical\s+services|technical\s+consulting|customer\s+reliability)\s+engineer(?:ing)?\b",
+    re.I)
+# ...a rule about support titles, so it leaves the engineering families alone: Google's "Customer Solutions
+# Engineer, Compute, Google Cloud" was posted only on the Support list. Support-type and unplaced titles still
+# need a support-ENGINEER noun there, and so do SECURITY and DATA_CENTER: on that list they were retail and
+# visitor-control security and data-center logistics (2026-09-30 README).
+SUPPORT_LIST_OPEN_FAMILIES = {"SALES_SOLUTIONS", "NETWORK_INFRA", "SYSTEMS_IT"}
 
 
 def source_gate(title, company, location, url="", *, support_list=False, program_passthrough=True):
@@ -144,9 +151,9 @@ def source_gate(title, company, location, url="", *, support_list=False, program
     t = " ".join((title or "").split())
     if F.is_us(location, url, t) is False:
         return False, "non-US location"
-    if support_list and not SUPPORT_ENGINEER_RE.search(t):
-        return False, "support list: not a support-engineer title"
     fam, sub = F.classify_family(t, company)
+    if support_list and fam not in SUPPORT_LIST_OPEN_FAMILIES and not SUPPORT_ENGINEER_RE.search(t):
+        return False, "support list: not a support-engineer title"
     if fam in ALLOWED_FAMILIES and (fam, sub) not in EXCLUDED_SUBFAMILIES:
         label = fam
     elif (program_passthrough and fam is None and PROGRAM_RE.search(t) and not PROGRAM_EXCLUDE_RE.search(t)
