@@ -486,7 +486,10 @@ class FakeAtsPass:
 
 
 class FakeJobright:
-    """`lists[name]` = {"url", "status", "etag", "rows", "unparsed", "jobs", "dropped_by", "problems"}."""
+    """`lists[name]` = {"url", "status", "etag", "rows", "unparsed", "jobs", "dropped_by", "dropped_samples",
+    "problems"}."""
+
+    STALE_RULE = "posted more than 10 days ago"      # jobright.STALE_RULE's text
 
     def __init__(self, pipeline):
         self._p = pipeline
@@ -505,8 +508,11 @@ class FakeJobright:
         info = self.lists.get(list_name, {})
         return [{"row": i} for i in range(info.get("rows", 0))], info.get("unparsed", 0)
 
-    def rows_to_jobs(self, rows, list_name, *, support_only, today):
+    def rows_to_jobs(self, rows, list_name, *, support_only, today, samples=None):
         info = self.lists.get(list_name, {})
+        if samples is not None:
+            for rule, titles in info.get("dropped_samples", {}).items():
+                samples.setdefault(rule, []).extend(titles)
         return [dict(j) for j in info.get("jobs", [])], Counter(info.get("dropped_by", {}))
 
     def canary_problems(self, status, parsed_rows, unparsed_link_rows):
