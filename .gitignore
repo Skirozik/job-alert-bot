@@ -13,6 +13,14 @@
 Beyonce_Candidate_Profile_and_Filters.md
 Hassan_Candidate_Profile_and_Filters.md
 Brice_Candidate_Profile_and_Filters.md
+# ...and their drafts, copies and private fixtures (a ".bak" rubric, a
+# "rubric_r2_snapshot.md", "private_fixtures.json", a "brice_private/" folder),
+# so an explicit `git add` of one fails instead of publishing it. The tracked
+# Candidate_Profile_and_Filters.md has no prefix and is not matched.
+*_Candidate_Profile_and_Filters*
+rubric_*snapshot*.md
+private_fixtures*.json
+brice_private/
 
 __pycache__/
 *.pyc
