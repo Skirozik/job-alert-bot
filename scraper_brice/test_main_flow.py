@@ -520,6 +520,17 @@ check("an ATS sweep cut short by its budget -> 'ATS sweep cut short' to the owne
       [t for _m, t, _p in p.notifier.alerts] == ["Brice: ATS sweep cut short"] and "alert_at:ats_slow" in p.db.state)
 
 
+def pings_rejected(p):
+    p.notifier.push_ok = False
+
+
+code, p = normal_run(setup=pings_rejected)
+titles = [t for _m, t, _p in p.notifier.alerts]
+check("every ping of a run rejected (5 tried) -> 'pings failing' to the owner, throttled 6 h",
+      titles == ["Brice: pings failing"] and "5 attempted" in p.notifier.alerts[0][0]
+      and "alert_at:pings_failed" in p.db.state and p.db.finished[0][1]["notified"] == 0, str(titles))
+
+
 def all_fail(p):
     p.classifier.verdict = lambda job: {"failed": True, "failed_kind": "transient", "tier": "APPLY_CAVEAT",
                                         "reason": "x"}

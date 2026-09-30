@@ -143,6 +143,7 @@ class RunState:
         self.parked = Counter()        # rows actually written as PENDING, by kind
         self.hard_down = Counter()     # billing/auth failures seen this run
         self.pushed = 0
+        self.push_attempts = 0         # pings tried; pushed counts the ones ntfy accepted
         self.quota_hit = False
 
     def next_order(self) -> int:
@@ -501,9 +502,11 @@ def process_job(job: dict, state: RunState) -> str:
         notify = stored
         if not stored:
             _unstored(state, job)
-    if job["tier"] in ACTIONABLE and notify and notifier.push_job(job):
-        state.pushed += 1
-        return "pushed"
+    if job["tier"] in ACTIONABLE and notify:
+        state.push_attempts += 1
+        if notifier.push_job(job):
+            state.pushed += 1
+            return "pushed"
     return "classified"
 
 
@@ -569,6 +572,7 @@ def retry_pending(state: RunState) -> None:
             continue
         promoted += 1
         if result["tier"] in ACTIONABLE and (row.get("status") or "new") == "new":
+            state.push_attempts += 1
             if notifier.push_job({**row, **result}):
                 notified += 1
                 state.pushed += 1
@@ -716,6 +720,14 @@ def send_alerts(state: RunState) -> None:
             _alert(f"alert_at:jobright:{name}", config.CANARY_THROTTLE_HOURS,
                    f"jobright {name} list: {'; '.join(info['problems'])}.",
                    title=f"Brice: jobright {name} list")
+
+    # A topic ntfy rejects (a reserved topic answering 403, a malformed secret) drops every ping while each run
+    # still looks healthy. The jobs are stored, so they are never pinged later.
+    if state.push_attempts >= 3 and state.pushed == 0:
+        _alert("alert_at:pings_failed", config.ALERT_THROTTLE_HOURS,
+               f"Every ping to Brice failed this run ({state.push_attempts} attempted). The jobs are stored and "
+               f"on his dashboard but will not be pinged again. Check the NTFY_TOPIC_BRICE secret and ntfy.sh.",
+               title="Brice: pings failing")
 
 
 def _wrap_up(state: RunState, crashed: Optional[BaseException]) -> None:

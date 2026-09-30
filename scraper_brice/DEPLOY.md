@@ -342,6 +342,7 @@ The owner gets these on the `NTFY_TOPIC` topic; Brice never does.
 | `Brice: ATS boards returned nothing` | none of the 26 boards returned a listing | 24 h | 0 |
 | `Brice: ATS sweep cut short` | the sweep hit its 10-minute budget and refused the rest of its requests; a board is slow or stuck | 24 h | 0 |
 | `Brice: jobright <list> list` | HTTP other than 200/304, 0 parsed rows, or > 5 % of link rows unparsed (format drift) | 24 h per list | 0 |
+| `Brice: pings failing` | ≥ 3 pings tried this run and ntfy accepted none (a wrong or reserved topic); the jobs are stored and are not pinged later | 6 h | 0 |
 
 Other signatures in the log:
 
@@ -358,7 +359,8 @@ Other signatures in the log:
   it had.
 - `ATS boards with no listings this run (an error or an empty board): …`: one board failed or is empty.
 - `ntfy post failed (<type>, status=<code>)`: the ping was not delivered. The job is stored anyway,
-  and the ping is not retried later.
+  and the ping is not retried later. When every ping of a run fails, the owner gets
+  `Brice: pings failing`.
 - `OWNER_NTFY_TOPIC not set — infrastructure alerts will only be logged`: the `NTFY_TOPIC` secret is
   missing.
 

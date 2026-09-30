@@ -431,11 +431,12 @@ class FakeNotifier:
         self._p = pipeline
         self.jobs: list = []
         self.alerts: list = []               # (message, title, priority)
+        self.push_ok = True                  # what push_job answers (False: ntfy rejected the ping)
 
     def push_job(self, job):
         self._p.log.append(("notifier.push_job", job["id"]))
         self.jobs.append(dict(job))
-        return True
+        return self.push_ok
 
     def push_owner_alert(self, message, *, title="Brice pipeline alert", priority="urgent", tags="warning,robot"):
         self._p.log.append(("notifier.push_owner_alert", title))
