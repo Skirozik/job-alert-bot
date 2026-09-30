@@ -119,7 +119,7 @@ class RunState:
         self.li = {"searches": 0, "rate_limited": 0, "total_raw": 0, "new": 0, "to_classify": 0,
                    "prefiltered": Counter(), "skipped_terms": []}
         self.ats = {"boards": 0, "boards_with_listings": 0, "listings": 0, "kept": 0, "candidates": 0,
-                    "dropped_by": Counter(), "dropped_samples": {}}
+                    "dropped_by": Counter(), "dropped_samples": {}, "by_board": {}}
         self.jobright: dict[str, dict] = {}
         self.used = Counter()          # classify() calls per source (the cap counts these)
         self.leftover = Counter()      # per source: candidates not processed (cap or time), not stored
@@ -178,13 +178,15 @@ def collect_ats(state: RunState) -> list[dict]:
     """ATS pass (SPEC section 8). Integration point: ats_pass.collect_ats_candidates()
     returns (candidates, stats) -- rows that already passed title_gate.source_gate,
     with id "ats:...", family and search_term set; stats carries boards,
-    boards_with_listings, listings, kept and dropped_by (optionally dropped_samples).
+    boards_with_listings, listings, kept and dropped_by (optionally dropped_samples
+    and by_board, for the dry-run report).
     """
     candidates, stats = ats_pass.collect_ats_candidates()
     for key in ("boards", "boards_with_listings", "listings", "kept"):
         state.ats[key] = int(stats.get(key) or 0)
     state.ats["dropped_by"] = Counter(stats.get("dropped_by") or {})
     state.ats["dropped_samples"] = dict(stats.get("dropped_samples") or {})
+    state.ats["by_board"] = dict(stats.get("by_board") or {})
     queue = _new_candidates(state, list(candidates), "ats")
     state.ats["candidates"] = len(queue)
     log.info("ATS: %d listings from %d/%d boards | kept by the gate %d | new %d",
@@ -801,6 +803,13 @@ def print_dry_report(state: RunState, queues: dict, prefiltered: list[dict], ran
         a = state.ats
         out(f"ats:      {a['boards']} boards ({a['boards_with_listings']} with listings) | raw {a['listings']} | "
             f"kept {a['kept']} | new in run {len(queues['ats'])} | dropped: {_counts(a['dropped_by'])}")
+        if a["by_board"]:
+            out("  per board, listings / kept by the gate:")
+            for company, b in a["by_board"].items():
+                out(f"    {company} ({b.get('platform', '?')}): {b.get('listings', 0)} / {b.get('kept', 0)}")
+            empty = [company for company, b in a["by_board"].items() if not b.get("listings")]
+            if empty:
+                out(f"  boards with no listings (an error or an empty board): {', '.join(empty)}")
     if "linkedin" in ran:
         li = state.li
         out(f"linkedin: {li['searches']} searches ({li['rate_limited']} rate limited) | raw {li['total_raw']} | "
@@ -839,12 +848,16 @@ def print_dry_report(state: RunState, queues: dict, prefiltered: list[dict], ran
             out(f"  {job.get('company')} | {job.get('title')} | {job.get('location')} | {job.get('family') or '-'}")
     if sample:
         by_rule: dict[str, list[str]] = {}
+        totals: dict[str, int] = {}
         for job in prefiltered:
             by_rule.setdefault(f"linkedin, {job['gate']}", []).append(f"{job.get('company')} | {job.get('title')}")
         for rule, titles in state.ats["dropped_samples"].items():
             by_rule.setdefault(f"ats, {rule}", []).extend(titles)
+            # the ATS pass keeps only the first few titles per rule; the count is the rule's total
+            totals[f"ats, {rule}"] = state.ats["dropped_by"].get(rule, 0)
         for label, titles in sorted(by_rule.items()):
-            out(f"\ndropped sample ({label}, {min(len(titles), sample)} of {len(titles)}):")
+            total = max(len(titles), totals.get(label, 0))
+            out(f"\ndropped sample ({label}, {min(len(titles), sample)} of {total}):")
             for t in titles[:sample]:
                 out(f"  {t}")
 

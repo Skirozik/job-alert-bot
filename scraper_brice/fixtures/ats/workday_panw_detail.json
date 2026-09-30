@@ -1,0 +1,50 @@
+{
+ "recorded": "2026-09-30",
+ "note": "Live response of GET paloaltonetworks.wd5.myworkdayjobs.com/wday/cxs/paloaltonetworks/panwexternalcareers/job/Office---USA---TX/Academy-Systems-Engineer_JR-011449, with jobPostingInfo.jobDescription cut after a paragraph. Other fields as served.",
+ "exchanges": [
+  {
+   "method": "GET",
+   "url": "https://paloaltonetworks.wd5.myworkdayjobs.com/wday/cxs/paloaltonetworks/panwexternalcareers/job/Office---USA---TX/Academy-Systems-Engineer_JR-011449",
+   "params": null,
+   "status": 200,
+   "body": {
+    "jobPostingInfo": {
+     "id": "3d9ab95948b01001739159f3729a0000",
+     "title": "Academy Systems Engineer",
+     "jobDescription": "<p><b>Our Mission</b></p><p></p><p>At Palo Alto Networks®, we’re united by a shared mission—to protect our digital way of life. We thrive at the intersection of innovation and impact, solving real-world problems with cutting-edge technology and bold thinking. Here, everyone has a voice, and every idea counts. If you’re ready to do the most meaningful work of your career alongside people who are just as passionate as you are, you’re in the right place.</p><p></p><p><b>Who We Are</b></p><p></p><p>In order to be the cybersecurity partner of choice, we must trailblaze the path and shape the future of our industry. This is something our employees work at each day and is defined by our values: Disruption, Collaboration, Execution, Integrity, and Inclusion. We weave AI into the fabric of everything we do and use it to augment the impact every individual can have. If you are passionate about solving real-world problems and ideating beside the best and the brightest, we invite you to join us!</p><p></p>We believe collaboration thrives in person. That’s why most of our teams work from the office full time, with flexibility when it’s needed. This model supports real-time problem-solving, stronger relationships, and the kind of precision that drives great outcomes.<p style=\"text-align:inherit\"></p><p style=\"text-align:left\"><b>Job Description</b></p><p style=\"text-align:inherit\"></p>Your Career\nAs an Associate Systems Engineer, you will join a cohort of recent college graduates for an immersion into Palo Alto Networks platform, automation, and cybersecurity across network, endpoint, and cloud. This program includes up to 24 months of formal technical instruction with hands-on labs, both group and individual projects, technical study, and professional skills development.  As you advance through the program, you will be placed with various sales engineering teams to learn how to support customers during the pre-sales process.  \n \nWhile ramping on the Academy development track you will work alongside other SE teams to learn and support the other critical work with customers within the presales process. As part of your development, you will work as a technical advisor in tandem with our sales and channel partners on customer engagements, establishing relationships with customers with the goal of helping them ensure each day is more secure than the one before.\n \nUpon completion of the program, you will have gained proven technical and professional skills, shown qualification across multiple certifications, and rotations with senior SEs to take on a field SE position in any number of cities across the US based on business needs. Our SEs are among the best in the cybersecurity industry, with a deep technical understanding of cybersecurity products, integrations, and the critical cyber threats facing our potential customers' environments. \nYour Impact\nLearn the technical aspects and business value of Palo Alto Networks products\n\nDevelop the skills necessary to propose cybersecurity solutions comprised of Palo Alto Networks products\n\nEstablish yourself as a trusted team member to Technical Solutions leadership and colleagues while contributing to sales wins throughout the program \n\nArchitect and propose solutions that address the identified cybersecurity problems in each customer’s unique environment \n\nDevelop presentation skills and understanding of business and technical discovery methods\n\nEnsure ongoing customer success, support, and adoption of cybersecurity solutions \n\nUnderstand and effectively differentiate against our top competitors \n\nIdentify and document specific problems with prospective and current customers which can be solved through the deployment of integrated solutions \n\nAct as the customer advocate for any issues that require technical assistance and follow up with the customer until the issue is resolved \n\nContinuous self-improvement and learning to maintain technical leadership of applicable technologies (SASE, XDR, public cloud, security, networking, etc.)<p></p>",
+     "location": "Office - USA - TX",
+     "postedOn": "Posted 30+ Days Ago",
+     "startDate": "2026-01-26",
+     "timeType": "Full time",
+     "jobReqId": "JR-011449",
+     "jobPostingId": "Academy-Systems-Engineer_JR-011449",
+     "jobPostingSiteId": "panwexternalcareers",
+     "country": {
+      "descriptor": "United States of America",
+      "id": "bc33aa3152ec42d4995f4791a106ed09"
+     },
+     "canApply": true,
+     "posted": true,
+     "includeResumeParsing": true,
+     "jobRequisitionLocation": {
+      "descriptor": "Office - USA - TX",
+      "country": {
+       "descriptor": "United States of America",
+       "id": "bc33aa3152ec42d4995f4791a106ed09",
+       "alpha2Code": "US"
+      }
+     },
+     "remoteType": "No",
+     "externalUrl": "https://paloaltonetworks.wd5.myworkdayjobs.com/panwexternalcareers/job/Office---USA---TX/Academy-Systems-Engineer_JR-011449",
+     "questionnaireId": "29711328c96b1001fd158b8656e90000"
+    },
+    "hiringOrganization": {
+     "name": "Palo Alto Networks, Inc.",
+     "url": ""
+    },
+    "similarJobs": [],
+    "userAuthenticated": false
+   }
+  }
+ ]
+}

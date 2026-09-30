@@ -1,0 +1,131 @@
+{
+ "recorded": "2026-09-30",
+ "note": "Live response of GET api.ashbyhq.com/posting-api/job-board/drata, trimmed to 5 of its 38 jobs with descriptionHtml / descriptionPlain cut after a paragraph / line. Fields as served.",
+ "exchanges": [
+  {
+   "method": "GET",
+   "url": "https://api.ashbyhq.com/posting-api/job-board/drata",
+   "params": null,
+   "status": 200,
+   "body": {
+    "jobs": [
+     {
+      "id": "b0d00418-9f98-4776-a83d-e0bbe9598025",
+      "title": "Associate Solutions Architect",
+      "department": "Customer Success",
+      "team": "Customer Success",
+      "employmentType": "FullTime",
+      "location": "Remote - US ",
+      "secondaryLocations": [],
+      "publishedAt": "2026-09-11T22:26:07.053+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "address": {
+       "postalAddress": {
+        "addressCountry": "United States"
+       }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/drata/b0d00418-9f98-4776-a83d-e0bbe9598025",
+      "applyUrl": "https://jobs.ashbyhq.com/drata/b0d00418-9f98-4776-a83d-e0bbe9598025/application",
+      "descriptionHtml": "<p style=\"min-height:1.5em\">Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.<br /><br /><strong>Why Join the Drata Team?</strong><br />At Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:</p>",
+      "descriptionPlain": "Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.\n\nWhy Join the Drata Team?\nAt Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:"
+     },
+     {
+      "id": "7d505347-c5fb-4351-b57d-75a9ea654fcf",
+      "title": "Associate Technical Support Engineer - Mexico",
+      "department": "Customer Success",
+      "team": "Customer Success",
+      "employmentType": "FullTime",
+      "location": "Remote - Mexico",
+      "secondaryLocations": [],
+      "publishedAt": "2026-06-24T22:46:16.614+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "address": {
+       "postalAddress": {
+        "addressRegion": "Mexico",
+        "addressCountry": "Mexico",
+        "addressLocality": "Mexico City"
+       }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/drata/7d505347-c5fb-4351-b57d-75a9ea654fcf",
+      "applyUrl": "https://jobs.ashbyhq.com/drata/7d505347-c5fb-4351-b57d-75a9ea654fcf/application",
+      "descriptionHtml": "<p style=\"min-height:1.5em\">Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.<br /><br /><strong>Why Join the Drata Team? </strong><br />At Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:</p>",
+      "descriptionPlain": "Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.\n\nWhy Join the Drata Team? \nAt Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:"
+     },
+     {
+      "id": "c5d24acf-cdd4-424f-833c-6903e7610938",
+      "title": "Sales Engineer - London",
+      "department": "Sales",
+      "team": "Sales",
+      "employmentType": "FullTime",
+      "location": "Hybrid - London",
+      "secondaryLocations": [],
+      "publishedAt": "2026-08-12T23:22:49.850+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Hybrid",
+      "address": {
+       "postalAddress": {
+        "addressCountry": "United Kingdom"
+       }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/drata/c5d24acf-cdd4-424f-833c-6903e7610938",
+      "applyUrl": "https://jobs.ashbyhq.com/drata/c5d24acf-cdd4-424f-833c-6903e7610938/application",
+      "descriptionHtml": "<p style=\"min-height:1.5em\">Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.<br /><br /><strong>Why Join the Drata Team? </strong><br />At Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:</p>",
+      "descriptionPlain": "Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.\n\nWhy Join the Drata Team? \nAt Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:"
+     },
+     {
+      "id": "51aa1c0e-c624-424e-b319-5e881ed1ca9a",
+      "title": "Senior IT Engineer",
+      "department": "IT",
+      "team": "IT",
+      "employmentType": "FullTime",
+      "location": "Hybrid - San Francisco",
+      "secondaryLocations": [],
+      "publishedAt": "2026-05-11T23:12:54.820+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Hybrid",
+      "address": {
+       "postalAddress": {
+        "addressRegion": "California",
+        "addressCountry": "United States",
+        "addressLocality": "San Francisco"
+       }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/drata/51aa1c0e-c624-424e-b319-5e881ed1ca9a",
+      "applyUrl": "https://jobs.ashbyhq.com/drata/51aa1c0e-c624-424e-b319-5e881ed1ca9a/application",
+      "descriptionHtml": "<p style=\"min-height:1.5em\">Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.<br /><br /><strong>Why Join the Drata Team? </strong><br />At Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:</p>",
+      "descriptionPlain": "Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.\n\nWhy Join the Drata Team? \nAt Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:"
+     },
+     {
+      "id": "ae442cf0-fc58-4b1a-ac0c-6fd5827ad6d4",
+      "title": "Commercial Account Executive - California/Nevada",
+      "department": "Sales",
+      "team": "Sales",
+      "employmentType": "FullTime",
+      "location": "Remote - US ",
+      "secondaryLocations": [],
+      "publishedAt": "2026-09-11T17:24:38.457+00:00",
+      "isListed": true,
+      "isRemote": true,
+      "workplaceType": "Remote",
+      "address": {
+       "postalAddress": {
+        "addressCountry": "United States"
+       }
+      },
+      "jobUrl": "https://jobs.ashbyhq.com/drata/ae442cf0-fc58-4b1a-ac0c-6fd5827ad6d4",
+      "applyUrl": "https://jobs.ashbyhq.com/drata/ae442cf0-fc58-4b1a-ac0c-6fd5827ad6d4/application",
+      "descriptionHtml": "<p style=\"min-height:1.5em\">Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.<br /><br /><strong>Why Join the Drata Team? </strong><br />At Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:</p>",
+      "descriptionPlain": "Drata is building the trust layer between great companies - automating compliance, managing risk, and helping organizations prove trust continuously as they scale. We're Dratanauts: a global crew of 600+ professionals united by a culture that rewards integrity, ownership, and raising the bar, no matter where in the world we're working from.\n\nWhy Join the Drata Team? \nAt Drata, you're not maintaining legacy compliance software - you're building the agentic AI platform defining what trust looks like for the next generation of companies. Here's what makes the work itself worth showing up for:"
+     }
+    ],
+    "apiVersion": "1"
+   }
+  }
+ ]
+}
