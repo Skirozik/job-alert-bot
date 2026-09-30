@@ -530,8 +530,23 @@ check("the run summary line is logged",
 check("the interface log formats are present",
       "Searching: 'term one' in United States" in text and "  p0 (start=0): 4 listings, 3 new" in text
       and "Total raw: 5 | New: 4 | Rate limited: 0/2 searches" in text
-      and "  Pre-filter SKIP (seniority/leadership title)" in text and "  -> APPLY | id=" in text
+      and "  Pre-filter SKIP (seniority/leadership title)" in text and "  -> classified | id=" in text
       and "  Description: " in text)
+check("no line names a job's tier: beside the title it would publish the rubric's private rules",
+      not any(word in text for word in ("APPLY", "INELIGIBLE", "tier=")),
+      [line for line in logs.messages() if "APPLY" in line or "INELIGIBLE" in line or "tier=" in line][:3])
+
+
+def stored_twice(p):
+    p.db.rows[p.ats_pass.candidates[0]["id"]] = {"id": p.ats_pass.candidates[0]["id"], "tier": "INELIGIBLE",
+                                                 "status": "applied"}
+
+
+with captured_logs() as logs:
+    normal_run(setup=stored_twice)
+check("...nor the stored row's tier or status when the already-stored guard skips a job",
+      "  Already stored — no re-fetch, no re-classify, no push" in logs.text()
+      and "INELIGIBLE" not in logs.text() and "applied" not in logs.text())
 
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(testkit.finish())

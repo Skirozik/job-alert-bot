@@ -30,7 +30,9 @@ tracker source this pipeline does not have.
 
 The tool text names no candidate facts: every hard block lives in the rubric's
 numbered "INELIGIBLE — the complete list", which the tier description points
-to. Reasons are never logged -- Actions logs are public -- only tiers and ids.
+to. Actions logs are public and show each job's title, so neither reasons nor
+per-job verdicts are logged at INFO -- the override lines are DEBUG, off in
+Actions -- only ids and failures.
 """
 
 import logging
@@ -337,7 +339,7 @@ def _apply_non_us_override(job: dict, result: dict) -> dict:
         return result
     if families.names_us_location(loc):
         return result
-    log.info("  Non-US override: job %s located in %r", job.get("id"), loc[:40])
+    log.debug("  Non-US override: job %s located in %r", job.get("id"), loc[:40])
     result["tier"] = "INELIGIBLE"
     result["hard_ineligible"] = True
     result["reason"] = f"Overridden: based in {m.group(0).title()} with no US or US-remote option stated."
@@ -419,7 +421,7 @@ def _apply_title_only_override(job: dict, result: dict) -> dict:
     if len(desc) >= _MIN_REAL_DESCRIPTION:
         return result
 
-    log.info("  Title-only override: job %s has %d chars of description", job.get("id"), len(desc))
+    log.debug("  Title-only override: job %s has %d chars of description", job.get("id"), len(desc))
     result["tier"] = "APPLY_CAVEAT"
     result["reason"] = "Title-only: no description available — check the posting"
     return result

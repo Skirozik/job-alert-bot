@@ -11,6 +11,7 @@ import testkit
 testkit.block_network()
 
 import ast  # noqa: E402
+import logging  # noqa: E402
 import re  # noqa: E402
 import sys  # noqa: E402
 import types  # noqa: E402
@@ -277,5 +278,12 @@ check("a classify call never logs its reason (or the profile)",
       "SECRET-REASON" not in logs.text() and "PROFILE PLACEHOLDER" not in logs.text(), logs.text()[:300])
 check("...even when the model puts prose in the tier field (logged by length only)",
       "he fits" not in logs.text())
+with captured_logs() as logs:
+    verdict("Toronto, ON, Canada")                       # non-US override
+    verdict("Remote - US", description=None)             # title-only cap
+    net("Campus Systems Engineer (Full-Time)", "I-5: software development role.")   # family net
+shown = [r.getMessage() for r in logs.records if r.levelno >= logging.INFO]
+check("the overrides log nothing at INFO: a verdict beside a job id is a per-job tier (DEBUG only)",
+      not shown and any("override" in r.getMessage() for r in logs.records), str(shown))
 
 sys.exit(testkit.finish())
