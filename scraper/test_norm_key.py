@@ -303,13 +303,14 @@ check("before the backfill the internship is still dropped — why the backfill 
       before["4470115507"] is True)
 
 
-print("\n-- the three pipelines can never drift apart --")
-# scraper_user_a/ and scraper_user_c/ carry their own copy of the key code;
-# User C's DEPLOY.md already says this gap must be fixed "all three together".
+print("\n-- the four pipelines can never drift apart --")
+# scraper_user_a/, scraper_user_c/ and scraper_user_b/ carry their own copy of
+# the key code; User C's DEPLOY.md already says this gap must be fixed "all
+# three together" (now all four).
 
 here = Path(__file__).resolve().parent
 forks = {}
-for name in ("scraper_user_a", "scraper_user_c"):
+for name in ("scraper_user_a", "scraper_user_c", "scraper_user_b"):
     path = here.parent / name / "db.py"
     spec = importlib.util.spec_from_file_location(f"{name}_db", path)
     mod = importlib.util.module_from_spec(spec)
