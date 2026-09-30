@@ -45,12 +45,15 @@ LOCATIONS = ["United States"]
 LINKEDIN_EXPERIENCE_FILTER = "2,3"   # f_E: 2 = Entry level, 3 = Associate (the guest endpoint does not enforce it)
 LOOKBACK_SECONDS = 86400             # 24 h: covers every gap GitHub's scheduler has left (max measured 14.1 h)
 MAX_PAGES_PER_SEARCH = 10            # 100 results; the guest search is not newest-first (scraper/main.py:235-245)
-ALL_DUP_PAGES_TO_STOP = 2            # stop a search after this many consecutive all-duplicate pages
-SEARCH_TIME_BUDGET_S = 25 * 60       # stop starting new searches after this (process clock)
+ALL_DUP_PAGES_TO_STOP = 2            # stop a search after this many consecutive all-duplicate pages (not while
+                                     # main.LI_LEFTOVER_KEY says an earlier run left LinkedIn jobs unstored)
+SEARCH_TIME_BUDGET_S = 25 * 60       # stop starting new searches this long after the LinkedIn pass began
+ATS_SWEEP_BUDGET_S = 10 * 60         # the whole board sweep (76-91 s measured 2026-09-30); later requests refused
 
 # ── Per-run work caps ───────────────────────────────────────────────────────
 # Jobs that reach Claude, per source, per run. Leftovers are simply not stored, so the next run finds them
-# again (LinkedIn: while inside the 24 h window; ATS: while open; jobright: 7-day README window).
+# again (LinkedIn: while inside the 24 h window, paging past stored results; ATS: while open; jobright: 7-day
+# README window).
 MAX_CLASSIFY_PER_RUN = {"ats": 100, "linkedin": 180, "jobright": 100}
 RETRY_PENDING_MAX = 40
 RUN_TIME_BUDGET_S = 48 * 60          # stop starting new jobs after this; workflow timeout is 60, run-lock 75

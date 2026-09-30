@@ -31,6 +31,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import ats_sources
+import config
 import families
 import title_gate
 from ats_boards import ATS_BOARDS
@@ -40,6 +41,38 @@ log = logging.getLogger(__name__)
 
 DUPLICATE_RULE = "duplicate within the sweep"   # another copy of the same company + title (or id) was kept
 SAMPLES_PER_RULE = 40                           # dropped titles kept per rule, for the dry-run report
+_SweepTimeout = requests.exceptions.Timeout     # bound at import: tests swap `requests` for stand-ins
+
+
+class _SweepDeadline:
+    """Stands in for `requests` inside the vendored ats_sources for one sweep.
+
+    ats_sources.fetch_all_listings has no overall deadline, and a Workday board pages sequentially (Micron is
+    about 154 POSTs), so one slow host could hold the whole run. Past the deadline every new request raises at
+    once; each fetcher catches it and keeps what it already has, so the sweep ends within one request timeout
+    of the deadline. ats_sources.py itself stays byte-identical to the main pipeline's.
+    """
+
+    def __init__(self, inner, deadline: float):
+        self.inner = inner
+        self._deadline = deadline
+        self.refused = 0
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def _check(self) -> None:
+        if time.monotonic() >= self._deadline:
+            self.refused += 1
+            raise _SweepTimeout("ATS sweep budget spent")
+
+    def get(self, *args, **kwargs):
+        self._check()
+        return self.inner.get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        self._check()
+        return self.inner.post(*args, **kwargs)
 
 
 def collect_ats_candidates(boards: Optional[dict] = None) -> tuple[list[dict], dict]:
@@ -56,11 +89,14 @@ def collect_ats_candidates(boards: Optional[dict] = None) -> tuple[list[dict], d
 
     stats: boards, boards_with_listings, listings, kept, dropped_by (Counter of rules; listings == kept +
     sum(dropped_by)), dropped_samples ({rule: ["company | title | location", ...]}), kept_by_family,
-    by_board ({company: {"platform", "listings", "kept"}}) and empty_boards (boards that returned no
-    listing: an ATS error, a bad token or an empty board -- ats_sources logs which).
+    by_board ({company: {"platform", "listings", "kept"}}), empty_boards (boards that returned no
+    listing: an ATS error, a bad token or an empty board -- ats_sources logs which) and cut_short (the sweep
+    hit config.ATS_SWEEP_BUDGET_S and refused the rest of its requests; see _SweepDeadline).
     """
     boards = ATS_BOARDS if boards is None else boards
     started = time.monotonic()
+    guard = _SweepDeadline(ats_sources.requests, started + config.ATS_SWEEP_BUDGET_S)
+    ats_sources.requests = guard
     try:
         listings = ats_sources.fetch_all_listings(boards)
     except Exception as exc:  # noqa: BLE001 -- every fetcher is fail-soft; this guards the sweep itself
@@ -68,6 +104,11 @@ def collect_ats_candidates(boards: Optional[dict] = None) -> tuple[list[dict], d
         # that no board returned anything.
         log.error("ATS sweep failed (%s) — no board read this run", type(exc).__name__)
         listings = []
+    finally:
+        ats_sources.requests = guard.inner
+    if guard.refused:
+        log.warning("ATS sweep hit its %d-minute budget: %d request(s) refused; the boards still paging kept what "
+                    "they had", config.ATS_SWEEP_BUDGET_S // 60, guard.refused)
     # fetch_all_listings returns boards in completion order. Board order instead, so which copy of a
     # posting wins and the order of the run's queue do not depend on which host answered first; the sort
     # is stable, so each board keeps its own order.
@@ -130,6 +171,7 @@ def collect_ats_candidates(boards: Optional[dict] = None) -> tuple[list[dict], d
         "kept_by_family": kept_by_family,
         "by_board": by_board,
         "empty_boards": empty,
+        "cut_short": bool(guard.refused),
     }
     log.info("ATS sweep: %d listings from %d/%d boards in %.0f s | kept %d (%s)", stats["listings"],
              stats["boards_with_listings"], stats["boards"], time.monotonic() - started, len(candidates),

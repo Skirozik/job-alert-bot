@@ -345,13 +345,16 @@ check("exit 0: running out of time is normal", code == 0)
 section("(c) LinkedIn pagination")
 
 
-def scan(pages_fn, *, stored=(), terms=("t",), cost=0.0, dry_run=False):
+def scan(pages_fn, *, stored=(), terms=("t",), cost=0.0, dry_run=False, pre=0.0, deep=False):
+    """scan_linkedin alone. `pre` = seconds the run spent before it (the ATS sweep); `deep` = a fresh leftover marker."""
     p = Pipeline(real_db)
     p.linkedin.pages = pages_fn
     p.linkedin.cost_s = cost
     p.db.stored_ids = set(stored)
     with configured(SEARCH_TERMS=list(terms)), p.install(main):
         state = main.RunState(dry_run=dry_run)
+        state.li_deep = deep
+        p.clock.advance(pre)
         jobs = main.scan_linkedin(state)
     return jobs, state, p
 
@@ -383,6 +386,18 @@ jobs, st, p = scan(lambda t, s: page(s, 3), terms=("t1", "t2", "t3", "t4"), cost
 check("the 25-minute search budget stops starting new terms",
       [t for _c, t, _l, _s in p.linkedin.requests] == ["t1", "t2", "t3"] and st.li["skipped_terms"] == ["t4"],
       str([t for _c, t, _l, _s in p.linkedin.requests]))
+jobs, st, p = scan(lambda t, s: page(s, 3), terms=("t1", "t2", "t3"), pre=24 * 60)
+check("...counted from the LinkedIn pass's own start: after a 24-minute ATS sweep every term still runs",
+      [t for _c, t, _l, _s in p.linkedin.requests] == ["t1", "t2", "t3"] and st.li["skipped_terms"] == [],
+      str([t for _c, t, _l, _s in p.linkedin.requests]))
+jobs, st, p = scan(lambda t, s: page(s, 3), terms=("t1", "t2"), pre=main.config.RUN_TIME_BUDGET_S)
+check("...while the run's 48-minute budget still stops new searches",
+      p.linkedin.requests == [] and st.li["skipped_terms"] == ["t1", "t2"] and st.li["terms"] == 2)
+jobs, st, p = scan(lambda t, s: page(s), stored=all_ids, deep=True)
+check("with a fresh leftover marker, all-stored pages do not stop a search: all ten pages are read",
+      [s for *_x, s in p.linkedin.requests] == list(range(0, 100, 10)) and jobs == [])
+jobs, st, p = scan(lambda t, s: "network down")
+check("a search error is counted (a scan with errors is not a complete one)", st.li["errors"] == 1)
 jobs, st, p = scan(lambda t, s: page(0, 3) if s == 0 else [], terms=("t1", "t2"))
 check("the same posting from two terms is new once", len(jobs) == 3 and st.li["total_raw"] == 6)
 check("each new job carries its term, source and gate verdict",
@@ -391,6 +406,73 @@ check("each new job carries its term, source and gate verdict",
 jobs, st, p = scan(lambda t, s: page(s, 10 if s < 20 else 2))
 gaps = [b[0] - a[0] for a, b in zip(p.linkedin.requests, p.linkedin.requests[1:])]
 check("normal pacing between pages is 2.0-3.5 s (lower bound here)", gaps == [2.0, 2.0], str(gaps))
+
+
+section("(c) LinkedIn leftovers are found again by the next runs")
+FOUR_PAGES = lambda term, start: page(start) if start < 40 else []   # noqa: E731  -- 40 new jobs, one term
+
+
+def li_run(prev=None, *, pages=FOUR_PAGES, cap=20, marker=None, setup=None):
+    """A full main.run([]) with one LinkedIn term and nothing else, the database carried over from `prev`."""
+    p = Pipeline(real_db)
+    p.linkedin.pages = pages
+    if prev is not None:
+        p.db.stored_ids = set(prev.db.stored_ids) | {j["id"] for j in prev.db.inserted}
+        p.db.stored_nks = set(prev.db.stored_nks) | {main.make_norm_key(j["company"], j["title"])
+                                                     for j in prev.db.inserted}
+        p.db.rows = dict(prev.db.rows, **{j["id"]: {"id": j["id"], "tier": j["tier"], "status": "new"}
+                                          for j in prev.db.inserted})
+        p.db.state = dict(prev.db.state)
+    if marker is not None:
+        p.db.state[main.LI_LEFTOVER_KEY] = marker
+    if setup:
+        setup(p)
+    with configured(SEARCH_TERMS=["t"], JOBRIGHT_LISTS=[],
+                    MAX_CLASSIFY_PER_RUN={"ats": 100, "linkedin": cap, "jobright": 100}), p.install(main):
+        code = main.run([])
+    return code, p
+
+
+def classified_ids(p):
+    return [d for n, d in p.log if n == "classifier.classify"]
+
+
+def starts(p):
+    return [s for *_x, s in p.linkedin.requests]
+
+
+page_ids = {s: [j["id"] for j in page(s)] for s in range(0, 40, 10)}
+code, run1 = li_run()
+check("run 1: 40 new jobs on four pages, the cap classifies 20 and leaves 20 unstored",
+      code == 0 and classified_ids(run1) == page_ids[0] + page_ids[10]
+      and run1.db.finished[0][1]["leftover"] == 20, str(classified_ids(run1)[:3]))
+check("...and stamps linkedin_leftover_at in bot_state", main.LI_LEFTOVER_KEY in run1.db.state)
+code, run2 = li_run(run1)
+check("run 2: the fresh marker pages past the two all-stored pages to the leftovers",
+      starts(run2)[:4] == [0, 10, 20, 30], str(starts(run2)))
+check("...and classifies exactly the 20 jobs run 1 left behind",
+      classified_ids(run2) == page_ids[20] + page_ids[30], str(classified_ids(run2)[:3]))
+check("...then clears the marker: a complete scan left nothing behind", main.LI_LEFTOVER_KEY not in run2.db.state)
+code, run3 = li_run(run2)
+check("run 3: no marker, so a search stops after two all-stored pages again",
+      starts(run3) == [0, 10] and classified_ids(run3) == [], str(starts(run3)))
+no_marker = Pipeline(real_db)
+no_marker.db.inserted = list(run1.db.inserted)
+code, run2_old = li_run(no_marker)
+check("without the marker (the old behaviour) the leftovers were never reached",
+      starts(run2_old) == [0, 10] and classified_ids(run2_old) == [], str(starts(run2_old)))
+
+stale = (main.datetime.now(main.timezone.utc) - main.timedelta(hours=25)).isoformat()
+code, run_old = li_run(run2, marker=stale)
+check("a marker older than the 24 h window neither deepens the scan nor survives the run",
+      starts(run_old) == [0, 10] and main.LI_LEFTOVER_KEY not in run_old.db.state, str(starts(run_old)))
+fresh = run1.db.state[main.LI_LEFTOVER_KEY]
+code, run_rl = li_run(run1, pages=lambda term, start: page(start) if start < 20 else "rate_limited")
+check("a deep scan cut by a rate limit keeps the marker for the next run",
+      run_rl.db.state.get(main.LI_LEFTOVER_KEY) == fresh and classified_ids(run_rl) == [])
+code, run_fail = li_run(cap=100, setup=lambda p: setattr(p.db, "insert_ok", False))
+check("a LinkedIn job whose write failed stamps the marker too (nothing stored, all 40 unstored)",
+      main.LI_LEFTOVER_KEY in run_fail.db.state and run_fail.db.inserted == [])
 
 
 section("(c) owner alerts: never Brice's topic, never push_job")
@@ -408,6 +490,34 @@ check("...while ATS and jobright are still processed",
       and any(d.startswith("jr:") for n, d in p.log if n == "classifier.classify"))
 check("...and no job ping carries alert text", all(j["id"][:3] in ("ats", "jr:") or j["id"][0].isdigit()
                                                      for j in p.notifier.jobs))
+
+code, p = normal_run(SEARCH_TIME_BUDGET_S=0)
+titles = [t for _m, t, _p in p.notifier.alerts]
+check("a search budget that skips terms -> 'LinkedIn search incomplete' to the owner, not 'returned nothing'",
+      "Brice: LinkedIn search incomplete" in titles and "Brice: LinkedIn returned nothing" not in titles
+      and "alert_at:linkedin_incomplete" in p.db.state, str(titles))
+msg = next((m for m, t, _p in p.notifier.alerts if t == "Brice: LinkedIn search incomplete"), "")
+check("...naming the skipped terms and the ATS sweep's minutes",
+      "2 of 2 terms skipped" in msg and "The ATS sweep took" in msg, msg)
+
+
+def mostly_rate_limited(p):
+    p.linkedin.pages = lambda term, start: ("rate_limited" if term != "term three"
+                                            else [li_job(700 + start, "Junior Network Engineer")])
+
+
+code, p = normal_run(setup=mostly_rate_limited, SEARCH_TERMS=["term one", "term two", "term three"])
+check("more than half the searches rate limited -> the same alert",
+      "Brice: LinkedIn search incomplete" in [t for _m, t, _p in p.notifier.alerts])
+
+
+def ats_slow(p):
+    p.ats_pass.stats = dict(p.ats_pass.stats, cut_short=True)
+
+
+code, p = normal_run(setup=ats_slow)
+check("an ATS sweep cut short by its budget -> 'ATS sweep cut short' to the owner, throttled 24 h",
+      [t for _m, t, _p in p.notifier.alerts] == ["Brice: ATS sweep cut short"] and "alert_at:ats_slow" in p.db.state)
 
 
 def all_fail(p):

@@ -10,8 +10,9 @@ collected first and then processed under per-source caps and a time budget:
                  title_gate.source_gate, then run-level dedup and a DB lookup.
     B. LinkedIn  22 terms x "United States", <=10 pages, per-page DB lookup; a
                  search stops after ALL_DUP_PAGES_TO_STOP consecutive
-                 all-duplicate pages or a partial page; each new title goes
-                 through title_gate.gate().
+                 all-duplicate pages (not while LI_LEFTOVER_KEY is fresh)
+                 or a partial page; each new title goes through
+                 title_gate.gate(). Its own 25-minute budget.
     C. jobright  five README lists (never jobright.ai): conditional GET with
                  the stored ETag, parse, source_gate, dedup.
   PROCESS -- stop starting work at RUN_TIME_BUDGET_S
@@ -20,6 +21,8 @@ collected first and then processed under per-source caps and a time budget:
          already-stored guard -> description -> classify -> store -> ping
     5. retry_pending: PENDING rows parked by earlier runs
     6. jobright ETags saved only for lists that left nothing behind
+    7. LI_LEFTOVER_KEY stamped if LinkedIn jobs were left unstored, cleared
+       after a complete scan that left none
   finish_run(stats), then owner alerts (throttled through bot_state)
 
 ATS first, so the in-run dedup keeps the richest copy of a posting (direct
@@ -91,6 +94,10 @@ FINISH_RUN_KEYS = ("total_raw", "new_jobs", "notified", "rate_limited", "ats_can
 PARKED_REASON = "Awaiting classification — Claude API unavailable when this job was found"
 DOWN_ALERT_KEY = "classifier_down_alert_at"          # also read by retry_pending's recovery notice
 ETAG_KEY_PREFIX = "jobright_etag:"
+# When a run last left LinkedIn jobs unstored (cap, time, a failed write). While it is younger than the 24 h
+# lookback, every search pages past stored results instead of stopping after ALL_DUP_PAGES_TO_STOP of them:
+# a later run sees a search's first pages fully stored and would otherwise never reach the leftovers behind them.
+LI_LEFTOVER_KEY = "linkedin_leftover_at"
 
 _LINKEDIN_PACE = (2.0, 3.5)          # between search pages and searches (scraper/main.py)
 _LINKEDIN_RETRY_PACE = (1.5, 2.5)    # before re-asking for an empty page
@@ -117,10 +124,14 @@ class RunState:
         self.run_seen_nks: set[str] = set()
         self.li_seen_ids: set[str] = set()
         self.li_seen_nks: set[str] = set()
-        self.li = {"searches": 0, "rate_limited": 0, "total_raw": 0, "new": 0, "to_classify": 0,
-                   "prefiltered": Counter(), "skipped_terms": []}
+        self.li = {"searches": 0, "rate_limited": 0, "errors": 0, "total_raw": 0, "new": 0, "to_classify": 0,
+                   "terms": 0, "prefiltered": Counter(), "skipped_terms": []}
+        self.li_marker: Optional[str] = None   # LI_LEFTOVER_KEY as this run found it
+        self.li_deep = False                   # page past stored results (a fresh marker)
+        self.li_unstored = 0                   # LinkedIn jobs this run found and did not store
         self.ats = {"boards": 0, "boards_with_listings": 0, "listings": 0, "kept": 0, "candidates": 0,
-                    "dropped_by": Counter(), "dropped_samples": {}, "by_board": {}}
+                    "dropped_by": Counter(), "dropped_samples": {}, "by_board": {}, "seconds": 0.0,
+                    "cut_short": False}
         self.jobright: dict[str, dict] = {}
         self.used = Counter()          # classify() calls per source (the cap counts these)
         self.leftover = Counter()      # per source: candidates not processed (cap or time), not stored
@@ -182,12 +193,15 @@ def collect_ats(state: RunState) -> list[dict]:
     boards_with_listings, listings, kept and dropped_by (optionally dropped_samples
     and by_board, for the dry-run report).
     """
+    started = _monotonic()
     candidates, stats = ats_pass.collect_ats_candidates()
+    state.ats["seconds"] = _monotonic() - started
     for key in ("boards", "boards_with_listings", "listings", "kept"):
         state.ats[key] = int(stats.get(key) or 0)
     state.ats["dropped_by"] = Counter(stats.get("dropped_by") or {})
     state.ats["dropped_samples"] = dict(stats.get("dropped_samples") or {})
     state.ats["by_board"] = dict(stats.get("by_board") or {})
+    state.ats["cut_short"] = bool(stats.get("cut_short"))
     queue = _new_candidates(state, list(candidates), "ats")
     state.ats["candidates"] = len(queue)
     log.info("ATS: %d listings from %d/%d boards | kept by the gate %d | new %d",
@@ -202,18 +216,25 @@ def _fetch_page(term: str, location: str, start: int):
 
 def scan_linkedin(state: RunState) -> list[dict]:
     """LinkedIn pass (SPEC section 10.2): new postings with job["gate"] = the rule
-    that drops the title, or None when it goes to Claude."""
+    that drops the title, or None when it goes to Claude.
+
+    The search budget runs from this pass's own start, so a slow ATS sweep
+    cannot spend it; RUN_TIME_BUDGET_S still stops new searches. With
+    state.li_deep (a fresh LI_LEFTOVER_KEY) a search is not stopped by
+    all-stored pages, so jobs an earlier run left behind are reached again."""
     pace = _DRY_LINKEDIN_PACE if state.dry_run else _LINKEDIN_PACE
     retry_pace = _DRY_LINKEDIN_PACE if state.dry_run else _LINKEDIN_RETRY_PACE
     terms = list(config.SEARCH_TERMS)
     if state.linkedin_terms:
         terms = terms[:state.linkedin_terms]
     stats = state.li
+    stats["terms"] = len(terms)
     new_jobs: list[dict] = []
     first_request = True
+    search_t0 = _monotonic()
 
     for index, term in enumerate(terms):
-        if state.elapsed() >= config.SEARCH_TIME_BUDGET_S:
+        if _monotonic() - search_t0 >= config.SEARCH_TIME_BUDGET_S or not _time_left(state):
             stats["skipped_terms"] = terms[index:]
             log.warning("Search time budget spent — skipping %d term(s): %s",
                         len(stats["skipped_terms"]), ", ".join(stats["skipped_terms"]))
@@ -236,6 +257,7 @@ def scan_linkedin(state: RunState) -> list[dict]:
                     log.warning("  p%d: rate limited — stopping pagination", page)
                     break
                 if err:
+                    stats["errors"] += 1
                     log.error("  p%d: error — %s", page, err)
                     break
                 if not jobs:
@@ -245,6 +267,8 @@ def scan_linkedin(state: RunState) -> list[dict]:
                     jobs, err = _fetch_page(term, location, start)
                     if err == "rate_limited":
                         stats["rate_limited"] += 1
+                    elif err:
+                        stats["errors"] += 1
                     if err or not jobs:
                         log.info("  p%d: 0 listings on retry too — done", page)
                         break
@@ -274,7 +298,7 @@ def scan_linkedin(state: RunState) -> list[dict]:
 
                 log.info("  p%d (start=%d): %d listings, %d new", page, start, len(jobs), page_new)
                 consecutive_dup = consecutive_dup + 1 if all_dup else 0
-                if consecutive_dup >= config.ALL_DUP_PAGES_TO_STOP:
+                if consecutive_dup >= config.ALL_DUP_PAGES_TO_STOP and not state.li_deep:
                     log.info("  All duplicates in DB — stopping pagination")
                     break
                 if len(jobs) < 10:
@@ -340,11 +364,19 @@ def _time_left(state: RunState) -> bool:
     return state.elapsed() < config.RUN_TIME_BUDGET_S
 
 
+def _unstored(state: RunState, job: dict) -> None:
+    """A job whose write failed: found again by the next run (a LinkedIn one only while LI_LEFTOVER_KEY is fresh)."""
+    if job.get("source") == "linkedin":
+        state.li_unstored += 1
+
+
 def _leave(state: RunState, source: str, jobs: list[dict], why: str) -> None:
     if not jobs:
         return
     state.leftover[source] += len(jobs)
     state.leftover_why[source] = why
+    if source == "linkedin":
+        state.li_unstored += len(jobs)
     for job in jobs:
         if job.get("_list"):
             state.leftover_lists[job["_list"]] += 1
@@ -361,7 +393,8 @@ def store_prefiltered(state: RunState, jobs: list[dict]) -> None:
         log.info("  Pre-filter SKIP (%s)", job["gate"])
         job["tier"] = "INELIGIBLE"
         job["reason"] = f"Pre-filtered: {job['gate']}"
-        db.insert_job(job)
+        if not db.insert_job(job):
+            _unstored(state, job)
 
 
 def _is_workday(url: Optional[str]) -> bool:
@@ -443,7 +476,8 @@ def process_job(job: dict, state: RunState) -> str:
             state.parked[kind] += 1
             log.warning("  Classification FAILED (%s) — parked as PENDING for automatic retry", kind)
         else:
-            log.error("  Classification FAILED (%s) and the park write failed too — job %s is lost",
+            _unstored(state, job)
+            log.error("  Classification FAILED (%s) and the park write failed too — job %s is not stored",
                       kind, job["id"])
         return "parked"
 
@@ -465,6 +499,8 @@ def process_job(job: dict, state: RunState) -> str:
     else:
         stored = db.insert_job(job)
         notify = stored
+        if not stored:
+            _unstored(state, job)
     if job["tier"] in ACTIONABLE and notify and notifier.push_job(job):
         state.pushed += 1
         return "pushed"
@@ -561,8 +597,41 @@ def persist_jobright_etags(state: RunState) -> None:
             db.clear_state(key)
 
 
+def _younger_than(value: Optional[str], seconds: float) -> bool:
+    """True if an ISO timestamp from bot_state is less than `seconds` old. Unreadable -> False."""
+    if not value:
+        return False
+    try:
+        when = datetime.fromisoformat(value)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - when < timedelta(seconds=seconds)
+    except (TypeError, ValueError):
+        return False
+
+
+def read_linkedin_marker(state: RunState) -> None:
+    state.li_marker = db.get_state(LI_LEFTOVER_KEY)
+    state.li_deep = _younger_than(state.li_marker, config.LOOKBACK_SECONDS)
+    if state.li_deep:
+        log.info("LinkedIn jobs were left unstored in the last 24 h — every search pages past stored results")
+
+
+def persist_linkedin_marker(state: RunState) -> None:
+    """Stamp LI_LEFTOVER_KEY when this run left LinkedIn jobs unstored. Clear it once a full deep scan (every
+    term, no rate limit or error) left nothing behind, or once it is too old to matter."""
+    if state.li_unstored:
+        db.set_state(LI_LEFTOVER_KEY, datetime.now(timezone.utc).isoformat())
+        return
+    li = state.li
+    complete = not li["skipped_terms"] and not li["rate_limited"] and not li["errors"]
+    if state.li_marker and (complete or not state.li_deep):
+        db.clear_state(LI_LEFTOVER_KEY)
+
+
 def run_passes(state: RunState) -> None:
     ats_queue = collect_ats(state)
+    read_linkedin_marker(state)
     li_new = scan_linkedin(state)
     jobright_queue = collect_jobright(state)
 
@@ -572,21 +641,14 @@ def run_passes(state: RunState) -> None:
     process_queue(state, "jobright", jobright_queue)
     retry_pending(state)
     persist_jobright_etags(state)
+    persist_linkedin_marker(state)
 
 
 # ── owner alerts ─────────────────────────────────────────────────────────────
 
 def _throttled(key: str, hours: float) -> bool:
-    last = db.get_state(key)
-    if not last:
-        return False
-    try:
-        when = datetime.fromisoformat(last)
-        if when.tzinfo is None:
-            when = when.replace(tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) - when < timedelta(hours=hours)
-    except (TypeError, ValueError):
-        return False            # an unreadable marker alerts rather than stays silent
+    # an unreadable marker alerts rather than stays silent (_younger_than -> False)
+    return _younger_than(db.get_state(key), hours * 3600)
 
 
 def _alert(key: str, hours: float, message: str, title: str, priority: str = "urgent") -> bool:
@@ -631,11 +693,23 @@ def send_alerts(state: RunState) -> None:
                f"{li['rate_limited']}). ATS and jobright still ran. Check whether LinkedIn blocked the runner IP "
                f"or changed its API.",
                title="Brice: LinkedIn returned nothing")
+    elif li["skipped_terms"] or (li["searches"] and 2 * li["rate_limited"] > li["searches"]):
+        _alert("alert_at:linkedin_incomplete", config.ALERT_THROTTLE_HOURS,
+               f"LinkedIn search incomplete: {len(li['skipped_terms'])} of {li['terms']} terms skipped by the time "
+               f"budget, {li['rate_limited']} of {li['searches']} searches rate limited. The ATS sweep took "
+               f"{state.ats['seconds'] / 60:.0f} min. Skipped terms are searched again next run (24 h window).",
+               title="Brice: LinkedIn search incomplete")
 
     if state.ats["boards"] > 0 and state.ats["boards_with_listings"] == 0:
         _alert("alert_at:ats_empty", config.CANARY_THROTTLE_HOURS,
                f"None of the {state.ats['boards']} company boards returned a listing this run.",
                title="Brice: ATS boards returned nothing")
+    elif state.ats["cut_short"]:
+        _alert("alert_at:ats_slow", config.CANARY_THROTTLE_HOURS,
+               f"The ATS sweep hit its {config.ATS_SWEEP_BUDGET_S // 60}-minute budget, so the boards still paging "
+               f"were cut short (their later pages wait for the next run). A board is slow or stuck; the log names "
+               f"the boards with no listings.",
+               title="Brice: ATS sweep cut short")
 
     for name, info in state.jobright.items():
         if info["problems"]:

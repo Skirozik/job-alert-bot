@@ -319,6 +319,35 @@ check("only the listing endpoints were requested: nothing per job, no descriptio
 warnings = [m for m in logs.messages() if "no listings this run" in m]
 check("the log names the board that returned nothing", warnings and warnings[0].endswith(": Broken Board"),
       str(warnings))
+check("a sweep inside its budget is not cut short", stats["cut_short"] is False)
+check("...and gives ats_sources its own `requests` back", ats_sources.requests is requests)
+
+# ─────────────────────────────────────────────────────────────────────────────
+section("collect_ats_candidates: the sweep's own budget (config.ATS_SWEEP_BUDGET_S)")
+clock = testkit.FakeClock()
+
+
+def slow_sweep(boards):
+    """Tailscale answers; then a board pages past the budget, and Kyndryl's first POST is refused."""
+    out = ats_sources.fetch_greenhouse_listings("Tailscale", "tailscale")
+    clock.advance(ats_pass.config.ATS_SWEEP_BUDGET_S + 1)
+    return out + ats_sources.fetch_workday_listings("Kyndryl", "kyndryl:wd5:KyndrylEarlyCareers")
+
+
+rec = Recorded(*RECORDED)
+with rec.installed(), patched(ats_pass, time=clock.as_time_module()), \
+        patched(ats_sources, fetch_all_listings=slow_sweep), captured_logs() as logs:
+    before = ats_sources.requests
+    cands, stats = ats_pass.collect_ats_candidates(BOARDS)
+    restored = ats_sources.requests is before
+check("a request after the budget never leaves: Tailscale's GET went out, Kyndryl's POST did not",
+      rec.calls == [("GET", GH_URL, None)], str(rec.calls))
+check("...the board read in time keeps its rows", {j["company"] for j in cands} == {"Tailscale"}
+      and stats["listings"] == 8, str(stats["listings"]))
+check("...the sweep reports cut_short, and the log says so",
+      stats["cut_short"] is True and any("ATS sweep hit its 10-minute budget" in m for m in logs.messages()))
+check("...and ats_sources gets its own `requests` back", restored)
+check("the budget is 10 minutes, well inside the 48-minute run", ats_pass.config.ATS_SWEEP_BUDGET_S == 600)
 
 # ─────────────────────────────────────────────────────────────────────────────
 section("collect_ats_candidates: one copy per posting; the gate before anything else")

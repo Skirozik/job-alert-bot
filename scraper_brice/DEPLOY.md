@@ -35,11 +35,17 @@ Each run is one process: `scraper_brice/main.py`.
    304 next time.
 
 main.py stops *starting* work after 48 minutes. The workflow timeout is 60 minutes, and the
-run-lock in `scrape_runs` expires after 75.
+run-lock in `scrape_runs` expires after 75. The board sweep has its own 10-minute budget, and the
+LinkedIn searches have 25 minutes counted from their own start, so a slow board cannot eat the
+LinkedIn pass.
 
 Anything past a cap or the time budget is a **leftover**. It is not stored, so the next run finds it
-again: LinkedIn jobs while they are inside the 24 h window, ATS jobs while they are open, jobright
-rows while they are in the README.
+again: ATS jobs while they are open, jobright rows while they are in the README, and LinkedIn jobs
+while they are inside the 24 h window. For LinkedIn that takes one extra step: a search normally
+stops after two pages whose jobs are all stored, and the leftovers sit on the pages behind those. So
+a run that leaves LinkedIn jobs unstored writes `linkedin_leftover_at` to `bot_state`, and while
+that marker is under 24 h old every search pages to its end. A complete run that leaves nothing
+behind clears it.
 
 **Tiers** (from the rubric): `APPLY`, `APPLY_CAVEAT`, `INELIGIBLE`. `PENDING` is a queue state,
 never a verdict, and the dashboard doesn't show it.
@@ -217,7 +223,8 @@ Send him:
   - The 2026-09-30 dry run found 242 ATS and 236 jobright candidates. At 100 per run, each backlog
     drains in about three runs.
   - LinkedIn's first-day volume was not measured, so expect its first run to hit the 180 cap.
-  - LinkedIn leftovers come back only while they are inside the 24 h window.
+  - LinkedIn leftovers come back only while they are inside the 24 h window. Until the backlog is
+    gone, each run pages every search to its end (up to 220 search requests, about 15 minutes).
 - **Cost** (estimates): about 1,200–1,300 one-time classifications, roughly $4–7 at about
   $0.003–0.006 each. After that, about $0.45–1.70 a day.
 - **ntfy** allows a burst of 60 messages, then one every 5 s per IP. The notifier retries a 429
@@ -310,7 +317,7 @@ select id, started_at, finished_at - started_at as took, total_raw, new_jobs, at
        jobright_candidates, classified, failed, leftover, notified, rate_limited
 from scrape_runs order by id desc limit 10;
 
--- Alert throttles and jobright ETags
+-- Alert throttles, jobright ETags and the LinkedIn leftover marker (linkedin_leftover_at)
 select key, value from bot_state order by key;
 ```
 
@@ -330,17 +337,24 @@ The owner gets these on the `NTFY_TOPIC` topic; Brice never does.
 | `Brice: all classifications failed` | ≥ 3 attempted, 0 succeeded, and the classifier was not reported down | 6 h | 0 |
 | `Brice: classifier recovered` | parked jobs classified after a down alert (priority default) | — | 0 |
 | `Brice: LinkedIn returned nothing` | searches ran and returned 0 listings; ATS and jobright still ran | 6 h | 0 |
+| `Brice: LinkedIn search incomplete` | the search budget skipped terms, or more than half the searches were rate limited (the message gives the ATS sweep's minutes too) | 6 h | 0 |
 | `Brice: ATS boards returned nothing` | none of the 26 boards returned a listing | 24 h | 0 |
+| `Brice: ATS sweep cut short` | the sweep hit its 10-minute budget and refused the rest of its requests; a board is slow or stuck | 24 h | 0 |
 | `Brice: jobright <list> list` | HTTP other than 200/304, 0 parsed rows, or > 5 % of link rows unparsed (format drift) | 24 h per list | 0 |
 
 Other signatures in the log:
 
 - `Another run appears to be in progress (<75 min, unfinished) — skipping`: exit 0. A run killed at
   the 60-minute timeout never records `finished_at`, so its lock expires 75 minutes after it started.
-- `Search time budget spent — skipping N term(s): …`: the LinkedIn loop hit its 25-minute budget,
-  so the last terms were skipped.
+- `Search time budget spent — skipping N term(s): …`: the LinkedIn loop hit its 25-minute budget
+  (or the run's 48 minutes), so the last terms were skipped. The owner gets
+  `Brice: LinkedIn search incomplete`.
 - `Leftover <source>: N (cap|time) — next run picks them up`: normal on the first days. If it shows
   up in steady state, see section 8.
+- `LinkedIn jobs were left unstored in the last 24 h — every search pages past stored results`: the
+  `linkedin_leftover_at` marker is fresh, so this run pages every search to its end.
+- `ATS sweep hit its 10-minute budget: …`: a board was still paging at the budget; it kept the pages
+  it had.
 - `ATS boards with no listings this run (an error or an empty board): …`: one board failed or is empty.
 - `ntfy post failed (<type>, status=<code>)`: the ping was not delivered. The job is stored anyway,
   and the ping is not retried later.
