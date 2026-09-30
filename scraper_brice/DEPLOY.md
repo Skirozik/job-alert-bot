@@ -201,9 +201,9 @@ Send him:
    python -X utf8 main.py --dry-run --no-linkedin
    ```
 
-   On 2026-09-30 it finished in 91 s:
-   - ATS: 17,617 listings from 26/26 boards, 242 kept by the gate.
-   - jobright: 73,220 README rows (0 unparsed), 243 kept, 236 after in-run dedup.
+   On 2026-09-30, after the review fixes, it finished in 99 s:
+   - ATS: 17,653 listings from 26/26 boards (about 700 requests), 256 kept by the gate.
+   - jobright: 73,361 README rows (0 unparsed), 248 kept, 239 after in-run dedup.
    - It printed per-source counts, drop counts by rule, and sample titles.
 
    Other flags, valid only with `--dry-run`: `--no-ats`, `--no-jobright`, `--sample N`, and
@@ -229,7 +229,7 @@ Send him:
   possible on day one. jobright rows are title-only, so they arrive silently.
 - **The caps bound each run: 100 ATS, 180 LinkedIn, 100 jobright classifications**, plus up to 200
   PENDING retries.
-  - The 2026-09-30 dry run found 242 ATS and 236 jobright candidates. At 100 per run, each backlog
+  - The 2026-09-30 dry run found 256 ATS and 239 jobright candidates. At 100 per run, each backlog
     drains in about three runs.
   - LinkedIn's first-day volume was not measured, so expect its first run to hit the 180 cap.
   - LinkedIn leftovers come back only while they are inside the 24 h window. Until the backlog is
@@ -247,8 +247,8 @@ The log lines are part of the interface; keep them stable. A healthy run looks l
 
 ```
 === Brice pipeline starting — 22 terms x 1 locations, 5 jobright lists ===
-ATS sweep: 17617 listings from 26/26 boards in 79 s | kept 242 (SALES_SOLUTIONS 110, SECURITY 47, ...)
-ATS: 17617 listings from 26/26 boards | kept by the gate 242 | new 3
+ATS sweep: 17653 listings from 26/26 boards in 86 s | kept 256 (SALES_SOLUTIONS 123, SECURITY 49, ...)
+ATS: 17653 listings from 26/26 boards | kept by the gate 256 | new 3
 Searching: 'associate sales engineer' in United States
   p0 (start=0): 10 listings, 4 new
   p1 (start=10): 10 listings, 0 new
@@ -256,7 +256,7 @@ Searching: 'associate sales engineer' in United States
   All duplicates in DB — stopping pagination
 ...
 Total raw: 1480 | New: 52 | Rate limited: 0/22 searches
-jobright Engineering: HTTP 200 | 7690 rows (0 unparsed, 7690 in window) | kept 199 | new 6
+jobright Engineering: HTTP 200 | 7727 rows (0 unparsed, 7727 in window) | kept 203 | new 6
 jobright Sales: not modified since the last complete read
 ...
 Processing: '<title>' @ <company> [<id>]
