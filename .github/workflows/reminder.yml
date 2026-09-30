@@ -1,0 +1,32 @@
+name: Reminder (ask Brice about sales roles)
+
+# A temporary daily nudge the owner asked for on 2026-09-30, sent to his own
+# ntfy topic. It is not part of any pipeline: disable or delete this file once
+# Brice has answered.
+#
+# 13:30 UTC = 9:30 AM Eastern during EDT, 8:30 AM after the switch to EST
+# (cron does not follow daylight saving). GitHub runs scheduled workflows
+# best-effort, so it can land up to an hour late.
+on:
+  schedule:
+    - cron: '30 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Send reminder
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          test -n "$NTFY_TOPIC" || { echo "NTFY_TOPIC secret is not set"; exit 1; }
+          # The response echoes the topic, so it goes to /dev/null, not the log.
+          curl -fsS \
+            -H "Title: Ask Brice about sales roles" \
+            -H "Priority: high" \
+            -H "Tags: memo" \
+            -d "Should his alerts include early-career tech sales programs, or only technical pre-sales (sales/solutions engineer)? Tell Claude his answer to update his rubric and turn this reminder off." \
+            "https://ntfy.sh/$NTFY_TOPIC" > /dev/null
