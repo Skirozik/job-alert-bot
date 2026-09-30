@@ -362,6 +362,12 @@ if git:
 
     check(f"git ignores {profile_name}, the file the workflow writes", ignored(profile_name))
     check("git ignores .env.user_b", ignored(".env.user_b"))
+    drafts = [f"{profile_name}.bak", "User_B_Candidate_Profile_and_Filters.txt", "scraper_user_b/private_fixtures.json",
+              "user_b_private/brief.md", "rubric_r2_snapshot.md", f"scraper_user_b/{profile_name}"]
+    check("...and the rubric's drafts, copies and private fixtures", all(ignored(d) for d in drafts),
+          str([d for d in drafts if not ignored(d)]))
+    check("...but not the main pipeline's tracked Candidate_Profile_and_Filters.md",
+          not ignored("Candidate_Profile_and_Filters.md"))
     tracked = subprocess.run([git, "-C", str(REPO), "ls-files", "--", profile_name, ".env.user_b"],
                              capture_output=True, text=True).stdout.split()
     check("...and neither file is tracked", not tracked, str(tracked))
