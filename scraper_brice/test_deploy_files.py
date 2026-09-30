@@ -14,7 +14,10 @@ ls-files) when it is installed. What each group protects:
     so the PENDING queue state stores; RLS on every table; no existence guards (running
     it in the wrong project must fail);
   * .env.brice.example names exactly the variables config.py reads, placeholders only;
-  * .gitignore keeps the rubric and .env.brice out of this public repo.
+  * .gitignore keeps the rubric and .env.brice out of this public repo;
+  * DEPLOY.md names the secrets the workflow reads, the dashboard variables
+    web/lib/personas.ts discovers, every owner alert main.py can send, and only
+    command-line flags main.py accepts.
 
 The LinkedIn settings, Python 3.12 grammar, LF endings inside scraper_brice/ and the
 requirements.txt parity that SPEC section 12.10 also lists are checked in test_config.py.
@@ -379,5 +382,41 @@ check("web/lib/__tests__/selectCols.test.mjs checks scraper_brice/schema.sql",
 section("repo-level files are LF")
 crlf = [p.name for p in (WORKFLOW, ENV_EXAMPLE) if b"\r" in p.read_bytes()]
 check("the workflow and .env.brice.example have no CR", not crlf, str(crlf))
+
+
+# ── DEPLOY.md and the dashboard example stay in step with the code ───────────
+
+section("DEPLOY.md matches the code it documents")
+deploy = read(HERE / "DEPLOY.md")
+unnamed = sorted(s for s in secrets_used if s not in deploy)
+check("it names every secret the workflow reads", not unnamed, str(unnamed))
+persona_vars = set(re.findall(r"PERSONA_\$\{upper\}_([A-Z_]+)", read(REPO / "web" / "lib" / "personas.ts")))
+check("web/lib/personas.ts still discovers PASSWORD / SUPABASE_URL / SERVICE_KEY / LABEL / USERNAME",
+      persona_vars == {"PASSWORD", "SUPABASE_URL", "SERVICE_KEY", "LABEL", "USERNAME"}, str(sorted(persona_vars)))
+check("...and DEPLOY.md names each as PERSONA_BRICE_<var>",
+      all(f"PERSONA_BRICE_{v}" in deploy for v in persona_vars))
+main_src = read(HERE / "main.py")
+alert_titles = sorted(set(re.findall(r'title=f?"(Brice: [^"]+)"', main_src)))
+undocumented = [t for t in alert_titles
+                if not re.search("<[^>]+>".join(re.escape(p) for p in re.split(r"\{[^}]*\}", t)), deploy)]
+check(f"it documents all {len(alert_titles)} owner-alert titles main.py can send", len(alert_titles) >= 10 and
+      not undocumented, str(undocumented))
+cli_flags = set(re.findall(r'add_argument\(\s*"(--[a-z-]+)"', main_src))
+unknown_flags = sorted(set(re.findall(r"(?<![\w-])--[a-z][a-z-]+", deploy)) - cli_flags)
+check("every --flag it mentions is one main.py accepts", "--dry-run" in cli_flags and not unknown_flags,
+      str(unknown_flags))
+sql_rules = set(re.findall(r"reason = 'Pre-filtered: ([^']+)'", deploy))
+gate_rules = set(re.findall(r'return "([^"]+)"', read(HERE / "title_gate.py")))
+check("its pre-filter SQL example names a real title_gate rule", sql_rules and sql_rules <= gate_rules,
+      str(sorted(sql_rules - gate_rules)))
+
+section("web/.env.local.example has a placeholder block for this persona")
+web_example = read(REPO / "web" / ".env.local.example")
+block = dict(re.findall(r"^(PERSONA_BRICE_[A-Z_]+)=(.*)$", web_example, re.M))
+check("LABEL, PASSWORD, SUPABASE_URL and SERVICE_KEY, with placeholder values only",
+      block == {"PERSONA_BRICE_LABEL": "Brice", "PERSONA_BRICE_PASSWORD": "",
+                "PERSONA_BRICE_SUPABASE_URL": "https://xxxx.supabase.co",
+                "PERSONA_BRICE_SERVICE_KEY": "sb_secret_..."}, str(sorted(block)))
+check("...and the PERSONA_IDS example lists brice", "# PERSONA_IDS=owner,beyonce,hassan,brice" in web_example)
 
 sys.exit(testkit.finish())
