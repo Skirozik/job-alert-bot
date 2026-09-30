@@ -1,0 +1,878 @@
+{
+ "recorded": "2026-09-30",
+ "note": "Live responses of the three POSTs to kyndryl.wd5.myworkdayjobs.com/wday/cxs/kyndryl/KyndrylEarlyCareers/jobs (offset 0, 20, 40), unmodified. Workday reports total only on the first page (later pages say 0).",
+ "exchanges": [
+  {
+   "method": "POST",
+   "url": "https://kyndryl.wd5.myworkdayjobs.com/wday/cxs/kyndryl/KyndrylEarlyCareers/jobs",
+   "json": {
+    "appliedFacets": {},
+    "limit": 20,
+    "offset": 0,
+    "searchText": ""
+   },
+   "status": 200,
+   "body": {
+    "total": 50,
+    "jobPostings": [
+     {
+      "title": "Cyber Security Penetration Testing Lead (Program Management)",
+      "externalPath": "/job/Budapest-Hungary/Cyber-Security-Penetration-Testing-Lead--Program-Management-_R-68939-2",
+      "locationsText": "Budapest, Hungary",
+      "postedOn": "Posted 2 Days Ago",
+      "remoteType": "Fully Remote",
+      "bulletFields": [
+       "R-68939"
+      ]
+     },
+     {
+      "title": "Manager, Procurement Digital Transformation – Accounts Payable & Purchase Channels",
+      "externalPath": "/job/Sofia-Bulgaria/Manager--Procurement-Digital-Transformation---Accounts-Payable---Purchase-Channels_R-68543-3",
+      "locationsText": "Sofia, Bulgaria",
+      "postedOn": "Posted 2 Days Ago",
+      "remoteType": "Fully Remote",
+      "bulletFields": [
+       "R-68543"
+      ]
+     },
+     {
+      "title": "Apprenticeship - Technical Support",
+      "externalPath": "/job/Bangalore-Karnataka-India/Apprenticeship---Technical-Support_R-69346",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted 2 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-69346"
+      ]
+     },
+     {
+      "title": "HR Operations (Add‑On Services) Specialist",
+      "externalPath": "/job/Budapest-Hungary/HR-Operations--Add-On-Services--Specialist_R-60013-2",
+      "locationsText": "Budapest, Hungary",
+      "postedOn": "Posted 5 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-60013"
+      ]
+     },
+     {
+      "title": "Infrastructure Specialist",
+      "externalPath": "/job/Porto-Salvo-Lisbon-Portugal/Infrastructure-Specialist_R-68910-1",
+      "locationsText": "Porto Salvo, Lisbon, Portugal",
+      "postedOn": "Posted 5 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-68910"
+      ]
+     },
+     {
+      "title": "Design Operations Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Design-Operations-Associate_R-69181-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-69181"
+      ]
+     },
+     {
+      "title": "Associate Experience Strategist",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Associate-Experience-Strategist_R-69092-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-69092"
+      ]
+     },
+     {
+      "title": "UI Design Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/UI-Design-Associate_R-68902-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-68902"
+      ]
+     },
+     {
+      "title": "UX Design Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/UX-Design-Associate_R-68897-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-68897"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program - Associate Visual Designer",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Associate-Visual-Designer_R-66826",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-66826"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program – Sales Operations Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Sales-Operations-Associate_R-67172",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-67172"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program - Associate Creative Technologist",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Associate-Creative-Technologist_R-66763",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-66763"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program – Cybersecurity Engineer",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Cybersecurity-Engineer_R-67304-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-67304"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program – Cybersecurity Defense Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Cybersecurity-Defense-Associate_R-67301-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-67301"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program – Cybersecurity Infrastructure Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Cybersecurity-Infrastructure-Associate_R-67375-2",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-67375"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program – Network Support Associate",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Network-Support-Associate_R-67487-1",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-67487"
+      ]
+     },
+     {
+      "title": "Early Career Consult Program - Associate AI Engineer",
+      "externalPath": "/job/Dallas-USDALFRI-Frisco-AI-HUB/Early-Career-Consult-Program---Associate-AI-Engineer_R-66739",
+      "locationsText": "Dallas (USDALFRI) Frisco AI HUB",
+      "postedOn": "Posted 6 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-66739"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64715-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 12 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64715"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64716-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 12 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64716"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64714-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 12 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64714"
+      ]
+     }
+    ],
+    "facets": [
+     {
+      "facetParameter": "remoteType",
+      "descriptor": "Remote Type",
+      "values": [
+       {
+        "descriptor": "In Person",
+        "id": "b32e24160f341001a343b4175dd20000",
+        "count": 33
+       },
+       {
+        "descriptor": "Partially Remote",
+        "id": "b32e24160f341001a343b54cc16e0000",
+        "count": 14
+       },
+       {
+        "descriptor": "Fully Remote",
+        "id": "b32e24160f341001a343b54cc16e0001",
+        "count": 3
+       }
+      ]
+     },
+     {
+      "facetParameter": "jobFamilyGroup",
+      "descriptor": "Job Category",
+      "values": [
+       {
+        "descriptor": "Technical Specialist Group",
+        "id": "08600430365f101d9ba8535c615b0000",
+        "count": 17
+       },
+       {
+        "descriptor": "Software Engineering Group",
+        "id": "07af781d896b101d9ba3b40f836f0000",
+        "count": 13
+       },
+       {
+        "descriptor": "Design Group",
+        "id": "c4f48076700a101d9baa50b5d6760000",
+        "count": 5
+       },
+       {
+        "descriptor": "Enterprise Operations Group",
+        "id": "275ec09969be101d9b9e961dc7500000",
+        "count": 5
+       },
+       {
+        "descriptor": "Human Resources Group",
+        "id": "899294bdd4cd101d9ba1436d7c530000",
+        "count": 3
+       },
+       {
+        "descriptor": "Consulting",
+        "id": "1e5bde59cd7b101d9ba8d169ae7c0000",
+        "count": 3
+       },
+       {
+        "descriptor": "Customer Management & Sales Group",
+        "id": "5d4574f56a26101d9bada83109950000",
+        "count": 2
+       },
+       {
+        "descriptor": "Project Management Group",
+        "id": "0900d2009f02101d9ba3a148fd1e0000",
+        "count": 1
+       },
+       {
+        "descriptor": "Data Science Group",
+        "id": "9991250c32dd101d9ba972a2d8bc0000",
+        "count": 1
+       }
+      ]
+     },
+     {
+      "facetParameter": "workerSubType",
+      "descriptor": "Job Type",
+      "values": [
+       {
+        "descriptor": "Regular",
+        "id": "06348ac310c7011204c53187b2750000",
+        "count": 45
+       },
+       {
+        "descriptor": "Apprentice (Fixed Term)",
+        "id": "06348ac310c7011204c53c5f95f90000",
+        "count": 4
+       },
+       {
+        "descriptor": "Fixed Term (Fixed Term)",
+        "id": "06348ac310c7011204c5352553f00000",
+        "count": 1
+       }
+      ]
+     },
+     {
+      "facetParameter": "timeType",
+      "descriptor": "Time Type",
+      "values": [
+       {
+        "descriptor": "Full time",
+        "id": "34b304c6b3b8010fbf100f0de1650003",
+        "count": 50
+       }
+      ]
+     },
+     {
+      "facetParameter": "locationMainGroup",
+      "values": [
+       {
+        "facetParameter": "locationCountry",
+        "descriptor": "Location Country",
+        "values": [
+         {
+          "descriptor": "Brazil",
+          "id": "1a29bb1357b240ab99a2fa755cc87c0e",
+          "count": 1
+         },
+         {
+          "descriptor": "Bulgaria",
+          "id": "25f4875dc598484dbeee857eb2d81652",
+          "count": 1
+         },
+         {
+          "descriptor": "Hungary",
+          "id": "9db257f5937e4421b2fac64eec6832f8",
+          "count": 5
+         },
+         {
+          "descriptor": "India",
+          "id": "c4f78be1a8f14da0ab49ce1162348a5e",
+          "count": 10
+         },
+         {
+          "descriptor": "Mexico",
+          "id": "e2adff9272454660ac4fdb56fc70bb51",
+          "count": 15
+         },
+         {
+          "descriptor": "Portugal",
+          "id": "2e8c5034deb045d49315417c347472ca",
+          "count": 2
+         },
+         {
+          "descriptor": "Saudi Arabia",
+          "id": "50423b5190ad49bb89e94cd58dfaad69",
+          "count": 1
+         },
+         {
+          "descriptor": "United Arab Emirates",
+          "id": "7b4fa1f369bd4604ba3692682fcbe345",
+          "count": 1
+         },
+         {
+          "descriptor": "United States of America",
+          "id": "bc33aa3152ec42d4995f4791a106ed09",
+          "count": 14
+         }
+        ]
+       },
+       {
+        "facetParameter": "locations",
+        "descriptor": "Locations",
+        "values": [
+         {
+          "descriptor": "Bangalore, Karnataka, India",
+          "id": "19a4f62fcb191000120e81ce53dc0000",
+          "count": 5
+         },
+         {
+          "descriptor": "Budapest, Hungary",
+          "id": "c404074a0cb6100012187db4f25e0000",
+          "count": 5
+         },
+         {
+          "descriptor": "CIO KPop-Dallas (US152527)",
+          "id": "8cc10374f37510016a6fb701f9370000",
+          "count": 2
+         },
+         {
+          "descriptor": "Dallas (USDALFRI) Frisco AI HUB",
+          "id": "978890d1bd99100151ed389aeb200000",
+          "count": 12
+         },
+         {
+          "descriptor": "Dubai, United Arab Emirates",
+          "id": "e1a4aca257d110001214feb01bdf0000",
+          "count": 1
+         },
+         {
+          "descriptor": "Greater Noida, Uttar Pradesh, India",
+          "id": "83aaee0d07c31000120ef045bc330000",
+          "count": 2
+         },
+         {
+          "descriptor": "Hortolandia, São Paulo, Brazil",
+          "id": "6a4a5b2e72891000120f73fc380b0000",
+          "count": 1
+         },
+         {
+          "descriptor": "Hyderabad, Telangana, India",
+          "id": "87f83995f87010001211ab0c2b4d0000",
+          "count": 4
+         },
+         {
+          "descriptor": "Iselin, NJ, USA",
+          "id": "e1a4aca257d11000121757c16f860000",
+          "count": 1
+         },
+         {
+          "descriptor": "KIN51618 Pune (KIN51618) Regus",
+          "id": "1ffcce1d5e951010a910252387c50000",
+          "count": 2
+         },
+         {
+          "descriptor": "KUS51604 New York (KUS51604) Regus 845 Third Avenue",
+          "id": "67bdb70bf06a10017ab9b300da060000",
+          "count": 1
+         },
+         {
+          "descriptor": "KUS51632 New York (KUS51632) Regus Lexington Avenue",
+          "id": "e1070796eb65100dd3aba58fdfdc0000",
+          "count": 1
+         },
+         {
+          "descriptor": "Lisbon HQ AGEAS (PTLISAGE)",
+          "id": "a0461f3ec7d41000f2fa6c1e990a0000",
+          "count": 1
+         },
+         {
+          "descriptor": "Mexico City, Distrito Federal, Mexico",
+          "id": "83aaee0d07c3100012188c0fd3d50000",
+          "count": 15
+         },
+         {
+          "descriptor": "Mumbai, Maharashtra, India",
+          "id": "c404074a0cb61000120e877ba7ee0000",
+          "count": 1
+         },
+         {
+          "descriptor": "New York, NY, USA",
+          "id": "83aaee0d07c310001216d67deac20000",
+          "count": 1
+         },
+         {
+          "descriptor": "NJ, USA",
+          "id": "7b842fec3d891000a2baa9c37f450000",
+          "count": 1
+         },
+         {
+          "descriptor": "Porto Salvo, Lisbon, Portugal",
+          "id": "6a4a5b2e728910001214e5a0e2a40000",
+          "count": 1
+         },
+         {
+          "descriptor": "Riyadh (KSA51706) Bahrain Tower",
+          "id": "e94247125c231000de956eb46ac90000",
+          "count": 1
+         },
+         {
+          "descriptor": "RMZ TITANIUM",
+          "id": "ac48fcb013311000748bf7d101eb0000",
+          "count": 1
+         },
+         {
+          "descriptor": "Rye Brook, NY, USA",
+          "id": "e1a4aca257d110001218e75c19470000",
+          "count": 1
+         },
+         {
+          "descriptor": "Sao Paulo, Brazil",
+          "id": "6a4a5b2e72891000120f7c6a05070000",
+          "count": 1
+         },
+         {
+          "descriptor": "Sofia, Bulgaria",
+          "id": "6a4a5b2e72891000120f1992284c0000",
+          "count": 1
+         },
+         {
+          "descriptor": "Szekesfehervar, Fejer, Hungary",
+          "id": "9b767095157a1000121f69eb95930000",
+          "count": 2
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "facetParameter": "distance",
+      "descriptor": "Distance",
+      "values": [
+       {
+        "descriptor": "10 miles",
+        "id": "a538cdb60a631000078a2c60ed1700f3",
+        "count": 1
+       },
+       {
+        "descriptor": "25 miles",
+        "id": "a538cdb60a631000078a2c6a410300f4",
+        "count": 1
+       },
+       {
+        "descriptor": "50 miles",
+        "id": "a538cdb60a631000078a2c6eadd300f5",
+        "count": 1
+       },
+       {
+        "descriptor": "100 miles",
+        "id": "a538cdb60a631000078a2c71efcc00f6",
+        "count": 1
+       },
+       {
+        "descriptor": "Any Distance",
+        "id": "a538cdb60a631000078a2c74f73b00f7",
+        "count": 1
+       }
+      ]
+     }
+    ],
+    "userAuthenticated": false
+   }
+  },
+  {
+   "method": "POST",
+   "url": "https://kyndryl.wd5.myworkdayjobs.com/wday/cxs/kyndryl/KyndrylEarlyCareers/jobs",
+   "json": {
+    "appliedFacets": {},
+    "limit": 20,
+    "offset": 20,
+    "searchText": ""
+   },
+   "status": 200,
+   "body": {
+    "total": 0,
+    "jobPostings": [
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64713-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 12 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64713"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64712-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 12 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64712"
+      ]
+     },
+     {
+      "title": "Consult Partner",
+      "externalPath": "/job/Riyadh-KSA51706-Bahrain-Tower/Consult-Partner_R-67189-3",
+      "locationsText": "Riyadh (KSA51706) Bahrain Tower",
+      "postedOn": "Posted 13 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-67189"
+      ]
+     },
+     {
+      "title": "Deployment Technician",
+      "externalPath": "/job/CIO-KPop-Dallas-US152527/Deployment-Technician_R-65461-2",
+      "locationsText": "7 Locations",
+      "postedOn": "Posted 14 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-65461"
+      ]
+     },
+     {
+      "title": "Graduate Program – System Engineer Development",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---System-Engineer-Development_R-63861-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 16 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-63861"
+      ]
+     },
+     {
+      "title": "Software Engineering - Development",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Software-Engineering---Development_R-65548-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 16 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-65548"
+      ]
+     },
+     {
+      "title": "Senior Associate, HR Services",
+      "externalPath": "/job/Szekesfehervar-Fejer-Hungary/Senior-Associate--HR-Services_R-66741-2",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted 19 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-66741"
+      ]
+     },
+     {
+      "title": "Senior Associate, HR Services",
+      "externalPath": "/job/Budapest-Hungary/Senior-Associate--HR-Services_R-66637-1",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted 19 Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-66637"
+      ]
+     },
+     {
+      "title": "Banco de Talentos - Jovem Aprendiz",
+      "externalPath": "/job/Hortolandia-So-Paulo-Brazil/Banco-de-Talentos---Jovem-Aprendiz_R-68642",
+      "locationsText": "2 Locations",
+      "postedOn": "Posted 21 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-68642"
+      ]
+     },
+     {
+      "title": "Secretarial & Compliance Management Trainee",
+      "externalPath": "/job/RMZ-TITANIUM/Secretarial---Compliance-Management-Trainee_R-67135",
+      "locationsText": "RMZ TITANIUM",
+      "postedOn": "Posted 23 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-67135"
+      ]
+     },
+     {
+      "title": "Technical Support Specialist",
+      "externalPath": "/job/Bangalore-Karnataka-India/Technical-Support-Specialist_R-68289",
+      "locationsText": "Bangalore, Karnataka, India",
+      "postedOn": "Posted 27 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-68289"
+      ]
+     },
+     {
+      "title": "Infrastructure Specialist Spanish Language & Technology",
+      "externalPath": "/job/Hyderabad-Telangana-India/Infrastructure-Specialist_R-66948-1",
+      "locationsText": "3 Locations",
+      "postedOn": "Posted 28 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-66948"
+      ]
+     },
+     {
+      "title": "Technical Support Specialist Spanish Language & Technology",
+      "externalPath": "/job/Hyderabad-Telangana-India/Technical-Support-Specialist_R-66949",
+      "locationsText": "3 Locations",
+      "postedOn": "Posted 28 Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-66949"
+      ]
+     },
+     {
+      "title": "Alliance Leader",
+      "externalPath": "/job/Dubai-United-Arab-Emirates/Alliance-Leader_R-66754-3",
+      "locationsText": "Dubai, United Arab Emirates",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-66754"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting_R-65539-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-65539"
+      ]
+     },
+     {
+      "title": "Product Support Engineer",
+      "externalPath": "/job/CIO-KPop-Dallas-US152527/Product-Support-Engineer_R-66838-2",
+      "locationsText": "CIO KPop-Dallas (US152527)",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "Fully Remote",
+      "bulletFields": [
+       "R-66838"
+      ]
+     },
+     {
+      "title": "Technical Support Specialist",
+      "externalPath": "/job/Hyderabad-Telangana-India/Technical-Support-Specialist_R-66776",
+      "locationsText": "Hyderabad, Telangana, India",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-66776"
+      ]
+     },
+     {
+      "title": "Technical Support Specialist",
+      "externalPath": "/job/Bangalore-Karnataka-India/Technical-Support-Specialist_R-66775-1",
+      "locationsText": "Bangalore, Karnataka, India",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-66775"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64708-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64708"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64711-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64711"
+      ]
+     }
+    ],
+    "facets": [],
+    "userAuthenticated": false
+   }
+  },
+  {
+   "method": "POST",
+   "url": "https://kyndryl.wd5.myworkdayjobs.com/wday/cxs/kyndryl/KyndrylEarlyCareers/jobs",
+   "json": {
+    "appliedFacets": {},
+    "limit": 20,
+    "offset": 40,
+    "searchText": ""
+   },
+   "status": 200,
+   "body": {
+    "total": 0,
+    "jobPostings": [
+     {
+      "title": "Graduate Program – Application Consulting ",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting-_R-64709",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64709"
+      ]
+     },
+     {
+      "title": "Software Engineering - Development",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Software-Engineering---Development_R-61780-2",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-61780"
+      ]
+     },
+     {
+      "title": "Graduate Program - Systems Administration- Technical Specialist",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Systems-Administration--Technical-Specialist_R-65540-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-65540"
+      ]
+     },
+     {
+      "title": "Technical Support Specialist",
+      "externalPath": "/job/Bangalore-Karnataka-India/Technical-Support-Specialist_R-63980",
+      "locationsText": "Bangalore, Karnataka, India",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-63980"
+      ]
+     },
+     {
+      "title": "Apprenticeship – Technical Support",
+      "externalPath": "/job/Mumbai-Maharashtra-India/Apprenticeship---Technical-Support_R-64180",
+      "locationsText": "Mumbai, Maharashtra, India",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-64180"
+      ]
+     },
+     {
+      "title": "Project Specialist",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Project-Specialist_R-65804-1",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-65804"
+      ]
+     },
+     {
+      "title": "Associate I/T Cloud Consulting",
+      "externalPath": "/job/Lisbon-HQ-AGEAS-PTLISAGE/Associate-I-T-Cloud-Consulting_R-61893",
+      "locationsText": "Lisbon HQ AGEAS (PTLISAGE)",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-61893"
+      ]
+     },
+     {
+      "title": "Graduate Program – Application Consulting",
+      "externalPath": "/job/Mexico-City-Distrito-Federal-Mexico/Graduate-Program---Application-Consulting_R-65274-2",
+      "locationsText": "Mexico City, Distrito Federal, Mexico",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-65274"
+      ]
+     },
+     {
+      "title": "Penetration Tester",
+      "externalPath": "/job/Budapest-Hungary/Penetration-Tester_R-64210-2",
+      "locationsText": "Budapest, Hungary",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "Partially Remote",
+      "bulletFields": [
+       "R-64210"
+      ]
+     },
+     {
+      "title": "Cloud Operations Centre – NetSec Engineer",
+      "externalPath": "/job/Bangalore-Karnataka-India/Cloud-Operations-Centre---NetSec-Engineer_R-58578-2",
+      "locationsText": "Bangalore, Karnataka, India",
+      "postedOn": "Posted 30+ Days Ago",
+      "remoteType": "In Person",
+      "bulletFields": [
+       "R-58578"
+      ]
+     }
+    ],
+    "facets": [],
+    "userAuthenticated": false
+   }
+  }
+ ]
+}
