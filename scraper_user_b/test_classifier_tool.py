@@ -18,8 +18,9 @@ import types  # noqa: E402
 import anthropic  # noqa: E402
 
 import classifier  # noqa: E402
-from testkit import captured_logs, check, sdk_error, section  # noqa: E402
+from testkit import captured_logs, check, patched, sdk_error, section  # noqa: E402
 
+REAL_GET_CLIENT = classifier._get_client      # the tests below replace it with stubs
 TOOL = classifier._CLASSIFY_TOOL
 PROPS = TOOL["input_schema"]["properties"]
 TIER_TEXT = PROPS["tier"]["description"]
@@ -178,6 +179,69 @@ REGEXES = ("_US_STATE_RE", "_US_WORD_RE", "_FOREIGN_RE")
 fork_src = (testkit.HERE / "classifier.py").read_text(encoding="utf-8")
 check("the three location regexes are byte-identical to scraper/classifier.py's",
       assignments(fork_src, REGEXES) == assignments(main_src, REGEXES) and len(assignments(fork_src, REGEXES)) == 3)
+
+section("override: non-US -- U.S. places spelled out (this fork's boards and lists)")
+SPELLED_US = ["Vienna, Virginia", "Dublin, Ohio", "Cambridge, Massachusetts", "Albuquerque, New Mexico", "Paris, Texas",
+              "London, Kentucky", "Manchester, New Hampshire", "Melbourne, Florida", "Waterloo, Iowa",
+              "Hybrid - San Francisco, New York City, London, Berlin", "Hybrid - San Francisco, London, Berlin",
+              "3627 Denmark Dr Ste 200, Council Bluffs, Iowa", "9935 Coors BLVD NW, Albuquerque, New Mexico",
+              "Bellevue, Washington; Chicago, Illinois; Toronto, Ontario, Canada", "Chicago, New York, London"]
+wrong = [loc for loc in SPELLED_US if verdict(loc)["tier"] != "APPLY"]
+check(f"{len(SPELLED_US) - len(wrong)}/{len(SPELLED_US)} U.S. locations the old test forced INELIGIBLE keep their tier",
+      not wrong, str(wrong))
+STILL_FOREIGN = ["Hyderabad - Phoenix Equinox Tower 2", "Toronto, ON, Canada", "Washington, England, United Kingdom",
+                 "Tijuana, Baja California, Mexico", "Remote - Mexico", "London", "Ariana, Ariana, Tunisia",
+                 "Kuwait City, Kuwait", "Quito, Ecuador", "Remote - United Arab Emirates"]
+wrong = [loc for loc in STILL_FOREIGN if verdict(loc)["tier"] != "INELIGIBLE"]
+check(f"{len(STILL_FOREIGN) - len(wrong)}/{len(STILL_FOREIGN)} foreign locations are still INELIGIBLE "
+      "(a building named after a U.S. city is not one; this fork's extra countries count)", not wrong, str(wrong))
+check("...naming the place from the extra list", verdict("Ariana, Ariana, Tunisia")["reason"]
+      == "Overridden: based in Tunisia with no US or US-remote option stated.")
+
+section("override: family net -- I-5 on an in-family title becomes APPLY_CAVEAT")
+JUMP = {"id": "ats:jump", "title": "Campus Systems Engineer (Full-Time)", "company": "Jump Trading",
+        "location": "Chicago", "description": "d" * 600}
+
+
+def net(title, reason, tier="INELIGIBLE", company="Jump Trading", location="Chicago"):
+    use(tool_reply(tier=tier, reason=reason))
+    return classifier.classify({**JUMP, "title": title, "company": company, "location": location})
+
+
+r = net("Campus Systems Engineer (Full-Time)", "I-5: software development role; requires Python and shell scripting.")
+check("Jump's 'Campus Systems Engineer' flagged I-5 -> APPLY_CAVEAT with the verify reason",
+      r["tier"] == "APPLY_CAVEAT" and r["reason"] == classifier.FAMILY_NET_REASON, str(r))
+check("...a caveat under 12 words (the rubric's APPLY_CAVEAT rule)", len(classifier.FAMILY_NET_REASON.split()) < 12)
+check("'I-5' wrapped in markdown still counts", net("Associate Network Engineer", "**I-5**: not IT")["tier"] == "APPLY_CAVEAT")
+KEEP_INELIGIBLE = [
+    ("IT Associate Software Engineer (Hybrid)", "I-5: software development role.", "a software role noun"),
+    ("Associate Construction Engineer - Power Infrastructure", "I-5: construction engineering.", "no target family"),
+    ("Help Desk Analyst", "I-5: help desk.", "the help-desk subfamily (owner floor)"),
+    ("Associate Network Engineer", "I-1: requires 3+ years.", "another numbered block"),
+    ("Associate Network Engineer", "Software development role (I-5).", "a reason that does not start with I-5"),
+]
+for title, reason, why in KEEP_INELIGIBLE:
+    r = net(title, reason)
+    check(f"stays INELIGIBLE: {why} ({title!r})", r["tier"] == "INELIGIBLE" and r["reason"] == reason, str(r))
+check("an APPLY is never touched by the net", net("Help Desk Analyst", "fit", tier="APPLY")["tier"] == "APPLY")
+r = net("Campus Systems Engineer (Full-Time)", "I-5: software development role.", location="London, UK")
+check("runs before the non-US override: a foreign I-5 in-family title still ends INELIGIBLE (non-US)",
+      r["tier"] == "INELIGIBLE" and r["reason"].startswith("Overridden: based in"), str(r))
+
+section("the client: an explicit per-request timeout")
+made = []
+
+
+class RecordingAnthropic:
+    def __init__(self, **kwargs):
+        made.append(kwargs)
+
+
+with patched(classifier, anthropic=types.SimpleNamespace(Anthropic=RecordingAnthropic),
+             ANTHROPIC_API_KEY="key-under-test", _client=None):
+    REAL_GET_CLIENT()
+check("the Anthropic client is built with timeout=60 s (the SDK default is 600 s per attempt)",
+      made == [{"api_key": "key-under-test", "timeout": 60.0}], str([sorted(k) for k in made]))
 
 section("override: title-only cap (runs last)")
 r = verdict("Remote - US", description=None)

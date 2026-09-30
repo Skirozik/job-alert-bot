@@ -420,6 +420,31 @@ def _us_outranks_foreign(pl: str) -> bool:
     return not countries and bool(_US_PLACE_RE.search(pl) or re.search(r"(?<![a-z.])us(?![a-z])", pl))
 
 
+# Leading work-model words in a segment ("Hybrid - San Francisco").
+_SEGMENT_PREFIX_RE = re.compile(r"^(?:hybrid|remote|on[\s-]?site|in[\s-]?office)\s*[-–:]\s*")
+
+
+def names_us_location(location: str) -> bool:
+    """For classifier.py's non-US override: does some part of the location name a U.S. state in full ("Vienna,
+    Virginia", "Albuquerque, New Mexico"), not followed by a foreign country, or -- when no foreign country is named
+    -- a U.S. city standing as a whole comma-separated segment ("Chicago, New York, London", "Hybrid - San
+    Francisco, London, Berlin")? The override already honours state CODES; this adds the spelled-out forms the ATS
+    boards and jobright use. Stricter than is_us() about cities, so a building named after one ("Hyderabad -
+    Phoenix Equinox Tower 2") is still foreign."""
+    for part in re.split(r"\s*(?:\||;|/| or |\n|•)\s*", location or ""):
+        pl = part.lower().strip()
+        if not pl:
+            continue
+        countries = [c.start() for c in _FOREIGN_COUNTRY_RE.finditer(pl)]
+        states = [m.end() for m in _STATE_NAME_RE.finditer(pl) if not pl[:m.start()].endswith("baja ")]
+        if states and not any(c >= max(states) for c in countries):
+            return True
+        if not countries and any(_US_PLACE_RE.fullmatch(_SEGMENT_PREFIX_RE.sub("", seg.strip()))
+                                 for seg in pl.split(",")):
+            return True
+    return False
+
+
 def _part_is_us(p: str) -> bool | None:
     pl = p.lower()
     # An explicit U.S. country token wins inside a part ("Remote - USA, CAN, MEX").

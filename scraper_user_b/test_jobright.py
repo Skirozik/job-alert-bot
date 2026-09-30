@@ -645,7 +645,7 @@ motorola = next(j for j in results["Engineering"][0] if j["company"] == "Motorol
 verdicts = {}
 with patched(classifier, _profile="PROFILE PLACEHOLDER", _API_HARD_DOWN=None,
              time=types.SimpleNamespace(sleep=lambda s: None)):
-    for tier, reason in (("APPLY", "fit"), ("APPLY_CAVEAT", "asks for a CCNA"), ("INELIGIBLE", "I-5: sales quota role")):
+    for tier, reason in (("APPLY", "fit"), ("APPLY_CAVEAT", "asks for a CCNA"), ("INELIGIBLE", "I-4: sales quota role")):
         with patched(classifier, _get_client=lambda t=tier, r=reason: stub_client(t, r)):
             verdicts[tier] = classifier.classify(dict(motorola))
 prompt = calls[0]["messages"][0]["content"] if calls else ""
@@ -658,7 +658,7 @@ check("APPLY on the title alone becomes APPLY_CAVEAT (a silent ping)",
       and verdicts["APPLY"]["reason"] == "Title-only: no description available — check the posting")
 check("APPLY_CAVEAT and INELIGIBLE are left as the model gave them",
       (verdicts["APPLY_CAVEAT"]["tier"], verdicts["APPLY_CAVEAT"]["reason"]) == ("APPLY_CAVEAT", "asks for a CCNA")
-      and (verdicts["INELIGIBLE"]["tier"], verdicts["INELIGIBLE"]["reason"]) == ("INELIGIBLE", "I-5: sales quota role"))
+      and (verdicts["INELIGIBLE"]["tier"], verdicts["INELIGIBLE"]["reason"]) == ("INELIGIBLE", "I-4: sales quota role"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
