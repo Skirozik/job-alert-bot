@@ -28,9 +28,12 @@ EXPECTED_TERMS = [
     "associate network engineer", "data center network engineer", "junior systems administrator",
     "endpoint engineer", "cloud support engineer", "technical support engineer", "SOC analyst",
     "junior cybersecurity analyst", "associate security engineer", "infrastructure engineer",
+    "sales development representative", "business development representative",
 ]
-check("22 search terms, in priority order", config.SEARCH_TERMS == EXPECTED_TERMS)
-check("...all distinct", len({t.lower() for t in config.SEARCH_TERMS}) == 22)
+check("24 search terms, in priority order", config.SEARCH_TERMS == EXPECTED_TERMS)
+check("...all distinct", len({t.lower() for t in config.SEARCH_TERMS}) == 24)
+check("...the sales searches run last, after every engineering search",
+      [i for i, t in enumerate(config.SEARCH_TERMS) if "engineer" not in t and "development" in t] == [22, 23])
 check("...none below the engineer floor (no technician / help desk term)",
       not any(w in t.lower() for t in config.SEARCH_TERMS for w in ("technician", "help desk", "desktop support")))
 check("one location: the whole United States", config.LOCATIONS == ["United States"])
@@ -49,7 +52,7 @@ check("200 PENDING retries per run: a full run parked in an outage drains in two
       and 2 * config.RETRY_PENDING_MAX >= sum(config.MAX_CLASSIFY_PER_RUN.values()))
 check("run budget 48 min, under the 60-min workflow timeout", config.RUN_TIME_BUDGET_S == 48 * 60 < 60 * 60)
 check("the search budget is inside the run budget", config.SEARCH_TIME_BUDGET_S < config.RUN_TIME_BUDGET_S)
-check("pure sales dropped at the gate until the owner hears back", config.DROP_PURE_SALES is True)
+check("entry-level tech sales reach the rubric (Brice opted in 2026-10-03)", config.DROP_PURE_SALES is False)
 check("alert throttles: 6 h, canaries 24 h", config.ALERT_THROTTLE_HOURS == 6 and config.CANARY_THROTTLE_HOURS == 24)
 
 section("jobright lists: README fields only")
