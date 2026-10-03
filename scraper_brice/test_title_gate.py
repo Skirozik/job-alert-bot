@@ -70,11 +70,21 @@ MUST_PASS = [
     "Endpoint Manager Engineer I", "Configuration Manager (SCCM) Engineer - Entry Level",
     # a support phrase in parentheses beside an administrator role noun is left to the rubric (I-3, by duties)
     "Network Administrator (Network + Desktop Support)",
+    # entry-level tech sales (Brice opted in 2026-10-03; whether the seller is a tech company is the rubric's call)
+    "Account Executive", "Associate Account Executive", "Sales Development Representative",
+    "Business Development Representative", "Account Executive - New Grad",
+    "Sales Development Representative (New Grad 2027)", "(New Grad) Account Development Representative II - Phoenix",
+    "Associate Account Manager", "Associate Account Executive, Enterprise",
+    "Business Development Representative, Enterprise",          # an SDR for the enterprise team is entry level
+    "Account Executive, Restaurants", "SDR - Automotive",         # a SaaS seller's vertical, not what is sold
 ]
 
 SENIOR = "seniority/leadership title"
 LEVEL = "level II+/2+ title"
 SALES = "pure-sales title (AE/SDR/BDR/account manager)"
+NONTECH = "non-technology sales title"
+SEGMENT = "senior-segment account title (enterprise/strategic/named/major/key/global)"
+ACCT_MGR = "account manager without an entry marker"
 DESK = "below the engineer floor (help desk/service desk/desktop support)"
 TECH = "below the engineer floor (technician)"
 TAM = "technical account manager without an entry marker"
@@ -106,12 +116,11 @@ MUST_DROP = [
     ("SOC Analyst, Tier II", LEVEL), ("Network Engineer III", LEVEL), ("Systems Administrator Level 3", LEVEL),
     ("Security Analyst L2", LEVEL), ("Network Engineer 3", LEVEL), ("Technology Risk Analyst Associate-2", LEVEL),
     ("L2 Network Engineer", LEVEL),                    # a level: "network" is not a layer-2 technology
-    # pure sales (technical pre-sales only, while config.DROP_PURE_SALES holds)
-    ("Account Executive", SALES), ("Enterprise Account Executive", SALES), ("Associate Account Executive", SALES),
-    ("Sales Development Representative", SALES), ("Business Development Representative", SALES),
-    ("Account Manager", SALES), ("Account Executive - New Grad", SALES),
-    ("Sales Development Representative (New Grad 2027)", SALES),
-    ("(New Grad) Account Development Representative II - Phoenix", SALES),
+    # sales that is not entry-level tech sales: a non-tech product, a senior account segment, a plain account manager
+    ("Retail Sales Associate", NONTECH), ("Insurance Sales Agent - Peoria, IL", NONTECH),
+    ("Automotive Salesperson", NONTECH), ("Account Executive - Retirement 401(k) Services", NONTECH),
+    ("Enterprise Account Executive", SEGMENT), ("Account Executive (Enterprise) - West Region", SEGMENT),
+    ("Key Account Manager", SEGMENT), ("Account Manager", ACCT_MGR), ("Inside Account Manager", ACCT_MGR),
     # engineer-level floor: help desk / service desk / desktop support never pass ...
     ("Help Desk Associate", DESK), ("IT Support Specialist I", DESK), ("Help Desk Technician - New Grad", DESK),
     ("Desktop Support Engineer", DESK), ("Service Desk Analyst", DESK),
@@ -129,7 +138,7 @@ MUST_DROP = [
 
 section("fixture lists")
 drop_titles = [t for t, _ in MUST_DROP]
-check("92 must-pass and 70 must-drop titles", len(MUST_PASS) == 92 and len(MUST_DROP) == 70,
+check("104 must-pass and 70 must-drop titles", len(MUST_PASS) == 104 and len(MUST_DROP) == 70,
       f"{len(MUST_PASS)} / {len(MUST_DROP)}")
 check("no duplicates inside either list",
       len(set(MUST_PASS)) == len(MUST_PASS) and len(set(drop_titles)) == len(drop_titles))
@@ -146,7 +155,8 @@ check(f"must-drop {len(MUST_DROP) - len(wrong)}/{len(MUST_DROP)} with the expect
       "; ".join(f"{t!r}: want {w!r}, got {g!r}" for t, w, g in wrong))
 rules_seen = {want for _, want in MUST_DROP}
 check("every rule the gate can return is pinned by at least one fixture",
-      rules_seen == {SENIOR, LEVEL, SALES, DESK, TECH, TAM, ARCH, INTERN}, str(rules_seen))
+      rules_seen | {SALES} == {SENIOR, LEVEL, SALES, NONTECH, SEGMENT, ACCT_MGR, DESK, TECH, TAM, ARCH, INTERN},
+      str(rules_seen))                                     # SALES: pinned under the kill switch below
 
 section("rule precedence")
 check("internship beats everything ('Senior Sales Engineer Intern' is an internship)",
@@ -160,18 +170,35 @@ check("an engineer role rescues a technician title ('Network Technician/Engineer
 check("'Inside Sales Engineer' is technical, not pure sales", title_gate.gate("Inside Sales Engineer") is None)
 check("'Technical Sales Representative' carries a technical marker", title_gate.gate("Technical Sales Representative") is None)
 
-section("DROP_PURE_SALES = False (if the owner opts pure sales in)")
-title_gate.DROP_PURE_SALES = False
+check("'Senior Account Executive' drops for seniority", title_gate.gate("Senior Account Executive") == SENIOR)
+check("'Senior Associate Account Manager': the account noun is not a manager, but 'Senior' still is",
+      title_gate.gate("Senior Associate Account Manager") == SENIOR)
+check("'Associate Technical Account Manager' still goes through the TAM rule",
+      title_gate.gate("Associate Technical Account Manager") is None and title_gate.gate("Technical Account Manager") == TAM)
+check("a sales ENGINEER is never a sales title ('Retail Sales Engineer' reaches the rubric)",
+      title_gate.gate("Retail Sales Engineer") is None)
+
+section("DROP_PURE_SALES = True (the kill switch)")
+KILLED = ["Account Executive", "Associate Account Executive", "Sales Development Representative",
+          "Business Development Representative", "Account Executive - New Grad",
+          "Sales Development Representative (New Grad 2027)", "(New Grad) Account Development Representative II - Phoenix",
+          "Associate Account Manager", "Enterprise Account Executive", "Account Manager"]
+title_gate.DROP_PURE_SALES = True
 try:
-    check("'Account Executive' passes", title_gate.gate("Account Executive") is None)
-    check("'Sales Development Representative' passes", title_gate.gate("Sales Development Representative") is None)
-    check("'Help Desk Technician' still drops (the floor is not a sales rule)",
+    check("every AE / SDR / BDR / account-manager title drops as pure sales",
+          all(title_gate.gate(t) == SALES for t in KILLED), str([(t, title_gate.gate(t)) for t in KILLED]))
+    check("'Help Desk Technician' still drops by the floor (not a sales rule)",
           title_gate.gate("Help Desk Technician") == DESK)
-    check("'Senior Account Executive' still drops for seniority",
-          title_gate.gate("Senior Account Executive") == SENIOR)
+    check("'Associate Sales Engineer' still passes", title_gate.gate("Associate Sales Engineer") is None)
 finally:
-    title_gate.DROP_PURE_SALES = True
-check("restored: 'Account Executive' drops again", title_gate.gate("Account Executive") == SALES)
+    title_gate.DROP_PURE_SALES = False
+check("restored: 'Account Executive' passes again", title_gate.gate("Account Executive") is None)
+
+section("is_sales_title (sales queue behind every engineering title)")
+for t, want in [("Sales Development Representative", True), ("Account Manager", True), ("Salesperson", True),
+                ("Sales Rotation Program", True), ("Sales Engineer", False), ("Presales Solutions Consultant", False),
+                ("Technical Sales Representative", False), ("Network Engineer", False), ("", False), (None, False)]:
+    check(f"is_sales_title({t!r}) is {want}", title_gate.is_sales_title(t) is want)
 
 section("is_entry_marked (queue ordering and the TAM / architect rescues)")
 for t, want in [("Associate Sales Engineer", True), ("Junior Network Engineer", True), ("Network Engineer I", True),

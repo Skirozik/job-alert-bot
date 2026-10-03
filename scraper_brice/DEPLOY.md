@@ -1,8 +1,9 @@
 # Deploying the Brice pipeline
 
 A full-time, entry-level job search for Brice: technical pre-sales (sales and solutions
-engineering), network and infrastructure, and the adjacent IT-engineering families, anywhere
-in the United States. It runs on GitHub Actions (`.github/workflows/scrape_brice.yml`), has its
+engineering), network and infrastructure, the adjacent IT-engineering families, and, ranked
+last, entry-level technology sales (SDR / BDR / AE and sales programs), anywhere in the
+United States. It runs on GitHub Actions (`.github/workflows/scrape_brice.yml`), has its
 own Supabase project and ntfy topic, and shows up on the shared dashboard as its own login.
 
 This runbook was written from the code on this branch. The other two forks' `DEPLOY.md`
@@ -22,8 +23,8 @@ step alerts the owner if `main.py` never ran or the run was cancelled or timed o
 | Order | Source | What it reads | Filter before Claude |
 |---|---|---|---|
 | A | 26 company career boards (`ats_boards.py`) | Greenhouse / Ashby / Workday public APIs, via the vendored `ats_sources.py` | `title_gate.source_gate`: U.S. location, a target family or an early-career program, and the title gate |
-| B | LinkedIn guest search | 22 terms × `United States`, 24 h window, `f_E=2,3`, up to 10 pages per term | `title_gate.gate`: internships, pure sales, the engineer floor (help desk / desktop support / technician), seniority, level II+, architects other than solutions architects, TAM titles without an entry marker |
-| C | jobright-ai new-grad lists | 5 READMEs on `raw.githubusercontent.com` (Engineering, Sales, Software-Engineer, Consultant, and Support, where a support-type title is kept only if it is a support-*engineer* title; solutions, network and IT-systems titles are kept as on any list) | `source_gate` (family only) and a 10-day age limit. jobright.ai itself is never requested |
+| B | LinkedIn guest search | 24 terms × `United States`, 24 h window, `f_E=2,3`, up to 10 pages per term | `title_gate.gate`: internships, sales titles that name a non-tech product or a senior account segment, account managers without an entry marker, the engineer floor (help desk / desktop support / technician), seniority, level II+, architects other than solutions architects, TAM titles without an entry marker |
+| C | jobright-ai new-grad lists | 5 READMEs on `raw.githubusercontent.com` (Engineering, Sales, Software-Engineer, Consultant, and Support, where a support-type title is kept only if it is a support-*engineer* title; solutions, network and IT-systems titles are kept as on any list) | `source_gate` (family only; a sales title must name a track -- SDR/BDR, AE, account manager or a program -- since a plain "Sales Associate" there is almost always a store) and a 10-day age limit. jobright.ai itself is never requested |
 
 **Process**, in this order:
 
@@ -246,7 +247,7 @@ Send him:
 The log lines are part of the interface; keep them stable. A healthy run looks like this:
 
 ```
-=== Brice pipeline starting — 22 terms x 1 locations, 5 jobright lists ===
+=== Brice pipeline starting — 24 terms x 1 locations, 5 jobright lists ===
 ATS sweep: 17653 listings from 26/26 boards in 86 s | kept 256 (SALES_SOLUTIONS 123, SECURITY 49, ...)
 ATS: 17653 listings from 26/26 boards | kept by the gate 256 | new 3
 Searching: 'associate sales engineer' in United States
@@ -255,7 +256,7 @@ Searching: 'associate sales engineer' in United States
   p2 (start=20): 10 listings, 0 new
   All duplicates in DB — stopping pagination
 ...
-Total raw: 1480 | New: 52 | Rate limited: 0/22 searches
+Total raw: 1480 | New: 52 | Rate limited: 0/24 searches
 jobright Engineering: HTTP 200 | 7727 rows (0 unparsed, 7727 in window) | kept 203 | new 6
 jobright Sales: not modified since the last complete read
 ...
@@ -384,20 +385,27 @@ Other signatures in the log:
   (0 of 147) kept nothing. Micron costs about 154 requests per run and kept 8. These are the first
   candidates for removal if a week of runs agrees. Remove a board in `ats_boards.py`, and update its
   `assert len(ATS_BOARDS) == 26` together with `test_ats_pass.py`, which pins the count.
-- **Rate limits.** If `Rate limited: N/22` is often above 0, set `ALL_DUP_PAGES_TO_STOP` back to 1
+- **Rate limits.** If `Rate limited: N/24` is often above 0, set `ALL_DUP_PAGES_TO_STOP` back to 1
   (config.py).
-- **Sales scope.** When Brice answers the sales-scope question, disable
-  `.github/workflows/reminder.yml` either way, as its header asks. What `DROP_PURE_SALES = False`
-  (config.py; `test_config.py` pins it) does on its own is narrow:
-  - LinkedIn: AE/SDR/BDR and account-manager titles pass `title_gate.gate`, but none of the 22
-    search terms is a sales term, so few would arrive. Add sales terms to `SEARCH_TERMS` (and
-    `EXPECTED_TERMS` in `test_config.py`).
-  - Company boards: sales-program titles ("Sales Development Program") pass as `PROGRAM`.
-  - Plain AE/SDR/BDR titles from the boards and from jobright are still dropped. The family filter's
-    `NON_TECH_ROLE` in `families.py` excludes them whatever the flag says, and jobright has no
-    program pass-through. Including them needs a sales family in `families.py` and
-    `title_gate.ALLOWED_FAMILIES`.
-  - Then move rubric rule I-4 to `APPLY_CAVEAT` or delete it, and re-upload `BRICE_PROFILE_MD`.
+- **Sales scope (decided 2026-10-03).** Brice answered "early tech sales programs and technical
+  presales"; the owner widened it to all entry-level tech sales. In place:
+  - `config.DROP_PURE_SALES = False`. Setting it back to `True` is the kill switch: every
+    selling title drops at the gate again and nothing else changes (`test_families.py` and
+    `test_title_gate.py` pin both settings).
+  - LinkedIn: two sales terms, last in `SEARCH_TERMS`. They were the only sales searches whose
+    results were mostly tech companies; the rest were media, insurance, dealerships and retail.
+  - `families.py`: a `TECH_SALES` family, assigned only after every engineering family declines
+    a title (no engineering title changed family across 79,110 live titles). `title_gate`
+    drops sales titles that name a non-tech product ("Insurance Sales Agent", "Automotive
+    Sales", "Retail Sales Associate") or a senior segment ("Enterprise Account Executive")
+    and requires an entry marker on "Account Manager". jobright rows need a named track.
+  - Queue: a selling title sorts after every other title, so it uses only a cap's slack.
+  - Rubric: rule I-4 now excludes only sales outside technology; tech-adjacent sales is an
+    `APPLY_CAVEAT`. Re-upload `BRICE_PROFILE_MD` after any rubric edit.
+  - Volume, measured 2026-10-03: about 280 sales postings on the company boards on the first
+    sweep (drained at the ATS cap behind engineering work), then about 100 a day from jobright.
+    Most non-tech sellers are visible only in the company name, so they reach Claude and come
+    back I-4.
 - **Caps.** If leftovers persist after the backlog has drained, raise `MAX_CLASSIFY_PER_RUN`. Watch
   the run durations in `scrape_runs`, which must stay under the 48-minute budget.
 

@@ -43,13 +43,24 @@ FAMILY_CASES = [
     ("Physical Security Officer", "", (None, None)),
     ("Securities Analyst", "", (None, None)),
     ("Software Engineer, Networking", "", (None, None)),                # a SWE role that mentions networking
-    ("Account Executive", "", (None, None)),
     ("Data Center Electrical Engineer", "", ("EXCLUDED_DC_FACILITIES", "dc_facilities_or_product")),
     ("Forward Deployed Engineer", "", ("ADJACENT_FDE", "forward_deployed")),
-    # the sales exclusions never fire on an engineer title...
+    # selling roles are TECH_SALES (Brice opted in 2026-10-03), and the sales rules never fire on an engineer title...
     ("Specialist Sales Engineer", "Samsara", ("SALES_SOLUTIONS", "sales_solutions_engineer")),
-    ("Sales Specialist", "", (None, None)),
-    ("Sales Development Representative", "", (None, None)),
+    ("Account Executive", "", ("TECH_SALES", "account_executive")),
+    ("Associate Account Manager", "", ("TECH_SALES", "account_executive")),
+    ("Sales Specialist", "", ("TECH_SALES", "sales_rep")),
+    ("Inside Sales Representative", "", ("TECH_SALES", "sales_rep")),
+    ("Sales Development Representative", "", ("TECH_SALES", "sales_development")),
+    ("Business Development Representative (BDR)", "", ("TECH_SALES", "sales_development")),
+    ("Business Development Associate (Early Career)", "Salesforce", ("TECH_SALES", "sales_program")),
+    ("(New Grad) Account Development Representative II - Atlanta", "Samsara", ("TECH_SALES", "sales_program")),
+    ("Sales Rotation Program", "", ("TECH_SALES", "sales_program")),
+    # ...nor on post-sales or on a sales function that does not sell
+    ("Technical Account Manager", "", (None, None)),
+    ("Early Career Consult Program – Sales Operations Associate", "Kyndryl", (None, None)),
+    ("Sales Enablement Manager", "", (None, None)),
+    ("Revenue Operations Analyst", "", (None, None)),
     # ...and vendor titles for pre-sales, TAC and managed detection are in the families
     ("Domain Consultant", "Palo Alto Networks", ("SALES_SOLUTIONS", "sales_solutions_engineer")),
     ("Technical Consulting Engineer", "Cisco", ("SUPPORT_ENG", "support_engineer")),
@@ -365,15 +376,46 @@ for t, c, loc in PROGRAMS:
           title_gate.source_gate(t, c, loc, program_passthrough=False) == (False, "off-family"))
 for t, c, loc in [("Finance Development Program", "Capital One", "Remote - US"),
                   ("New College Grad - Dry Etch Process Engineer", "Micron Technology", "Boise, ID - ID1"),
-                  ("Sales Rotation Program", "Salesforce", "Remote - US")]:
+                  ("Early Career Consult Program – Sales Operations Associate", "Kyndryl",
+                   "Dallas (USDALFRI) Frisco AI HUB")]:
     check(f"{t!r} is not a program in the families -> off-family",
           title_gate.source_gate(t, c, loc) == (False, "off-family"), str(title_gate.source_gate(t, c, loc)))
-title_gate.DROP_PURE_SALES = False
+check("a selling sales program is TECH_SALES, not PROGRAM",
+      title_gate.source_gate("Sales Rotation Program", "Salesforce", "Remote - US") == (True, "TECH_SALES"))
+
+section("source_gate: entry-level tech sales, and the DROP_PURE_SALES kill switch")
+SALES_KEPT = [("Business Development Representative - Atlanta", "Salesforce", "Atlanta, GA"),
+              ("Sales Development Representative, Central", "Okta", "Chicago, IL"),
+              ("Commercial Account Executive - California/Nevada", "Drata", "Remote - US "),
+              ("Business Development Associate (Early Career)", "Salesforce", "Atlanta, GA"),
+              ("Associate Account Executive, Enterprise", "Acme", "Austin, TX")]
+for t, c, loc in SALES_KEPT:
+    check(f"{t!r} kept as TECH_SALES", title_gate.source_gate(t, c, loc) == (True, "TECH_SALES"),
+          str(title_gate.source_gate(t, c, loc)))
+for t, c, loc, rule in [
+        ("Enterprise Account Executive", "DigiCert", "Remote - US",
+         "senior-segment account title (enterprise/strategic/named/major/key/global)"),
+        ("Senior Sales Development Representative", "Nooks", "Remote - US", "seniority/leadership title"),
+        ("Account Manager", "Acme", "Austin, TX", "account manager without an entry marker"),
+        ("Retail Sales Associate", "Acme", "Austin, TX", "non-technology sales title")]:
+    check(f"{t!r} dropped: {rule}", title_gate.source_gate(t, c, loc) == (False, rule), str(title_gate.source_gate(t, c, loc)))
+check("jobright (generic_sales=False): a plain 'Sales Associate' is dropped...",
+      title_gate.source_gate("Sales Associate", "Petco", "Atlanta, GA", program_passthrough=False, generic_sales=False)
+      == (False, "generic sales title (no SDR/BDR/AE/program marker)"))
+check("...an SDR is kept",
+      title_gate.source_gate("Sales Development Representative", "Truss", "Remote", program_passthrough=False,
+                             generic_sales=False) == (True, "TECH_SALES"))
+check("...and an ATS board (generic_sales default) keeps a plain sales title",
+      title_gate.source_gate("Inside Sales Representative", "Verkada", "San Mateo, CA") == (True, "TECH_SALES"))
+title_gate.DROP_PURE_SALES = True
 try:
-    check("with DROP_PURE_SALES=False a sales program passes through",
-          title_gate.source_gate("Sales Rotation Program", "Salesforce", "Remote - US") == (True, "PROGRAM"))
+    check("kill switch: with DROP_PURE_SALES=True every TECH_SALES title is off-family",
+          all(title_gate.source_gate(t, c, loc) == (False, "off-family") for t, c, loc in SALES_KEPT
+              + [("Sales Rotation Program", "Salesforce", "Remote - US")]))
+    check("...while a sales ENGINEER still passes",
+          title_gate.source_gate("Associate Sales Engineer", "Samsara", "Remote - US") == (True, "SALES_SOLUTIONS"))
 finally:
-    title_gate.DROP_PURE_SALES = True
+    title_gate.DROP_PURE_SALES = False
 
 section("source_gate: jobright Support list keeps support-ENGINEER titles only")
 check("'Technical Support Engineer' kept",

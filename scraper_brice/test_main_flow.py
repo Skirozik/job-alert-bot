@@ -149,7 +149,7 @@ for flags in (["--no-ats"], ["--linkedin-pages", "2"], ["--sample", "3"], ["--no
     code, p = argparse_exit(flags)
     check(f"{' '.join(flags)} without --dry-run -> argparse error, exit 2, nothing called", code == 2 and p.log == [])
 for flags in (["--dry-run", "--linkedin-pages", "11"], ["--dry-run", "--linkedin-pages", "0"],
-              ["--dry-run", "--linkedin-terms", "23"]):
+              ["--dry-run", "--linkedin-terms", str(len(main.config.SEARCH_TERMS) + 1)]):
     code, p = argparse_exit(flags)
     check(f"{' '.join(flags)} -> exit 2", code == 2 and p.log == [])
 
@@ -239,6 +239,15 @@ classified = [d for n, d in log if n == "classifier.classify"]
 ats1, ats2, ats3 = (j["id"] for j in p.ats_pass.candidates)
 check("processing order: ATS, then LinkedIn, then jobright (inside a source: entry-marked, primary family first)",
       classified == [ats2, ats1, li_job(3)["id"], li_job(5)["id"], jr_job(2, "", "", "")["id"]], str(classified))
+QUEUE = [{"title": "(New Grad) Sales Development Representative", "family": "TECH_SALES", "_order": 1},
+         {"title": "Associate Account Executive", "family": None, "_order": 2},          # a LinkedIn row: no family
+         {"title": "Network Engineer", "family": "NETWORK_INFRA", "_order": 3},
+         {"title": "Associate Sales Engineer", "family": "SALES_SOLUTIONS", "_order": 4},
+         {"title": "SOC Analyst", "family": None, "_order": 5},
+         {"title": "Security Analyst, Sales Compliance", "family": "SECURITY", "_order": 6}]   # a family: not selling
+check("queue order: selling titles after every other title, even entry-marked, even untagged LinkedIn rows",
+      [j["_order"] for j in sorted(QUEUE, key=main._queue_key)] == [4, 3, 6, 5, 1, 2],
+      str([j["title"] for j in sorted(QUEUE, key=main._queue_key)]))
 check("the stored ATS row is skipped: guard only, no fetch, no classify",
       ("db.get_job_row", ats3) in log and ats3 not in classified
       and not any(d == p.ats_pass.candidates[2]["url"] for n, d in log if n == "ats_pass.fetch_workday_description"))
