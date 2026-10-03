@@ -27,6 +27,12 @@ Families:
   SYSTEMS_IT       systems administrator, IT systems engineer, IT engineer, IT
                    operations engineer, and a plain "Systems Engineer" outside
                    the aerospace/hardware companies and Cloudflare
+  TECH_SALES       SDR / BDR / sales or business development, account
+                   executive, account manager, inside sales, sales rep /
+                   associate / specialist, and sales programs (Brice opted in
+                   2026-10-03). Assigned last, so every engineering family keeps
+                   its titles; whether the seller is a TECH company is the
+                   rubric's call (title_gate drops the obvious non-tech titles)
 
 A title is assigned ONE family: the first rule in classify_family() that
 matches (the rules interleave families; read the code for the order). Titles
@@ -39,17 +45,50 @@ import re
 I = re.I
 
 # ── global exclusions: role nouns that are never one of his families ──────────
-# Recruiters/sourcers for an SE org, counsel, account executives, marketing,
-# finance "securities", etc. Checked before any family regex. The sales clauses
-# never fire on an engineer title: Samsara's pre-sales "Associate Specialist
-# Sales Engineer" is a sales engineer, not a sales specialist.
+# Recruiters/sourcers for an SE org, counsel, marketing, finance "securities",
+# etc. Checked before any family regex.
 NON_TECH_ROLE = re.compile(
     r"\brecruit|\bsourc(er|ing)\b|\btalent\s+(acq|partner)|\benablement\b|\bcounsel\b|\battorney\b|\bparalegal\b"
-    r"|\baccount\s+executive\b|\bspecialist\s+sales\b(?!\s+engineer)|\bsales\s+executive\b"
-    r"|\bsales\s+(specialist|representative|development|manager)\b(?!\s+engineer)|\bbdr\b|\bsdr\b"
     r"|\bmarketing\s+manager\b|\baccountant\b|\bsecurities\b|\bbuyer\b|\bsourcing\s+manager\b"
     r"|\bchief\s+of\s+staff\b|\bprogram\s+manager\b|\bproduct\s+manager\b|\bproject\s+manager\b|\bprogram\s+analyst\b|\bprogram\s+coordinator\b"
     r"|\bstrategy\s*&\s*operations\b|\bbusiness\s+partner\b", I)
+
+# ── TECH_SALES ───────────────────────────────────────────────────────────────
+# Sales role nouns that once sat in NON_TECH_ROLE. Still checked before any
+# family regex, so these titles keep the precedence they had. They never fire
+# on an engineer title: Samsara's pre-sales "Associate Specialist Sales
+# Engineer" is a sales engineer, not a sales specialist.
+SALES_ROLE_EARLY = re.compile(
+    r"\baccount\s+executive\b|\bspecialist\s+sales\b(?!\s+engineer)|\bsales\s+executive\b"
+    r"|\bsales\s+(specialist|representative|development|manager)\b(?!\s+engineer)|\bbdr\b|\bsdr\b", I)
+# The rest of the sales vocabulary, checked only after every engineering family
+# has declined the title. Not "technical account manager" (post-sales, judged
+# by title_gate's TAM rule) and not MDR, which is a security analyst.
+TECH_SALES_RE = re.compile(
+    r"\b(?:sales|business|account|market)\s+development\b|\b(?:sdr|bdr|adr)\b"
+    r"|\baccount\s+(?:executive|rep(?:resentative)?)\b|(?<!technical\s)\baccount\s+manager\b"
+    r"|\binside\s+sales\b(?!\s+engineer)|\bsales\s+(?:rep|representative|associate|specialist|executive|consultant"
+    r"|trainee|academy|program|rotation|rotational|development)\b(?!\s+engineer)"
+    r"|\bsales\b.*\b(?:program|academy|trainee|rotation|rotational)\b|\b(?:program|academy)\b.*\bsales\b", I)
+# Sales functions that do not sell: Kyndryl's "Early Career Consult Program - Sales Operations Associate".
+SALES_NOT_SELLING = re.compile(
+    r"\bsales\s+(?:op(?:eration)?s|support|analy\w+|enablement|compensation|comp|planning|strategy|finance|systems"
+    r"|technology|tools|admin\w*|coordinator)\b|\brevenue\s+op(?:eration)?s\b", I)
+_SALES_PROGRAM = re.compile(
+    r"\bprogram\b|\bacademy\b|\btrainee\b|\brotation(al)?\b|\bnew\s+grad|\bearly[\s-]+career\b|\bcollege\b", I)
+
+
+def _tech_sales(t: str) -> tuple[str | None, str | None]:
+    if SALES_NOT_SELLING.search(t):
+        return None, None
+    if _SALES_PROGRAM.search(t):
+        return "TECH_SALES", "sales_program"
+    if re.search(r"\b(?:sales|business|account|market)\s+development\b|\b(?:sdr|bdr|adr)\b", t, I):
+        return "TECH_SALES", "sales_development"
+    if re.search(r"\baccount\s+(?:executive|manager)\b", t, I):
+        return "TECH_SALES", "account_executive"
+    return "TECH_SALES", "sales_rep"
+
 
 # SWE / hardware / science role nouns. Used to keep "Software Engineer,
 # Networking", "Security Software Engineer", "Network Hardware Engineer",
@@ -225,6 +264,8 @@ def classify_family(title: str, company: str = "") -> tuple[str | None, str | No
         return None, None
     if NON_TECH_ROLE.search(t):
         return None, None
+    if SALES_ROLE_EARLY.search(t):
+        return _tech_sales(t)
     if FDE_RE.search(t):
         return "ADJACENT_FDE", "forward_deployed"
 
@@ -280,6 +321,8 @@ def classify_family(title: str, company: str = "") -> tuple[str | None, str | No
             return "ENDPOINT_ITSUP", "it_support_helpdesk"
         if PLAIN_SYS_RE.search(t) and not is_hw_aero_company(company):
             return "SYSTEMS_IT", "plain_systems_engineer"
+    if TECH_SALES_RE.search(t):
+        return _tech_sales(t)
     return None, None
 
 

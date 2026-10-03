@@ -244,8 +244,9 @@ def rows_to_jobs(rows: list[dict], list_name: str, *, support_only: bool, today:
 
     In file order: a row posted more than JOBRIGHT_MAX_AGE_DAYS ago is dropped (a row whose date could
     not be read is kept); then title_gate.source_gate(title, company, location, "",
-    support_list=support_only, program_passthrough=False); then one copy per company + title (the
-    database keeps one row per norm_key): the first copy with a confirmed U.S. location, else the first.
+    support_list=support_only, program_passthrough=False, generic_sales=False); then one copy per company +
+    title (the database keeps one row per norm_key): the first copy with a confirmed U.S. location, else the
+    first.
 
     Returns (jobs, dropped_by). dropped_by is a Counter of rules, len(rows) == len(jobs) +
     sum(dropped_by). samples, when given, collects up to SAMPLES_PER_RULE "company | title | location"
@@ -268,7 +269,7 @@ def rows_to_jobs(rows: list[dict], list_name: str, *, support_only: bool, today:
             drop(STALE_RULE, row)
             continue
         keep, label = title_gate.source_gate(title, company, location, "", support_list=support_only,
-                                             program_passthrough=False)
+                                             program_passthrough=False, generic_sales=False)
         if not keep:
             drop(label, row)
             continue
