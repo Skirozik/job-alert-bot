@@ -27,6 +27,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
 
+      # Review jobs never acted on for 45 days move to status 'archived', which
+      # the dashboard never loads. Nothing is deleted. Runs before the digest
+      # but can never block it.
+      - name: Archive stale review jobs
+        working-directory: scraper
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python archive_stale.py --apply
+
       - name: Send digest
         working-directory: scraper
         env:
