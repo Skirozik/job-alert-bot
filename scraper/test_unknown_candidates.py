@@ -166,6 +166,21 @@ check("rows with no id are dropped before the request",
       _sent[0][1]["p_ids"] == ["keep"],
       "a blank id would pair against the wrong norm_key and misalign the batch")
 
+print("\n-- a reply truncated at PostgREST's row cap is split and re-asked --")
+# The real server caps an RPC reply at 1,000 rows without erroring. Simulate a
+# cap of 3: a reply of exactly 3 may be truncated, so the batch must be split.
+_cap_orig = db.RPC_ROW_CAP
+db.RPC_ROW_CAP = 3
+def _capped_rpc(name, params):
+    _sent.append((name, params))
+    data = list(params["p_ids"])[:db.RPC_ROW_CAP]   # every id is new; the cap truncates
+    return types.SimpleNamespace(execute=lambda: types.SimpleNamespace(data=data))
+use(types.SimpleNamespace(rpc=_capped_rpc))
+got = db.find_unknown_candidates([{"id": f"n{i}", "norm_key": f"k|{i}"} for i in range(10)], batch_size=10)
+check("all 10 new ids survive a reply cap of 3", got == {f"n{i}" for i in range(10)}, str(sorted(got)))
+check("it had to split to get them", len(_sent) > 1, str(len(_sent)))
+db.RPC_ROW_CAP = _cap_orig
+
 db.get_client = _orig
 
 print("\n-- the rewired ATS loop: the actual place a job can go missing --")
@@ -181,6 +196,9 @@ w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: kw
 w.insert_job = lambda job: True
 w.process_job = lambda job: (processed.append(job["id"]), False)[1]
+# The career-sitemap pass reads live sitemaps; this test is about the board loop.
+_orig_sitemaps = w.career_sitemaps.collect_listings
+w.career_sitemaps.collect_listings = lambda force=False: []
 
 LISTINGS = [
     {"id": "ats:new1",   "company": "Acme",  "title": "Software Engineer Intern", "location": "Atlanta"},
@@ -230,6 +248,7 @@ check("the full-time twin is still stored INELIGIBLE by the title pre-filter",
 
 for k, v in _w_orig.items():
     setattr(w, k, v)
+w.career_sitemaps.collect_listings = _orig_sitemaps
 
 print(f"\n{_ran - _fails} passed, {_fails} failed")
 sys.exit(1 if _fails else 0)

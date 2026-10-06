@@ -315,6 +315,10 @@ def find_known_candidates(jobs: Iterable[dict], batch_size: int = 100) -> tuple[
     return known_ids, known_norm_keys
 
 
+# PostgREST's max-rows: an RPC reply never carries more rows than this.
+RPC_ROW_CAP = 1000
+
+
 def find_unknown_candidates(jobs: Iterable[dict], batch_size: int = 5000) -> set[str]:
     """Return the ids of the supplied candidates that are NOT already stored.
 
@@ -356,18 +360,32 @@ def find_unknown_candidates(jobs: Iterable[dict], batch_size: int = 5000) -> set
         )
 
     unknown: set[str] = set()
+
+    def ask(batch_ids: list[str], batch_keys: list[str]) -> None:
+        result = client.rpc("unknown_candidates", {
+            "p_ids": batch_ids,
+            "p_norm_keys": batch_keys,
+        }).execute()
+        rows_back = result.data or []
+        # PostgREST caps an RPC reply at RPC_ROW_CAP rows WITHOUT erroring. A
+        # full reply may be a truncated one, and every id cut off would read as
+        # "already stored" -- the job silently skipped. Split and ask again
+        # until each reply is provably complete.
+        if len(rows_back) >= RPC_ROW_CAP and len(batch_ids) > 1:
+            half = len(batch_ids) // 2
+            ask(batch_ids[:half], batch_keys[:half])
+            ask(batch_ids[half:], batch_keys[half:])
+            return
+        for row in rows_back:
+            # A setof text comes back as bare strings; tolerate the wrapped
+            # {"unknown_candidates": "..."} shape too rather than silently
+            # returning an empty set, which would look like "nothing is new".
+            unknown.add(row if isinstance(row, str) else next(iter(row.values())))
+
     try:
         client = get_client()
         for offset in range(0, len(ids), batch_size):
-            result = client.rpc("unknown_candidates", {
-                "p_ids": ids[offset:offset + batch_size],
-                "p_norm_keys": norm_keys[offset:offset + batch_size],
-            }).execute()
-            for row in result.data or []:
-                # A setof text comes back as bare strings; tolerate the wrapped
-                # {"unknown_candidates": "..."} shape too rather than silently
-                # returning an empty set, which would look like "nothing is new".
-                unknown.add(row if isinstance(row, str) else next(iter(row.values())))
+            ask(ids[offset:offset + batch_size], norm_keys[offset:offset + batch_size])
     except Exception as exc:
         _raise_if_quota(exc)
         message = str(exc).lower()
