@@ -31,7 +31,9 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from ats_config import ATS_COMPANIES
 from ats_sources import fetch_all_listings
-from db import find_unknown_candidates, job_norm_key, make_norm_key, start_run, finish_run, insert_job
+import career_sitemaps
+from db import (QuotaExceeded, find_unknown_candidates, job_norm_key, make_norm_key, start_run,
+                finish_run, insert_job)
 from main import process_job, _is_senior_role, _is_new_grad_role, _is_non_internship_title
 
 logging.basicConfig(
@@ -54,6 +56,16 @@ def run():
     total_raw = 0
     try:
         listings = fetch_all_listings(ATS_COMPANIES)
+        # Employers that only post on their own careers sites (Meta, Apple,
+        # D. E. Shaw), read from their crawler sitemaps about once an hour.
+        # A sitemap problem must never cost the board sweep; a spent quota
+        # still stops the run.
+        try:
+            listings += career_sitemaps.collect_listings()
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            log.error("Career sitemaps skipped this pass: %s", exc)
         total_raw = len(listings)
 
         # norm_key has to exist before the dedup call, because the answer is
