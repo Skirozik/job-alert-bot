@@ -1,5 +1,5 @@
 /**
- * Guards the explicit column list in app/page.tsx.
+ * Guards the explicit column list in lib/jobQueries.ts (used by app/page.tsx and the backlog route).
  *
  * Two failure modes, both silent:
  *
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const src = readFileSync(join(here, '../../app/page.tsx'), 'utf8')
+const src = readFileSync(join(here, '../jobQueries.ts'), 'utf8')
 const root = join(here, '../../..')
 
 let pass = 0, fail = 0

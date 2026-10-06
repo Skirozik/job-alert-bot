@@ -77,11 +77,14 @@ const TOASTS: Partial<Record<Status, string>> = {
 const TRACKING_VIEWS: ViewKey[] = ['applied','heard-back','interview','offer','rejected']
 
 export function JobList({
-  initialJobs, personaLabel, personaSub,
+  initialJobs, personaLabel, personaSub, backlogBefore,
 }: {
   initialJobs: Grouped[]
   personaLabel?: string
   personaSub?: string
+  /** The page's review cutoff; older review rows and dismissed rows load from
+   *  /api/jobs/backlog after the first paint. */
+  backlogBefore?: string
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -109,6 +112,52 @@ export function JobList({
     jobsRef.current = next
     setJobs(next)
   }, [])
+
+  /* The list is built from three sources, and rebuilt whenever one changes:
+       head    - what the server rendered (tracked jobs + recent review jobs)
+       backlog - older review jobs and dismissed jobs, fetched after first paint
+       delta   - rows the 15 s poll has brought in since the last server render
+     Rebuilding from sources, rather than patching the current list, is what
+     keeps a full refresh from dropping the backlog: the refresh replaces only
+     `head`, and the backlog it already holds stays in until its own re-fetch
+     lands. Status changes survive because the ledger is re-applied on top. */
+  const headRef = useRef<Grouped[]>(initialJobs)
+  const backlogRef = useRef<Grouped[]>([])
+  const deltaRef = useRef<Job[]>([])
+  const backlogLoaded = useRef(false)
+  const backlogSeq = useRef(0)
+
+  const compose = useCallback((): Grouped[] => {
+    const head = headRef.current
+    const headIds = new Set<string>()
+    for (const row of head) for (const id of groupMemberIds(row)) headIds.add(id)
+    // The backlog arrives already grouped by the server, so it is APPENDED, not
+    // merged: re-grouping ~9k rows here took 1.4-2.5 s on a desktop. A group
+    // sharing any row with the head is left out; the head copy is the fresher
+    // render (a job that moved, e.g. was applied to on another device).
+    const backlog = backlogRef.current.filter(g => !groupMemberIds(g).some(id => headIds.has(id)))
+    let next = backlog.length ? [...head, ...backlog] : head
+    // Delta rows are few and recent; merging them keeps duplicate grouping.
+    if (deltaRef.current.length) next = mergeGroupedJobs(next, deltaRef.current)
+    return overlayStatusMutations(next, statusLedger.current)
+  }, [])
+
+  const loadBacklog = useCallback(async (before: string | undefined) => {
+    if (!before) { backlogLoaded.current = true; return }
+    const seq = ++backlogSeq.current
+    try {
+      const res = await fetch(`/api/jobs/backlog?before=${encodeURIComponent(before)}`, { cache: 'no-store' })
+      if (!res.ok) return
+      const body = await res.json() as { jobs: Grouped[] }
+      // A newer render started its own fetch; this answer is for an old cutoff.
+      if (seq !== backlogSeq.current) return
+      backlogRef.current = body.jobs
+      backlogLoaded.current = true
+      updateJobs(() => compose())
+    } catch {
+      // Keep whatever backlog is already held; the next full refresh retries.
+    }
+  }, [compose, updateJobs])
 
   /* ── View state ───────────────────────────────────────────────────────
      LOCAL STATE is the source of truth; the URL is a mirror written after the
@@ -185,12 +234,16 @@ export function JobList({
         }
       })
     }
-    updateJobs(() => reconciled.jobs)
+    headRef.current = reconciled.jobs
+    // The new render already contains every delta row found before it.
+    deltaRef.current = []
+    updateJobs(() => compose())
     setLastSynced(now.toISOString())
     // Deliberate overlap closes the server-render/hydration race. Re-seeing an
     // id is cheap because mergeGroupedJobs keys by id.
     deltaCursor.current = new Date(now.getTime() - 60_000).toISOString()
-  }, [initialJobs, updateJobs])
+    void loadBacklog(backlogBefore)
+  }, [initialJobs, backlogBefore, updateJobs, compose, loadBacklog])
 
   // One full server refresh, stamped so the focus listener below can
   // rate-limit against it. Declared here because the delta poll is its first
@@ -239,6 +292,7 @@ export function JobList({
         }
         if (cancelled) return
         if (body.jobs.length) {
+          deltaRef.current = [...deltaRef.current, ...body.jobs]
           updateJobs(current => overlayStatusMutations(
             mergeGroupedJobs(current, body.jobs),
             statusLedger.current,
@@ -253,7 +307,10 @@ export function JobList({
         // Reconcile check: a server count the local rows cannot explain means
         // something changed that found_at cannot carry (a PENDING promotion,
         // a Reset on another device). One full refresh answers it.
+        // Not until the backlog is in: before that the local list is missing
+        // older review rows on purpose, and the counts disagree by design.
         else if (typeof body.queueCount === 'number'
+                 && backlogLoaded.current
                  && statusLedger.current.size === 0
                  && body.queueCount !== countActionable(jobsRef.current)
                  && body.queueCount !== lastReconciledCount.current

@@ -87,6 +87,9 @@ const SPECIALIZATIONS: Array<[string, RegExp]> = [
 // group arrive carrying different statuses.
 const STATUS_RANK: Record<Status, number> = {
   new: 0,
+  // Never acted on, only aged out (scraper/archive_stale.py). Archived rows are
+  // not loaded, but if one ever meets a group it must not outrank a live 'new'.
+  archived: 0,
   saved: 1,
   dismissed: 2,
   applied: 3,

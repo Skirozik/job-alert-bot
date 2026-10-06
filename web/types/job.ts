@@ -19,6 +19,7 @@ export type Status =
   | 'applied'                                   // sent, nothing heard back
   | 'heard_back' | 'interview' | 'offer'        // it progressed
   | 'rejected'                                  // it ended
+  | 'archived'   // set by scraper/archive_stale.py: never acted on, past its window; never loaded
 
 /** Every state meaning the application was actually sent. Count these, not
  *  `status === 'applied'` alone, or moving a job to 'interview' silently
