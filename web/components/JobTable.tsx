@@ -277,6 +277,17 @@ export function JobTable({
                 <span className="shrink-0" style={{ color: 'var(--fg-subtle)', fontSize: 'var(--text-meta)' }}
                       title={locs.join(' · ')}>+{locs.length - 1}</span>
               )}
+              {/* Mobile has no Salary column, so pay rides on the location line, the same
+                  way the +N count does: shrink-0, so the location truncates first and the
+                  pinned 96px row never grows. Without it a phone showed salary only in the
+                  drawer -- over half of a persona's postings carried one, unseen. */}
+              {isMobile && job.salary && (
+                <span className="shrink-0" title={job.salary}
+                      style={{ color: fgMuted, fontSize: 'var(--text-meta)', fontVariantNumeric: 'tabular-nums',
+                               whiteSpace: 'nowrap' }}>
+                  · {compactSalary(job.salary)}
+                </span>
+              )}
             </div>
 
             {!isMobile && cols.source && (
