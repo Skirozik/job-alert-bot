@@ -1,7 +1,8 @@
 """Configuration for the Brice pipeline (scraper_brice/).
 
 A full-time, entry-level search -- technical pre-sales (sales / solutions engineering), network and
-infrastructure, and adjacent IT-engineering families -- anywhere in the United States. Three sources per run:
+infrastructure, and adjacent IT-engineering families, then entry-level technology sales (SDR / BDR / AE and
+sales programs) -- anywhere in the United States. Three sources per run:
 LinkedIn's guest search, 26 company ATS boards (ats_boards.py) and jobright-ai's new-grad lists (README only).
 """
 import os
@@ -38,8 +39,13 @@ SEARCH_TERMS = [
     "SOC analyst",
     "junior cybersecurity analyst",
     "associate security engineer",
-    # Lowest priority: the first to drop if runs run long
     "infrastructure engineer",
+    # Entry-level tech sales (2026-10-03). Last, so they spend only the search budget's slack and queue behind
+    # every engineering title. Measured that day: these two were the only sales searches whose results were
+    # mostly tech companies; "associate account executive", "early career sales" and the program searches
+    # were mostly media, insurance, dealerships and retail, and "tech/software/SaaS sales" mostly enterprise AEs.
+    "sales development representative",
+    "business development representative",
 ]
 LOCATIONS = ["United States"]
 LINKEDIN_EXPERIENCE_FILTER = "2,3"   # f_E: 2 = Entry level, 3 = Associate (the guest endpoint does not enforce it)
@@ -61,9 +67,10 @@ MAX_CLASSIFY_PER_RUN = {"ats": 100, "linkedin": 180, "jobright": 100}
 RETRY_PENDING_MAX = 200
 RUN_TIME_BUDGET_S = 48 * 60          # stop starting new jobs after this; workflow timeout is 60, run-lock 75
 
-# Owner decision pending (see .github/workflows/reminder.yml): technical pre-sales only. False lets AE /
-# SDR / BDR / account-manager titles and sales-program titles through to the rubric.
-DROP_PURE_SALES = True
+# Brice's answer, 2026-10-03: early tech sales programs as well as technical pre-sales; the owner widened it to
+# all entry-level tech sales. False lets SDR / BDR / AE / account-manager and sales-program titles through to the
+# rubric (TECH_SALES, ranked last); True is the kill switch that drops them all again.
+DROP_PURE_SALES = False
 
 # ── jobright-ai new-grad lists: README fields only. Never fetch jobright.ai itself (robots.txt). ────────
 JOBRIGHT_LISTS = [
