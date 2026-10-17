@@ -41,7 +41,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from config import SEARCH_TERMS, LOCATIONS, LOOKBACK_SECONDS
 from linkedin import fetch_listings, fetch_description
 from github_sources import fetch_github_listings
-from external_descriptions import fetch_external_description
+from external_descriptions import fetch_external_posting
 from classifier import classify
 from notifier import push_job, push_canary
 from db import (
@@ -330,12 +330,17 @@ def process_job(job: dict) -> bool:
             job["salary"] = salary_li
             log.info("  Salary (LinkedIn): %s", salary_li)
     else:
-        desc = fetch_external_description(job.get("apply_url", ""))
+        desc, employer_location = fetch_external_posting(job.get("apply_url", ""))
         if desc:
             job["description"] = desc
             log.info("  GitHub source — fetched description: %d chars", len(desc))
         else:
             log.info("  GitHub source — no description available (unrecognized/unfetchable ATS)")
+        # The employer's own U.S. location outranks the tracker's copy of it (speedyapply printed
+        # Microsoft's Redmond roles as "Washington, DC"). norm_key is company + title, so dedup is unaffected.
+        if employer_location and employer_location != job.get("location"):
+            log.info("  Location from the employer: %s (tracker said %s)", employer_location, job.get("location"))
+            job["location"] = employer_location
 
     # Classify
     result = classify(job)
