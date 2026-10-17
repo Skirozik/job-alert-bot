@@ -130,6 +130,8 @@ check("v2 location, Netflix's order: 'Los Gatos,California,United States of Amer
       v2loc(["Los Gatos,California,United States of America"]) == "Los Gatos, CA")
 check("a city named like a state stays the city: 'United States, Minnesota, Virginia' -> Virginia, MN",
       v2loc(["United States, Minnesota, Virginia"]) == "Virginia, MN")
+check("Microsoft's two formats for one place collapse to one: -> Redmond, WA",
+      v2loc(["United States, Washington, Redmond", "Redmond, WA, USA"]) == "Redmond, WA")
 check("several entries join with '; '", v2loc(["United States, Washington, Redmond", "United States, Virginia, Reston"])
       == "Redmond, WA; Reston, VA")
 check("a foreign entry anywhere -> None", v2loc(["United States, Washington, Redmond", "India, Karnataka, Bangalore"]) is None)

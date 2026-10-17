@@ -280,12 +280,15 @@ _US_COUNTRY = {"United States", "United States of America", "USA", "US"}
 
 def _eightfold_v2_us_location(locations) -> Optional[str]:
     """The older endpoint's raw entries, when they are country-state-city in either order: Microsoft's
-    "United States, Washington, Redmond", Netflix's "Los Gatos,California,United States of America".
+    "United States, Washington, Redmond" (alongside "Redmond, WA, USA"), Netflix's
+    "Los Gatos,California,United States of America".
     The state is always the middle part, so a city named like a state (Virginia, MN) stays a city.
     None unless every entry parses as U.S.; Boston Scientific's "Arden Hills US-MN, ..." does not."""
     places = []
     for entry in locations or []:
         parts = [p.strip() for p in str(entry).split(",")]
+        if len(parts) == 3 and parts[1] in _US_STATES.values():      # Microsoft also sends "Redmond, WA, USA"
+            parts[1] = next(name for name, code in _US_STATES.items() if code == parts[1])
         if len(parts) != 3 or parts[1] not in _US_STATES:
             return None
         if parts[0] in _US_COUNTRY and parts[2] and parts[2] not in _US_COUNTRY:
