@@ -104,10 +104,10 @@ import inspect
 _run = inspect.getsource(main.run)
 _scan = inspect.getsource(main.scan_linkedin)
 check("fresh LinkedIn work runs before retry_pending",
-      _run.index("scan_linkedin()") < _run.index("retry_pending()"),
+      _run.index("scan_linkedin(") < _run.index("retry_pending()"),
       "a parked backlog must not delay a newly-posted job")
 check("LinkedIn runs before the GitHub fallback",
-      _run.index("scan_linkedin()") < _run.index("scan_github_fallback()"),
+      _run.index("scan_linkedin(") < _run.index("scan_github_fallback()"),
       "the tracker already has a two-minute watcher and must not delay LinkedIn")
 check("gh batch is processed freshest-first",
       "_freshest_first(batch)" in inspect.getsource(main.scan_github_fallback))

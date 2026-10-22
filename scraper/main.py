@@ -38,7 +38,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from config import SEARCH_TERMS, LOCATIONS, LOOKBACK_SECONDS
+from config import SEARCH_TERMS, LOCATIONS, LOOKBACK_SECONDS, DEEP_SWEEP_INTERVAL_SECONDS
 from linkedin import fetch_listings, fetch_description
 from github_sources import fetch_github_listings
 from external_descriptions import fetch_external_description
@@ -439,10 +439,15 @@ def _process_linkedin_candidate(job: dict) -> bool:
     return process_job(job)
 
 
-def scan_linkedin(max_pages_per_search: int = MAX_PAGES_PER_SEARCH) -> tuple[int, int, int, int]:
+def scan_linkedin(max_pages_per_search: int = MAX_PAGES_PER_SEARCH,
+                  stop_on_all_duplicates: bool = True) -> tuple[int, int, int, int]:
     """Search LinkedIn and process each new page immediately.
 
     Returns ``(total_raw, new_jobs, rate_limited_searches, notified)``.
+
+    ``stop_on_all_duplicates=False`` is the deep sweep: every page up to
+    ``max_pages_per_search`` is read even when one holds only stored jobs
+    (see DEEP_SWEEP_INTERVAL_SECONDS).
 
     Candidate-scoped DB lookups replace the old 64k-row startup download. New
     jobs are classified after their page, not after every term/location has
@@ -516,7 +521,7 @@ def scan_linkedin(max_pages_per_search: int = MAX_PAGES_PER_SEARCH) -> tuple[int
                     if _process_linkedin_candidate(job):
                         notified += 1
 
-                if all_db_duplicate:
+                if all_db_duplicate and stop_on_all_duplicates:
                     log.info("  All duplicates in DB — stopping pagination")
                     break
                 if len(jobs) < 10:
@@ -685,6 +690,21 @@ def _maybe_alert_classifier_down() -> None:
     set_state(_DOWN_ALERT_KEY, datetime.now(timezone.utc).isoformat())
 
 
+_DEEP_SWEEP_KEY = "linkedin_deep_sweep_at"
+
+
+def _deep_sweep_due(now: datetime) -> bool:
+    """True when the last deep sweep is older than DEEP_SWEEP_INTERVAL_SECONDS,
+    or unknown (never run, unreadable state): missing a sweep costs more than
+    running one early."""
+    last = get_state(_DEEP_SWEEP_KEY)
+    try:
+        last_at = datetime.fromisoformat(last) if last else None
+    except ValueError:
+        last_at = None
+    return last_at is None or (now - last_at).total_seconds() >= DEEP_SWEEP_INTERVAL_SECONDS
+
+
 def run():
     log.info("=== Job scraper starting — %d terms × %d locations ===",
              len(SEARCH_TERMS), len(LOCATIONS))
@@ -708,8 +728,18 @@ def run():
         # LinkedIn goes first in the main process. GitHub already has a
         # dedicated two-minute watcher; its fallback pass below must not add
         # even a few seconds to a fresh LinkedIn posting.
-        total_raw, linkedin_new, rate_limited_count, linkedin_notified = scan_linkedin()
+        started = datetime.now(timezone.utc)
+        deep = _deep_sweep_due(started)
+        if deep:
+            log.info("Deep sweep: reading every result page (last one over %d min ago)",
+                     DEEP_SWEEP_INTERVAL_SECONDS // 60)
+        total_raw, linkedin_new, rate_limited_count, linkedin_notified = scan_linkedin(
+            stop_on_all_duplicates=not deep)
         notified += linkedin_notified
+        if deep:
+            # Stamped with the start time, and only after the scan returned: a sweep
+            # that crashed partway is retried by the next run instead of waiting an hour.
+            set_state(_DEEP_SWEEP_KEY, started.isoformat())
 
         # ── 2. GitHub-tracker fallback pass ─────────────────────────────────
         # Still runs even when LinkedIn returned zero, before the canary return.

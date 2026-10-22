@@ -397,7 +397,7 @@ check("finish_run receives exactly its four existing stat keys",
       f"got {sorted(_kwargs) if _kwargs else None} — an unknown column leaves the "
       f"run-lock held for 20 minutes")
 check("retry_pending runs after fresh LinkedIn work",
-      _run.index("retry_pending()") > _run.index("scan_linkedin()"),
+      _run.index("retry_pending()") > _run.index("scan_linkedin("),
       "an old recovery queue must not delay a new LinkedIn push")
 check("...and inside the try, so finish_run still releases the lock",
       _run.index("try:") < _run.index("retry_pending()"))
