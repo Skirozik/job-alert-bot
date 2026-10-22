@@ -66,6 +66,13 @@ def run():
             raise
         except Exception as exc:
             log.error("Career sitemaps skipped this pass: %s", exc)
+        # Apple's student postings, which its sitemap does not reliably list, every 30 minutes.
+        try:
+            listings += career_sitemaps.collect_apple_students()
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            log.error("Apple students page skipped this pass: %s", exc)
         total_raw = len(listings)
 
         # norm_key has to exist before the dedup call, because the answer is

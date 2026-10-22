@@ -21,8 +21,17 @@ refuses a request is left alone, never retried around.
   - Apple, D. E. Shaw: the job title is in the page URL itself, so nothing
     beyond the sitemap is fetched. Those rows are classified on the title alone.
 
+One exception, Apple's student postings: Apple's sitemap is not a dependable
+list of them. On 2026-10-06 it carried the 2027 internship pools; on 2026-10-22
+it carried none of the 25 U.S. internship postings on jobs.apple.com. So the
+Students search page for the U.S. -- the page a person browses, server-rendered
+with its results embedded -- is read as well (collect_apple_students), and a
+posting's own page is opened once, the first time its id is seen, for the
+qualifications the classifier needs (degree field, return-to-school rule).
+
 Runs inside ats_watch.py, at most once per MIN_INTERVAL_S (bot_state stamp), so
-the sitemaps are fetched about hourly rather than on every 5-minute ATS pass.
+the sitemaps are fetched about hourly rather than on every 5-minute ATS pass;
+the Apple students page every APPLE_STUDENTS_INTERVAL_S.
 Rows reuse the ATS id scheme and job shape, so everything downstream -- dedup,
 title pre-filter, classification, pings, the dashboard's "Direct" source -- is
 the ATS path unchanged.
@@ -38,7 +47,7 @@ from datetime import datetime, timezone
 import requests
 
 from ats_sources import MAX_LEN, _make_job
-from db import find_unknown_candidates, get_state, set_state
+from db import find_unknown_candidates, get_state, job_norm_key, set_state
 
 log = logging.getLogger(__name__)
 
@@ -191,4 +200,105 @@ def collect_listings(force: bool = False) -> list[dict]:
     log.info("Career sitemaps: %d listed, %d new, %d pages opened, %d returned, %d left for later",
              len(stubs), len(unknown), opened, len(out), max(left, 0))
     set_state(STATE_KEY, datetime.now(timezone.utc).isoformat())
+    return out
+
+
+# ── Apple student postings, from the Students search page ──────────────────────
+APPLE_STUDENTS_URL = "https://jobs.apple.com/en-us/search?location=united-states-USA&team=internships-STDNT-INTRN"
+APPLE_STUDENTS_STATE_KEY = "apple_students_checked_at"
+APPLE_STUDENTS_INTERVAL_S = 1800
+APPLE_STUDENTS_MAX_PAGES = 5      # 25 postings on 2026-10-22, 20 to a page
+_APPLE_DATA = re.compile(r'window\.__staticRouterHydrationData\s*=\s*JSON\.parse\("(.*?)"\);', re.S)
+
+
+def _apple_loader_data(page: str) -> dict:
+    """The data an Apple jobs page embeds for its own rendering: a JSON document inside a JS string."""
+    m = _APPLE_DATA.search(page or "")
+    if not m:
+        return {}
+    try:
+        return json.loads(json.loads('"' + m.group(1) + '"')).get("loaderData") or {}
+    except ValueError:
+        return {}
+
+
+def parse_apple_search(page: str) -> tuple[list[dict], int]:
+    """(postings, total) from one search page. A posting's URL is built from its id -- '200673612-0836', one
+    per posting location -- in the same form the sitemap uses, so a role already stored from the sitemap
+    keeps its id."""
+    search = _apple_loader_data(page).get("search") or {}
+    out = []
+    for r in search.get("searchResults") or []:
+        rid, slug, title = r.get("id"), r.get("transformedPostingTitle"), (r.get("postingTitle") or "").strip()
+        if not (rid and slug and title):
+            continue
+        names = [l.get("name") for l in r.get("locations") or [] if l.get("name")]
+        out.append({"url": f"https://jobs.apple.com/en-us/details/{rid}/{slug}", "title": title,
+                    "location": ", ".join(names) or "United States", "posted_at": r.get("postDateInGMT")})
+    return out, int(search.get("totalRecords") or 0)
+
+
+def parse_apple_detail(page: str) -> str | None:
+    """A posting's summary, description and qualifications as plain text, or None."""
+    j = ((_apple_loader_data(page).get("jobDetails") or {}).get("jobsData")) or {}
+    parts = [_plain(j.get("jobSummary")), _plain(j.get("description"))]
+    for label, key in (("Minimum qualifications", "minimumQualifications"),
+                       ("Preferred qualifications", "preferredQualifications")):
+        if _plain(j.get(key)):
+            parts.append(f"{label}: {_plain(j.get(key))}")
+    text = " ".join(p for p in parts if p)
+    return text[:MAX_LEN] if text else None
+
+
+def _apple_get(url: str) -> str | None:
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        return r.text if r.status_code == 200 else None
+    except Exception as exc:
+        log.warning("Apple students page unavailable: %s", type(exc).__name__)
+        return None
+
+
+def collect_apple_students(force: bool = False) -> list[dict]:
+    """New Apple student postings, in the ATS job shape, descriptions included. [] when the last pass was
+    under APPLE_STUDENTS_INTERVAL_S ago (unless force). A refused or unreadable page ends the pass and is
+    stamped like any other, so it is retried at the next interval, never around."""
+    now = time.time()
+    last = get_state(APPLE_STUDENTS_STATE_KEY)
+    try:
+        if not force and last and now - datetime.fromisoformat(last).timestamp() < APPLE_STUDENTS_INTERVAL_S:
+            return []
+    except ValueError:
+        pass
+
+    postings: list[dict] = []
+    for page_no in range(1, APPLE_STUDENTS_MAX_PAGES + 1):
+        if page_no > 1:
+            time.sleep(DETAIL_GAP_S)
+        page = _apple_get(APPLE_STUDENTS_URL + (f"&page={page_no}" if page_no > 1 else ""))
+        got, total = parse_apple_search(page or "")
+        postings += got
+        if not got or len(postings) >= total:
+            break
+
+    stubs = []
+    for p in postings:
+        job = _make_job("Apple", p["title"], p["location"], p["url"], None, p["posted_at"])
+        if job:
+            job["search_term"] = "apple-students"
+            job["norm_key"] = job_norm_key(job)
+            stubs.append(job)
+    unknown = find_unknown_candidates(stubs) if stubs else set()
+
+    out = []
+    for job in stubs:
+        if job["id"] not in unknown:
+            continue
+        if out:
+            time.sleep(DETAIL_GAP_S)
+        detail = _apple_get(job["url"])
+        job["description"] = parse_apple_detail(detail or "")
+        out.append(job)
+    log.info("Apple students: %d listed, %d new, %d returned", len(stubs), len(unknown), len(out))
+    set_state(APPLE_STUDENTS_STATE_KEY, datetime.now(timezone.utc).isoformat())
     return out

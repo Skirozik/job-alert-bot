@@ -146,6 +146,95 @@ check("a known Meta id is never reopened", url not in opened_pages, str(opened_p
 check("no more pages than DETAIL_CAP are opened", len(opened_pages) == 1, str(opened_pages))
 check("capped leftovers are simply not returned yet", len(metas) == 1, str([j["url"] for j in metas]))
 
+print("\n-- Apple students page (the sitemap does not reliably list student postings) --")
+import json as _json
+
+
+def apple_page(loader_data: dict) -> str:
+    """A page in Apple's own embedding: the data as a JSON document inside a JS string literal."""
+    return ('<html><body><div id="root"></div><script>window.__staticRouterHydrationData = JSON.parse('
+            + _json.dumps(_json.dumps({"loaderData": loader_data})) + ');</script></body></html>')
+
+
+def search_result(rid, slug, title, locs=("United States",)):
+    return {"id": rid, "positionId": rid.split("-")[0], "postingTitle": title, "transformedPostingTitle": slug,
+            "postDateInGMT": "2026-05-21T18:00:00.000Z", "locations": [{"name": n} for n in locs],
+            "team": {"teamCode": "STDNT"}}
+
+
+RESULTS = [search_result("200664780-3810", "machine-learning-and-artificial-intelligence-undergrad-internships",
+                         "Machine Learning and Artificial Intelligence Undergrad Internships"),
+           search_result("200673612-0157", "applied-data-solutions-program-internships-summer-2027",
+                         "Applied Data Solutions Program, Internships \u2013 Summer 2027", ("Austin",)),
+           search_result("200673612-0836", "applied-data-solutions-program-internships-summer-2027",
+                         "Applied Data Solutions Program, Internships \u2013 Summer 2027", ("Cupertino",))]
+SEARCH_P1 = apple_page({"search": {"searchResults": RESULTS[:2], "totalRecords": 3}})
+SEARCH_P2 = apple_page({"search": {"searchResults": RESULTS[2:], "totalRecords": 3}})
+DETAIL = apple_page({"jobDetails": {"jobsData": {
+    "jobSummary": "<p>Join a team building ML into products.</p>", "description": "Work on real models &amp; data.",
+    "minimumQualifications": "<ul><li>Pursuing a BS in Computer Science</li><li>At the end of the internship, "
+                             "you must return to school</li></ul>",
+    "preferredQualifications": "<ul><li>Python</li></ul>"}}})
+
+posts, total = cs.parse_apple_search(SEARCH_P1)
+check("search page: postings and the total are read from the embedded data", len(posts) == 2 and total == 3)
+check("the URL is built from the posting id, in the sitemap's form (so stored rows keep their id)",
+      posts[0]["url"] == "https://jobs.apple.com/en-us/details/200664780-3810/"
+                         "machine-learning-and-artificial-intelligence-undergrad-internships", posts[0]["url"])
+check("title and location come from the data", posts[1]["title"].startswith("Applied Data Solutions")
+      and posts[1]["location"] == "Austin")
+check("a page without the embedded data parses to nothing", cs.parse_apple_search("<html></html>") == ([], 0))
+desc = cs.parse_apple_detail(DETAIL)
+check("detail: summary, description and both qualification lists, as plain text",
+      desc and desc.startswith("Join a team") and "Work on real models & data." in desc
+      and "Minimum qualifications: Pursuing a BS in Computer Science" in desc
+      and "Preferred qualifications: Python" in desc and "<" not in desc, repr(desc))
+check("a detail page without the data gives no description", cs.parse_apple_detail("<html></html>") is None)
+
+fetched: list[str] = []
+
+
+def apple_get(url, headers=None, timeout=None, stream=False):
+    fetched.append(url)
+    if url == cs.APPLE_STUDENTS_URL:
+        return _Resp(SEARCH_P1)
+    if url == cs.APPLE_STUDENTS_URL + "&page=2":
+        return _Resp(SEARCH_P2)
+    if "/en-us/details/" in url:
+        return _Resp(DETAIL)
+    raise AssertionError(f"unexpected fetch: {url}")
+
+
+cs.requests.get = apple_get
+state.clear(); KNOWN.clear(); calls.clear()
+KNOWN.add(cs._make_job("Apple", "x", "", "https://jobs.apple.com/en-us/details/200664780-3810/"
+                       "machine-learning-and-artificial-intelligence-undergrad-internships", None, None)["id"])
+out = cs.collect_apple_students()
+check("both pages are read, and no more", fetched[:2] == [cs.APPLE_STUDENTS_URL, cs.APPLE_STUDENTS_URL + "&page=2"]
+      and sum("search" in u for u in fetched) == 2, str(fetched))
+check("a stored posting is not reopened or returned",
+      not any("200664780" in u for u in fetched[2:]) and not any("200664780" in j["url"] for j in out), str(fetched))
+check("each new posting's page is opened once, and it carries the description",
+      len(out) == 2 and all(j["description"] and "Computer Science" in j["description"] for j in out), str(out))
+check("rows use the ATS id scheme and are tagged apple-students",
+      all(j["id"].startswith("ats:") and j["search_term"] == "apple-students" and j["company"] == "Apple" for j in out))
+check("the dedup question carries real norm_keys (titles are known here)",
+      calls and all(k != "|" for k in calls[-1]["keys"]), str(calls[-1:]))
+check("the pass is stamped", cs.APPLE_STUDENTS_STATE_KEY in state)
+fetched.clear()
+check("a second call inside 30 minutes fetches nothing", cs.collect_apple_students() == [] and not fetched)
+check("the interval is 30 minutes", cs.APPLE_STUDENTS_INTERVAL_S == 1800)
+
+
+def refused(url, headers=None, timeout=None, stream=False):
+    return _Resp("Forbidden", status=403)
+
+
+cs.requests.get = refused
+state.clear()
+check("a refused page returns nothing and is still stamped (retried next interval, never around)",
+      cs.collect_apple_students() == [] and cs.APPLE_STUDENTS_STATE_KEY in state)
+
 print()
 if _fails:
     print(f"{_fails} FAILED"); sys.exit(1)
