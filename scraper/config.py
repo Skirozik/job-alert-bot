@@ -51,6 +51,24 @@ LOCATIONS = ["United States", "Atlanta, GA"]
 # description fetch or Claude call.
 LOOKBACK_SECONDS = 21600  # 6 hours
 
+# How often a full run reads EVERY result page instead of stopping at the first
+# page that is all stored jobs.
+#
+# That stop assumed newest-first results, and the guest search ranks by
+# relevance. It became a hard ceiling once the fast watcher (linkedin_watch.py,
+# 2026-08-22) began storing page 0 of every search every 5 minutes: from then on
+# page 0 was always all-duplicate when a full run reached it, so the full run
+# stopped there too. Measured 2026-10-22: 131 of 140 searches never read past
+# page 0, while pages 1-9 of three searches held 53 internship postings from the
+# last 6 hours the bot had never seen -- Twitch's Winter 2027 SWE intern among
+# them, on page 1, posted with its Spring 2028 twin that page 0 did surface.
+#
+# Not every run: a deep sweep holds the shared LinkedIn lock for roughly ten
+# minutes, and the fast watcher skips its pass while the lock is held. Hourly
+# keeps page-0 alerts fast; LOOKBACK_SECONDS (6 h) keeps a posting in range
+# for six deep sweeps.
+DEEP_SWEEP_INTERVAL_SECONDS = 3600
+
 # Overridable, because THIS REPO IS PUBLIC and the default file is tracked in
 # it. Anything the classifier needs to know about the candidate personally --
 # a GPA, an exact graduation date, anything he would not publish on GitHub --
