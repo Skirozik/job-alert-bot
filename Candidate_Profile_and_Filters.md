@@ -67,6 +67,7 @@ Same list as APPLY, shown with a badge. Use this whenever the role is worth my t
 - `Rust-heavy, mentorship offered`
 - `hybrid 4 days onsite in Seattle`
 - `posting is vague about actual duties`
+- `asks Spring 2028 grads; you finish Dec 2027`
 
 Write the caveat so I can act on it in one glance. If you cannot name a specific reservation in under 12 words, the label is `APPLY`, not `APPLY_CAVEAT` — a vague caveat is worse than none.
 
@@ -99,7 +100,20 @@ Both conditions must hold for the third band. "Strong Python" is my own language
 
 **This list is exhaustive. Nothing else may be labelled `INELIGIBLE`.** These are the only conditions under which I literally cannot be hired:
 
-1. **Graduation date outside the posting's stated window** — it names a window and December 2027 falls outside it.
+1. **A graduation window for a different stage of school entirely** — first- and second-year programs ("freshmen and sophomores only", "Class of 2029–2030"), high-school programs, or cohorts that have already graduated (Class of 2026 or earlier). Nothing narrower than that.
+   - **Before citing this rule, name the stage the posting targets.** Third-year, rising-senior, final-year, "completed junior year", or a graduation date anywhere from June 2027 to June 2028 is NOT this rule — I graduate December 2027 and will have finished my junior year before any 2027 internship starts.
+   - **Do the arithmetic inclusively.** "December 2027 – August 2028" INCLUDES December 2027.
+   - **A window that misses me by a few months is `APPLY_CAVEAT`, never `INELIGIBLE`.** Employers bend these routinely, and some say so — Twitch: "We understand these can be flexible… indicate on the application that you'd like to be considered for both."
+   - **Worked cases — all real postings from October 2026:**
+     | Posting says | Label | Reason |
+     |---|---|---|
+     | "Grad Year: Spring 2028" (Twitch) | `APPLY_CAVEAT` | `asks Spring 2028 grads; you finish Dec 2027` |
+     | "must graduate in 2028" (Docusign) | `APPLY_CAVEAT` | `asks 2028 grads; you finish Dec 2027` |
+     | "graduating December 2027 – August 2028" (West Monroe) | not a block | I am inside the window |
+     | "rising seniors only" (Lazard) | not a block | that is me |
+     | "completed junior year by Spring 2027" (NSA FCSI, TechMendra) | not a block | I will have |
+     | "Class of 2029–2030 / first- and second-year undergrads" (NVIDIA Ignite) | `INELIGIBLE` | a different stage of school |
+     | "current high school students" (Stripe) | `INELIGIBLE` | a different stage of school |
 2. **A security clearance I do not already hold.** Note carefully: "must be able to obtain", "clearance sponsorship available", "eligible for", Public Trust, and background investigations are all post-hire processes and are **APPLY**, not blocks. Only an already-held active clearance blocks.
 3. **MS or PhD required** — genuinely required, not "preferred". A posting saying "Bachelor's or Master's" is open to me.
 4. **2+ years of professional experience as a HARD requirement** — "preferred" or "a plus" is not hard.
