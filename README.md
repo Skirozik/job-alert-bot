@@ -216,7 +216,7 @@ To verify the zero-results alert works, temporarily edit `config.py` and change 
 Apple posts its internships only on jobs.apple.com. The ATS watcher reads its U.S. internships page on every 5-minute pass and sends a 🍎 push for each new requisition (`scraper/apple_watch.py`). Three things keep proving it works when Apple posts nothing new:
 
 - **Shadow watch**: hourly, the same reader on every U.S. Apple job, where Apple posts dozens a day. 48 hours with nothing new sends a "Job scraper alert".
-- **Weekly drill**: `.github/workflows/apple_drill.yml`, Mondays 14:00 UTC. One real posting is taken through the whole path and both pushes arrive marked DRILL; nothing is written to the tracker. Run it any time from Actions → Apple Alert Drill → Run workflow.
+- **Weekly drill**: `.github/workflows/apple_drill.yml`, Mondays 9 AM Eastern from the external pinger (see `FAST_PINGS_SETUP.md`), with GitHub's own schedule as a later fallback. It first checks the 5-minute Apple check is running, then one real posting is taken through the whole path and both pushes arrive marked DRILL; nothing is written to the tracker. A week with no passing drill sends a "Job scraper alert". Run it any time from Actions → Apple Alert Drill → Run workflow.
 - **Tests**: `scraper/test_apple_watch.py` replays real arrivals on Apple's own pages, saved in `fixtures/apple/`. Every offline test runs on each push (`.github/workflows/tests.yml`).
 
 ---

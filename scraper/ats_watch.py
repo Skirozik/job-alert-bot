@@ -141,6 +141,14 @@ def run():
             raise
         except Exception as exc:
             log.error("Apple students page skipped this pass: %s", exc)
+            # A reader that crashes is a reader that cannot read: it counts toward the alarm.
+            try:
+                apple_watch.record_students_read(career_sitemaps.AppleRead(
+                    outcome="unreadable", problem=f"reader error ({type(exc).__name__})"))
+            except QuotaExceeded:
+                raise
+            except Exception as exc2:
+                log.error("Apple page health not recorded: %s", exc2)
         if apple and apple.rows:
             try:
                 n, k = _sweep(apple.rows, seen_ids, seen_norm_keys)
@@ -164,9 +172,9 @@ def run():
         # A sitemap problem must never cost the board sweep; a spent quota
         # still stops the run.
         sitemap_rows: list[dict] = []
-        apple_internships: list[dict] = []
+        apple_sitemap: dict = {}
         try:
-            sitemap_rows = career_sitemaps.collect_listings(apple_internships=apple_internships)
+            sitemap_rows = career_sitemaps.collect_listings(apple_sitemap=apple_sitemap)
         except QuotaExceeded:
             raise
         except Exception as exc:
@@ -174,8 +182,16 @@ def run():
         listings += sitemap_rows
         total_raw += len(listings)
 
-        n, k = _sweep(listings, seen_ids, seen_norm_keys)
-        new_jobs, notified = new_jobs + n, notified + k
+        # A crash here still fails the run, as before -- but after the Apple
+        # checks below, which must not wait for whatever broke the boards.
+        sweep_error = None
+        try:
+            n, k = _sweep(listings, seen_ids, seen_norm_keys)
+            new_jobs, notified = new_jobs + n, notified + k
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            sweep_error = exc
 
         # Apple internship titles in the sitemap, which can carry ones the
         # internships page does not (every one, stored or not: alert() diffs
@@ -184,13 +200,15 @@ def run():
         # sitemap adds 15-40 full-time Apple roles a day, and every requisition
         # handed to alert() is kept in its ledger, which is read on every pass.
         try:
-            if apple_internships:
-                apple_watch.alert(apple_internships, sitemap_rows, on_students_page=False)
+            if "internships" in apple_sitemap:
+                apple_watch.alert(apple_sitemap["internships"], sitemap_rows, on_students_page=False)
             apple_watch.shadow_check()
         except QuotaExceeded:
             raise
         except Exception as exc:
             log.error("Apple checks skipped this pass: %s", exc)
+        if sweep_error:
+            raise sweep_error
 
         log.info("=== ATS watch complete: %d companies, %d raw listings, %d new, %d notified ===",
                  len(ATS_COMPANIES), total_raw, new_jobs, notified)
