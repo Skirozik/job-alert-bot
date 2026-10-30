@@ -329,7 +329,7 @@ def get_state(key):
 
 cs.get_state, cs.set_state, cs.find_unknown_candidates = get_state, set_state, fake_unknown
 aw.get_state, aw.set_state, aw.read_state = get_state, set_state, read_state
-aw.clear_state = lambda key: STATE.pop(key, None)
+aw.clear_state = cs.clear_state = lambda key: STATE.pop(key, None)
 aw.get_client = _Query
 aw.classify = main.classify = fake_classify
 main.get_job_row = lambda jid: ({k: STORE[jid][k] for k in ("id", "tier", "status")} if jid in STORE else None)
@@ -764,6 +764,11 @@ _real_collect_listings(apple_sitemap=handed)
 check("a sitemap that cannot be fetched is not 'no internships': nothing is handed over", "internships" not in handed)
 check("...and the one-off reader says so with None", _real_apple_sitemap_internships() is None)
 requests.get = _orig_get
+SITE["sitemaps"] = {"Apple": "<html><body>Please verify you are a human</body></html>"}
+handed = {}
+_real_collect_listings(apple_sitemap=handed)
+check("a 200 listing no job pages at all (a challenge page) is unread too, not 'no internships'",
+      "internships" not in handed and _real_apple_sitemap_internships() is None)
 cs._due = _saved_due
 SITE.pop("sitemaps")
 
@@ -1063,6 +1068,89 @@ check("asks for a full read anyway, and seeds from every page", len(searches()) 
       f"{searches()} {len(ledger())}")
 SITE["students"] = students_pages([new_record("Software Engineering Internships – Summer 2028", "200712360-3810")] + REAL)
 check("...and the next new posting pushes", len(kinds(run_pass(), "apple")) == 1)
+
+print("\n-- the sitemap seed, when Apple's sitemap is down at the ledger's creation --")
+reset()
+SITE["apple_sitemap_down"] = True
+SITEMAP_ROWS[:] = list(SITEMAP_TODAY)
+run_pass()
+check("the page seeds alone", json.loads(STATE[aw.LEDGER_KEY])["sitemap_seeded"] is False)
+fresh_one = new_record("Software Engineering Internships – Summer 2028", "200712363-3810")
+SITE["students"] = students_pages([fresh_one] + REAL)
+SITEMAP_ROWS.append(dict(sitemap_row("Software Engineering Internships Summer", "200712363-3810"), url=url_of(fresh_one),
+                         apply_url=url_of(fresh_one), id=id_of(url_of(fresh_one))))
+SITE["apple_sitemap_down"] = False
+NTFY["apple_status"] = 500
+pushes = run_pass()
+check("the next pass seeds the sitemap late, but not over a posting the page has yet to push (its push refused)",
+      json.loads(STATE[aw.LEDGER_KEY])["sitemap_seeded"] is True and "200712363" not in ledger()
+      and "200646124" in ledger())
+NTFY["apple_status"] = 200
+apple = kinds(run_pass(), "apple")
+check("...so it is pushed once ntfy takes it", [p["title"] for p in apple] == [f"🍎 APPLE - {fresh_one['postingTitle']}"],
+      str([p["title"] for p in apple]))
+SITEMAP_ROWS.clear()
+
+reset()
+SITE["apple_sitemap_down"] = True
+SITEMAP_ROWS[:] = list(SITEMAP_TODAY)
+run_pass()
+SITE["status"]["students"] = 403
+SITE["apple_sitemap_down"] = False
+pushes = run_pass()
+check("while the page is refused, the hourly sitemap read records nothing on its own",
+      json.loads(STATE[aw.LEDGER_KEY])["sitemap_seeded"] is False and "200646124" not in ledger()
+      and kinds(pushes, "apple") == [], str(pushes))
+SITEMAP_ROWS.clear()
+
+print("\n-- posting times without a time zone --")
+reset()
+run_pass()
+naive = new_record("Software Engineering Internships – Summer 2028", "200712364-3810")
+naive["postDateInGMT"] = (_now() - timedelta(minutes=4, seconds=10)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+SITE["students"] = students_pages([naive] + REAL)
+apple = kinds(run_pass(), "apple")
+check("are taken as UTC: the push goes out, with its posted time", apple and "Posted 4 min ago" in apple[0]["body"],
+      apple[0]["body"] if apple else str(STATE.get(aw.LEDGER_KEY, ""))[:80])
+reset()
+run_pass()
+SITE["students"] = students_pages([new_record("Software Engineering Internships – Summer 2028", "200712365-3810")] + REAL)
+_orig_describe = aw.describe
+aw.describe = lambda *a, **k: (_ for _ in ()).throw(TypeError("surprise"))
+apple = kinds(run_pass(), "apple")
+aw.describe = _orig_describe
+check("a push whose details cannot be built still goes out, plain", len(apple) == 1
+      and "Details unavailable" in apple[0]["body"] and "200712365" in ledger(), str(apple))
+
+print("\n-- a burst whose page 2 stays refused --")
+reset(records=REAL[:1], stored=REAL[:1])
+run_pass()
+launch = [new_record(f"Software Engineering Internships – Summer 2028 Team {i}", f"6{i:08d}-3810") for i in range(23)]
+SITE["students"] = students_pages(launch + REAL[:1])
+SITE["status"][("students", 2)] = 403
+run_pass()
+check("the burst's tail is remembered as unread", STATE.get(cs.APPLE_STUDENTS_PAGE2_KEY) == "1")
+run_pass(full_read_age_min=None)
+check("...so the next pass, though no longer a burst, reads page 2 again and still records the failure",
+      len(searches()) == 2 and "page 2 or later" in STATE.get(aw.HEALTH_KEY, ""), f"{searches()} {STATE.get(aw.HEALTH_KEY)}")
+h = json.loads(STATE[aw.HEALTH_KEY])
+h["failing_since"] -= 3660
+STATE[aw.HEALTH_KEY] = json.dumps(h)
+check("an hour of it: alarm", len(kinds(run_pass(full_read_age_min=None), "canary")) == 1)
+SITE["status"].clear()
+pushes = run_pass(full_read_age_min=None)
+tail = {r["id"].split("-")[0] for r in launch[20:]}
+check("page 2 readable again: the tail is pushed, and the flag cleared", tail <= ledger()
+      and cs.APPLE_STUDENTS_PAGE2_KEY not in STATE and len(kinds(pushes, "apple")) == len(tail), str(kinds(pushes, "apple")))
+
+print("\n-- page 2 that loads but lists nothing, while seeding --")
+reset()
+SITE["students"] = {1: students_pages(REAL)[1], 2: _with(P2, lambda d: d["loaderData"]["search"].update(searchResults=[]))}
+run_pass()
+check("is a failure, named with what was read", "page 2 or later: 20 of 25 postings read" in STATE.get(aw.HEALTH_KEY, ""),
+      STATE.get(aw.HEALTH_KEY, ""))
+canary = kinds(run_pass(full_read_age_min=None), "canary")
+check("...and the second such pass alarms (until it is seeded, no 🍎 push can go out)", len(canary) == 1, str(canary))
 
 # ═════════════════════════════════════════════════════════════════════════════
 print("\n-- the shadow watch: the same reader, where Apple posts every day --")

@@ -156,10 +156,13 @@ def needs_full_read() -> bool:
 # ── the push ──────────────────────────────────────────────────────────────────
 
 def _when(value) -> datetime | None:
+    """A timestamp as an aware datetime, or None. One without a zone is taken as UTC (Apple's field is
+    "postDateInGMT"), so it never meets an aware one in a subtraction."""
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
+        when = datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
     except ValueError:
         return None
+    return when.replace(tzinfo=timezone.utc) if when and when.tzinfo is None else when
 
 
 def _day(value) -> str:
@@ -245,7 +248,7 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
 
     A push that fails is not recorded, so the next read sends it again: a duplicate costs one swipe,
     a requisition recorded but never pushed is the miss this module exists to prevent."""
-    if not postings and on_students_page:
+    if not postings:
         return 0
     now = now or datetime.now(timezone.utc)
     try:
@@ -270,11 +273,20 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
             log.info("Apple alerts: waiting for one complete read of the internships page before the first run")
         return 0
     seen = ledger["reqs"]
-    if not on_students_page and not ledger["sitemap_seeded"]:
-        _write_ledger(seen | set(groups), sitemap_seeded=True)
-        log.info("Apple alerts: first sitemap read, %d internship requisitions recorded as already seen; "
-                 "nothing pushed", len(set(groups) - seen))
-        return 0
+    if not ledger["sitemap_seeded"]:
+        if not on_students_page:
+            # The internships page seeds the sitemap (below), on the next pass whose fetch works; the
+            # hourly read waits for it rather than recording anything silently itself.
+            log.info("Apple alerts: sitemap not seeded yet; its internship titles wait for that")
+            return 0
+        sitemap = cs.apple_sitemap_internships()
+        if sitemap is not None:
+            # Not over a requisition on the page itself: the page pushes those as new, below.
+            add = {req_of(j) for j in sitemap} - set(groups)
+            seen = seen | add
+            _write_ledger(seen, sitemap_seeded=True)
+            ledger["sitemap_seeded"] = True
+            log.info("Apple alerts: sitemap seeded late, %d internship requisitions recorded as already seen", len(add))
 
     fresh = {r: ps for r, ps in groups.items() if r not in seen}
     if not fresh:
@@ -290,7 +302,13 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
             sent = 1
     else:
         for r, ps in to_push.items():
-            if notifier.push_apple(*describe(ps, by_id, now)):
+            try:
+                message = describe(ps, by_id, now)
+            except Exception as exc:
+                # The push matters more than its details: never lose one to the body.
+                log.error("Apple push details unavailable (%s); sending it plain", type(exc).__name__)
+                message = (ps[0]["title"], f"{_locations(ps)}\nDetails unavailable; open the posting.", ps[0]["url"])
+            if notifier.push_apple(*message):
                 done.add(r)
                 sent += 1
     log.info("Apple alerts: %d new requisitions, %d pushes sent, %d recorded without a push (degree pool or "

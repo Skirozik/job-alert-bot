@@ -79,8 +79,12 @@ jobs:
 
       # A drill that dies before it can say so -- the job killed by its
       # timeout, or setup failing before Python runs -- still sends the alarm.
+      # Not for setup failing on GitHub's scheduled fallback: that run would
+      # most weeks only stand down after the 9 AM pinger's pass, and a fallback
+      # that never gets to run is caught by the 8-day "drill has not passed"
+      # alarm instead.
       - name: Alarm when the drill did not finish
-        if: ${{ always() && steps.gate.outputs.skip != 'true' && steps.drill.outcome != 'success' && steps.drill.outputs.alerted != 'true' }}
+        if: ${{ always() && steps.gate.outputs.skip != 'true' && steps.drill.outcome != 'success' && steps.drill.outputs.alerted != 'true' && (github.event_name != 'schedule' || steps.drill.outcome == 'failure' || steps.drill.outcome == 'cancelled') }}
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
