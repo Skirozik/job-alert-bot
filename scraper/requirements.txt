@@ -14,6 +14,9 @@ lxml>=5.1.0
 anthropic>=0.40.0,<1
 supabase>=2.4.0
 python-dotenv>=1.0.0
+# The Eastern time zone for push dates (apple_watch). Linux has its own zone
+# database; Windows has none, and without this the watcher fails to import.
+tzdata>=2024.1
 
 # autofill/ only — not needed by the scraper's own scheduled runs (GitHub
 # Actions/Modal), only for the local, manually-invoked autofill.py tool.
