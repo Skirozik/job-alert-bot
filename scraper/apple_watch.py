@@ -15,20 +15,26 @@ both pushes and keeps proving that it can:
     year's "Software Undergrad Engineering Internships" as a duplicate before
     anything reads it. One requisition posted in two cities (Applied Data
     Solutions: Austin and Cupertino) is one push. The bot's usual push for an
-    APPLY row still goes out too; this does not replace it.
+    APPLY row still goes out too; this does not replace it. The internships page
+    seeds the ledger on the first run, and the sitemap's internship titles are
+    recorded silently the first time the sitemap is read after that.
   - record_students_read(): an alarm when the internships page loads but cannot
-    be read twice running (Apple changed the page), or has been refused for an
-    hour (Apple turning GitHub's runners away). On 2026-10-29 two of six reads
-    came back with nothing and nothing said so.
+    be read (or lists nothing) twice running, or has failed for an hour. On
+    2026-10-29 two of six reads came back with nothing and nothing said so.
   - shadow_check(): hourly, the same reader on every U.S. Apple job -- the same
     page without the team filter, where Apple posted 15-43 roles a weekday and
     never fewer than 2 in any 48 hours of October 2026. It pushes nothing and
     stores nothing in the tracker; it logs how soon after Apple's posting time
-    each new one was seen, and alarms after 48 hours of nothing new.
+    each new one was seen, and alarms after 48 hours of nothing new. It also
+    alarms when the weekly drill has not passed in DRILL_STALE_S.
   - drill(): weekly (apple_drill.py), from GitHub's runners against the live
-    site. One real internship is treated as new and taken through the real
-    reader, description fetch, classifier and both pushes, marked DRILL, with
-    nothing written to the tracker; ntfy's copy is then read back.
+    site. It first checks that the 5-minute Apple check is running, then treats
+    one real internship as new and takes it through the real reader,
+    description fetch, classifier and both pushes, marked DRILL, with nothing
+    written to the tracker; ntfy's copy is then read back.
+
+Every alarm is marked sent only once ntfy has taken it, and a state read that
+fails leaves the stored record alone rather than starting it again.
 """
 
 import json
@@ -45,7 +51,8 @@ import career_sitemaps as cs
 import notifier
 from ats_sources import _make_job
 from classifier import classify
-from db import StateUnavailable, clear_state, get_client, get_state, job_norm_key, read_state, set_state
+from db import (QuotaExceeded, StateUnavailable, clear_state, get_client, get_state, job_norm_key, read_state,
+                set_state)
 
 log = logging.getLogger(__name__)
 
@@ -53,28 +60,36 @@ LEDGER_KEY = "apple_alert_reqs"
 HEALTH_KEY = "apple_students_health"
 SHADOW_KEY = "apple_shadow_watch"
 SHADOW_CHECKED_KEY = "apple_shadow_checked_at"   # small on purpose: it is read on every 5-minute pass
+DRILL_KEY = "apple_drill_passed"
 
-UNREADABLE_ALERT_AFTER = 2            # consecutive unreadable reads, ~5-10 minutes apart
+UNREADABLE_ALERT_AFTER = 2            # consecutive unreadable (or empty) reads, ~5-10 minutes apart
 REFUSED_ALERT_AFTER_S = 3600
 SHADOW_INTERVAL_S = 3600
 SHADOW_SILENT_ALERT_S = 48 * 3600
 SHADOW_SEEN_MAX = 300
 SHADOW_LOG_DAYS = 7
+DRILL_STALE_S = 8 * 86400             # a week, plus a day of slack for GitHub's late or dropped crons
 # More new requisitions than this in one pass is one push listing them all. Apple's May pool launch is
 # that size, and so is the failure that matters more: Apple changing its ids, so every posting looks new.
 GROUPED_PUSH_OVER = 3
 DRILL_TITLE = "Software Undergrad Engineering Internships"
+DRILL_TRIES = 3
+DRILL_RETRY_GAP_S = 30                # one odd answer from Apple must not fail the drill
+DRILL_MAX_CHECK_AGE_S = 45 * 60       # the internships check runs every 5 minutes; 45 is a broken pinger
+# ntfy.sh writes its message cache in batches (about a second), so a read straight after publishing
+# can miss a message that was delivered. Poll after each of these waits before calling it missing.
+DELIVERY_POLL_WAITS_S = (1.5, 2, 4)
 
-_INTERN = re.compile(r"\bintern(?:s|ship|ships)?\b", re.I)
 _DEGREE_POOL = re.compile(r"\b(?:ph\.?\s?d|doctoral|masters?|mba)\b", re.I)
 _ET = ZoneInfo("America/New_York")
 _VERDICT = {"APPLY": "APPLY", "APPLY_CAVEAT": "APPLY with a caveat", "INELIGIBLE": "INELIGIBLE",
             "PENDING": "pending (the AI was unavailable; it retries automatically)"}
+# The dashboard's statuses run in order, so a later one means he applied (migrations/20260823_*).
+_APPLIED_OR_LATER = {"applied", "heard_back", "interview", "offer", "rejected"}
 
 
 def is_internship_title(title: str) -> bool:
-    """"Intern" as a word: "Internal Communications Strategist" is not one."""
-    return bool(_INTERN.search(title or ""))
+    return bool(cs.INTERN_TITLE.search(title or ""))
 
 
 def wanted(title: str, on_students_page: bool) -> bool:
@@ -97,24 +112,31 @@ def _job_id(posting: dict) -> str:
     return posting.get("id") or _make_job("Apple", "-", "", posting["url"], None, None)["id"]
 
 
-def _json_state(key: str) -> dict:
+def _strict_json(key: str) -> dict:
+    """The JSON record at key: {} when absent or corrupt. Raises StateUnavailable when bot_state
+    cannot be read, so a caller never takes a blip for a fresh start and overwrites the record."""
     try:
-        value = json.loads(get_state(key) or "{}")
+        value = json.loads(read_state(key) or "{}")
         return value if isinstance(value, dict) else {}
     except ValueError:
         return {}
 
 
-def _ledger() -> set[str] | None:
-    """The requisitions already seen, or None before the first run. Raises StateUnavailable."""
+def _ledger() -> dict | None:
+    """{"reqs": set, "sitemap_seeded": bool}, or None before the first run. Raises StateUnavailable."""
     raw = read_state(LEDGER_KEY)
     if raw is None:
         return None
     try:
-        return set(json.loads(raw)["reqs"])
+        data = json.loads(raw)
+        return {"reqs": set(data["reqs"]), "sitemap_seeded": bool(data.get("sitemap_seeded"))}
     except (ValueError, KeyError, TypeError):
         log.error("Apple alert ledger is unreadable — starting it again from the current page")
         return None
+
+
+def _write_ledger(reqs: set[str], sitemap_seeded: bool) -> None:
+    set_state(LEDGER_KEY, json.dumps({"reqs": sorted(reqs), "sitemap_seeded": sitemap_seeded}))
 
 
 def needs_full_read() -> bool:
@@ -198,9 +220,9 @@ def describe(postings: list[dict], processed: dict, now: datetime, stored: list[
     else:
         lines.append("Bot's verdict: not rated yet")
     lines.append(_posted(postings, now))
-    if any(r.get("status") == "applied" for r in own):
+    if any(r.get("status") in _APPLIED_OR_LATER for r in own):
         lines.append("You've already applied to this posting.")
-    earlier = [r for r in stored if r.get("id") not in ids and r.get("status") == "applied"]
+    earlier = [r for r in stored if r.get("id") not in ids and r.get("status") in _APPLIED_OR_LATER]
     if earlier:
         first = min((r.get("found_at") or "" for r in earlier), default="")
         lines.append(f"You applied to an earlier posting of this title (first seen {_day(first)}).")
@@ -211,15 +233,18 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
           complete: bool = True, now: datetime | None = None) -> int:
     """Push 🍎 for each requisition in postings the ledger has not seen, then record them. Returns the
     pushes sent. processed: the rows this pass classified (they carry the verdict). complete: whether
-    postings is the whole page, which the first run needs before it seeds the ledger.
+    postings is the whole internships page, which the first run needs before it seeds the ledger.
+    From the sitemap (on_students_page=False), postings is every internship title it lists; the first
+    sitemap read after seeding records them all without a push (the sitemap carries months-old
+    postings the internships page does not, such as Feb 2026's Finance Development Program).
 
-    A push that fails is not recorded, so the next pass sends it again: a duplicate costs one swipe,
+    A push that fails is not recorded, so the next read sends it again: a duplicate costs one swipe,
     a requisition recorded but never pushed is the miss this module exists to prevent."""
     if not postings:
         return 0
     now = now or datetime.now(timezone.utc)
     try:
-        seen = _ledger()
+        ledger = _ledger()
     except StateUnavailable as exc:
         log.error("Apple alerts skipped this pass: ledger unreadable (%s)", exc)
         return 0
@@ -227,12 +252,18 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
     groups: dict[str, list[dict]] = {}
     for p in postings:
         groups.setdefault(req_of(p), []).append(p)
-    if seen is None:
+    if ledger is None:
         if on_students_page and complete:
-            set_state(LEDGER_KEY, json.dumps({"reqs": sorted(groups)}))
+            _write_ledger(set(groups), sitemap_seeded=False)
             log.info("Apple alerts: first run, %d requisitions recorded as already seen; nothing pushed", len(groups))
         else:
             log.info("Apple alerts: waiting for one complete read of the internships page before the first run")
+        return 0
+    seen = ledger["reqs"]
+    if not on_students_page and not ledger["sitemap_seeded"]:
+        _write_ledger(seen | set(groups), sitemap_seeded=True)
+        log.info("Apple alerts: first sitemap read, %d internship requisitions recorded as already seen; "
+                 "nothing pushed", len(set(groups) - seen))
         return 0
 
     fresh = {r: ps for r, ps in groups.items() if r not in seen}
@@ -255,45 +286,57 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
     log.info("Apple alerts: %d new requisitions, %d pushes sent, %d recorded without a push (degree pool or "
              "not an internship title)", len(fresh), sent, len(set(fresh) - set(to_push)))
     if done:
-        set_state(LEDGER_KEY, json.dumps({"reqs": sorted(seen | done)}))
+        _write_ledger(seen | done, ledger["sitemap_seeded"])
     return sent
 
 
 # ── health of the internships page ────────────────────────────────────────────
 
 def record_students_read(read: "cs.AppleRead | None", now: float | None = None) -> None:
-    """Alarm once per outage: the page has been unreadable twice running, or has failed for an hour.
-    A recovery after an alarm is announced too. A pass inside the interval read nothing (None)."""
+    """Alarm once per outage: the page has been unreadable or empty twice running, or has failed for an
+    hour. A recovery after an alarm is announced too. read is page 1's read (None: inside the interval).
+    An empty page counts as a failure: Apple has listed 25 for months, and an empty page served to
+    GitHub's runners is the very symptom of 2026-10-29."""
     if read is None:
         return
     now = now or time.time()
-    h = _json_state(HEALTH_KEY)
-    if read.outcome == "ok":
-        if h.get("alerted"):
-            notifier.push_canary("Apple's internships page is readable again — new Apple roles reach you as normal.")
+    try:
+        h = _strict_json(HEALTH_KEY)
+    except StateUnavailable as exc:
+        log.warning("Apple page health not recorded this pass: bot_state unreadable (%s)", exc)
+        return
+    outcome, problem = read.outcome, read.problem
+    if outcome == "ok" and not read.postings:
+        outcome, problem = "empty", "the page lists no postings"
+    if outcome == "ok":
+        if h.get("alerted") and not notifier.push_canary(
+                "Apple's internships page is readable again — new Apple roles reach you as normal."):
+            return      # keep the record, so the all-clear is tried again next pass
         if h:
             clear_state(HEALTH_KEY)
         return
     h.setdefault("failing_since", now)
-    h["problem"] = f"{read.outcome}: {read.problem}"
-    h["unreadable_streak"] = h.get("unreadable_streak", 0) + 1 if read.outcome == "unreadable" else 0
+    h["problem"] = f"{outcome}: {problem}"
+    h["unreadable_streak"] = h.get("unreadable_streak", 0) + 1 if outcome in ("unreadable", "empty") else 0
     if not h.get("alerted"):
         message = None
-        if read.outcome == "unreadable" and h["unreadable_streak"] >= UNREADABLE_ALERT_AFTER:
-            message = (f"Apple's internships page loads, but the bot can't read any postings from it ({read.problem})."
+        if outcome in ("unreadable", "empty") and h["unreadable_streak"] >= UNREADABLE_ALERT_AFTER:
+            message = (f"Apple's internships page loads, but the bot can't read any postings from it ({problem})."
                        " Apple has probably changed the page; new Apple roles won't reach you until the reader is fixed.")
         elif now - h["failing_since"] >= REFUSED_ALERT_AFTER_S:
             message = (f"Apple has turned away the bot's internship check for "
                        f"{int((now - h['failing_since']) // 60)} minutes ({h['problem']}). "
                        "New Apple roles won't reach you until it stops.")
-        if message:
-            notifier.push_canary(message)
+        if message and notifier.push_canary(message):
             h["alerted"] = True
     set_state(HEALTH_KEY, json.dumps(h))
 
 
 def health_summary() -> str:
-    h = _json_state(HEALTH_KEY)
+    try:
+        h = _strict_json(HEALTH_KEY)
+    except (StateUnavailable, QuotaExceeded):
+        return "Internships page: status unknown (the bot's state could not be read)."
     if not h:
         return "Internships page: reading normally."
     since = datetime.fromtimestamp(h.get("failing_since", time.time()), timezone.utc)
@@ -308,14 +351,19 @@ def _minutes_after(posting: dict, now: float) -> int | None:
 
 
 def shadow_check(now: float | None = None) -> None:
-    """Hourly: page 1 of every U.S. Apple job, newest first, compared with the ids seen before."""
+    """Hourly: page 1 of every U.S. Apple job, newest first, compared with the ids seen before. Then
+    the same hour's check that the weekly drill is still passing."""
     now = now or time.time()
     last = _when(get_state(SHADOW_CHECKED_KEY))
     if last and now - last.timestamp() < SHADOW_INTERVAL_S:
         return
+    try:
+        s = _strict_json(SHADOW_KEY)
+    except StateUnavailable as exc:
+        log.warning("Apple shadow watch put off to the next pass: bot_state unreadable (%s)", exc)
+        return
     set_state(SHADOW_CHECKED_KEY, datetime.fromtimestamp(now, timezone.utc).isoformat())
 
-    s = _json_state(SHADOW_KEY)
     read = cs.read_apple_pages(cs.APPLE_ALL_US_URL, 1, 1)
     if read.outcome == "ok" and read.postings:
         seen = s.get("seen") or []
@@ -329,8 +377,11 @@ def shadow_check(now: float | None = None) -> None:
             new = [p for p in read.postings if p["apple_id"] not in known]
             s.setdefault("log", []).extend([round(now), _minutes_after(p, now)] for p in new)
             if new:
-                if s.pop("alerted", None):
-                    notifier.push_canary("Apple's job list is showing new postings again — the Apple reader works.")
+                if s.get("alerted") and not notifier.push_canary(
+                        "Apple's job list is showing new postings again — the Apple reader works."):
+                    pass    # all-clear not delivered: stay alerted, so it is sent with the next new posting
+                else:
+                    s.pop("alerted", None)
                 s["last_new_at"] = now
         s["seen"] = (ids + [i for i in seen if i not in ids])[:SHADOW_SEEN_MAX]
         delays = sorted(d for d in (_minutes_after(p, now) for p in new) if d is not None)
@@ -342,17 +393,44 @@ def shadow_check(now: float | None = None) -> None:
     s["log"] = [e for e in s.get("log", []) if now - e[0] < SHADOW_LOG_DAYS * 86400][-2000:]
     s.setdefault("last_new_at", now)
     if now - s["last_new_at"] >= SHADOW_SILENT_ALERT_S and not s.get("alerted"):
-        notifier.push_canary("For 48 hours the bot has seen no new U.S. Apple jobs. Apple posts dozens a day, so its "
-                             "Apple reader has probably stopped working — new Apple internships may not reach you.")
-        s["alerted"] = True
+        if notifier.push_canary("For 48 hours the bot has seen no new U.S. Apple jobs. Apple posts dozens a day, "
+                                "so its Apple reader has probably stopped working — new Apple internships may not "
+                                "reach you."):
+            s["alerted"] = True
     set_state(SHADOW_KEY, json.dumps(s))
+    _check_drill_ran(now)
+
+
+def _check_drill_ran(now: float) -> None:
+    """An alarm when the weekly drill has not passed in DRILL_STALE_S: GitHub drops some scheduled runs
+    and disables schedules after 60 days without a commit, and a drill that never runs proves nothing.
+    The clock starts at the first check, so a fresh install gets its first week."""
+    try:
+        d = _strict_json(DRILL_KEY)
+    except StateUnavailable:
+        return
+    passed = _when(d.get("passed_at"))
+    if passed is None:
+        set_state(DRILL_KEY, json.dumps({"passed_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+                                         "clock_started": True}))
+        return
+    if now - passed.timestamp() >= DRILL_STALE_S and not d.get("alerted"):
+        if notifier.push_canary(f"The weekly Apple drill has not passed since {_day(passed.isoformat())}. Run it from "
+                                "GitHub: Actions → Apple Alert Drill → Run workflow, and check why it stopped."):
+            set_state(DRILL_KEY, json.dumps(dict(d, alerted=True)))
 
 
 def shadow_summary(now: float | None = None) -> str:
     now = now or time.time()
-    s = _json_state(SHADOW_KEY)
+    try:
+        s = _strict_json(SHADOW_KEY)
+        checked = _when(read_state(SHADOW_CHECKED_KEY))
+    except (StateUnavailable, QuotaExceeded):
+        return "Shadow watch: status unknown (the bot's state could not be read)."
     if "last_new_at" not in s:
         return "Shadow watch: no record yet."
+    if not checked or now - checked.timestamp() > 3 * SHADOW_INTERVAL_S:
+        return "Shadow watch: has not run in over 3 hours."
     week = [e for e in s.get("log", []) if now - e[0] < SHADOW_LOG_DAYS * 86400]
     if not week:
         return "Shadow watch: no new U.S. Apple jobs seen in 7 days — the reader may be broken."
@@ -364,21 +442,50 @@ def shadow_summary(now: float | None = None) -> str:
 # ── the weekly drill ──────────────────────────────────────────────────────────
 
 def _delivered(msg_id: str, since: float) -> bool:
-    """Whether ntfy holds the message: the topic's own feed (what the phone app reads), polled once."""
-    try:
-        r = requests.get(f"{notifier.NTFY_BASE}/{notifier.NTFY_TOPIC}/json",
-                         params={"poll": "1", "since": str(int(since) - 5)}, timeout=15)
-        r.raise_for_status()
-        return any(json.loads(line).get("id") == msg_id for line in r.text.splitlines() if line.strip())
-    except Exception as exc:
-        log.warning("Apple drill: could not read the push back (%s)", type(exc).__name__)
-        return False
+    """Whether ntfy holds the message: the topic's own feed (what the phone app reads), polled after
+    each of DELIVERY_POLL_WAITS_S."""
+    for wait in DELIVERY_POLL_WAITS_S:
+        time.sleep(wait)
+        try:
+            r = requests.get(f"{notifier.NTFY_BASE}/{notifier.NTFY_TOPIC}/json",
+                             params={"poll": "1", "since": str(int(since) - 5)}, timeout=15)
+            r.raise_for_status()
+            if any(json.loads(line).get("id") == msg_id for line in r.text.splitlines() if line.strip()):
+                return True
+        except Exception as exc:
+            log.warning("Apple drill: could not read the push back (%s)", type(exc).__name__)
+    return False
+
+
+def _retry(attempt, ok):
+    """attempt() up to DRILL_TRIES times, DRILL_RETRY_GAP_S apart, until ok(result); the last result."""
+    for n in range(DRILL_TRIES):
+        if n:
+            time.sleep(DRILL_RETRY_GAP_S)
+        result = attempt()
+        if ok(result):
+            break
+    return result
+
+
+def _production_problem(now: float) -> str | None:
+    """Why the 5-minute Apple check is not running as it should, or None. Raises StateUnavailable."""
+    last = _when(read_state(cs.APPLE_STUDENTS_STATE_KEY))
+    if last is None:
+        return "it has never run"
+    age = now - last.timestamp()
+    if age > DRILL_MAX_CHECK_AGE_S:
+        return f"it last ran {int(age // 60)} minutes ago"
+    if read_state(LEDGER_KEY) is None:
+        return "it has not recorded Apple's postings yet"
+    return None
 
 
 def drill(now: datetime | None = None) -> int:
-    """Treat one real posting as new and send what a new one would send, marked DRILL. Reads the live
-    site, the posting's page and the tracker, and calls the classifier; writes nothing. Returns 0 when
-    every step worked; otherwise 1, with a canary naming the step that failed."""
+    """Check the 5-minute Apple check is running, then treat one real posting as new and send what a new
+    one would send, marked DRILL. Reads the live site, the posting's page and the tracker, and calls the
+    classifier; writes nothing to the tracker, only DRILL_KEY's pass stamp. Returns 0 when every step
+    worked; otherwise 1, with a canary naming the step that failed."""
     now = now or datetime.now(timezone.utc)
 
     def fail(step: str, detail: str) -> int:
@@ -390,19 +497,31 @@ def drill(now: datetime | None = None) -> int:
     if not notifier.NTFY_TOPIC:
         log.error("Apple drill: NTFY_TOPIC is not set")
         return 1
-    read = cs.read_apple_pages(cs.APPLE_STUDENTS_URL, 1, 1)
+    try:
+        problem = _production_problem(now.timestamp())
+    except (StateUnavailable, QuotaExceeded) as exc:
+        return fail("reading the bot's state", type(exc).__name__)
+    if problem:
+        return fail("checking the 5-minute Apple check", problem)
+
+    read = _retry(lambda: cs.read_apple_pages(cs.APPLE_STUDENTS_URL, 1, 1, expect_team="INTRN"),
+                  lambda r: r.outcome == "ok" and r.postings)
     if read.outcome != "ok" or not read.postings:
         return fail("reading Apple's internships page", read.problem or "no postings on it")
     pick = (next((p for p in read.postings if p["title"].lower() == DRILL_TITLE.lower()), None)
-            or next((p for p in read.postings if wanted(p["title"], True)), None))
+            or next((p for p in read.postings if wanted(p["title"], True) and is_internship_title(p["title"])), None))
     if not pick:
-        return fail("choosing a posting", "no undergrad posting on the page")
+        return fail("choosing a posting", "no undergrad internship on the page")
 
     job = cs._apple_stubs([pick])[0]
-    status, page = cs._apple_get(job["url"])
-    job["description"] = cs.parse_apple_detail(page) if status == 200 else None
+    status, page = _retry(lambda: cs._apple_get(job["url"]), lambda r: r[0] == 200)
+    unreadable = None
+    try:
+        job["description"] = cs.parse_apple_detail(page) if status == 200 else None
+    except Exception as exc:
+        job["description"], unreadable = None, f"its page is unreadable ({type(exc).__name__})"
     if not job["description"]:
-        return fail("opening the posting", f"HTTP {status}" if status != 200 else "no description on its page")
+        return fail("opening the posting", unreadable or (f"HTTP {status}" if status != 200 else "no description on its page"))
     result = classify(job)
     if result.get("failed"):
         job.update(tier="PENDING", reason="")
@@ -416,11 +535,12 @@ def drill(now: datetime | None = None) -> int:
                       body, shadow_summary(), health_summary()])
     sent_at = time.time()
     msg_id = notifier.push_apple(title, body, url, drill=True)
-    if not msg_id:
-        return fail("sending the 🍎 push", "ntfy did not take it")
+    if not msg_id or msg_id == "sent":
+        return fail("sending the 🍎 push", "ntfy did not take it" if not msg_id else "ntfy gave no message id")
     if job["tier"] in ("APPLY", "APPLY_CAVEAT") and not notifier.push_job(job, title_prefix="DRILL - "):
         return fail("sending the usual push", "ntfy did not take it")
     if not _delivered(msg_id, sent_at):
         return fail("confirming delivery", "ntfy took the push but its feed does not have it")
+    set_state(DRILL_KEY, json.dumps({"passed_at": now.isoformat()}))
     log.info("Apple drill passed: %s, verdict %s", pick["title"], job["tier"])
     return 0

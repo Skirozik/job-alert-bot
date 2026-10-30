@@ -134,7 +134,8 @@ SITE: dict = {"students": students_pages(REAL), "all_us": ALL_US, "status": {}}
 FETCHED: list[str] = []
 ORDER: list[str] = []
 PUSHES: list[dict] = []
-NTFY = {"apple_status": 200, "feed_drop": False}
+# feed_lag_polls: how many read-backs miss a delivered message (ntfy.sh writes its cache in batches).
+NTFY = {"apple_status": 200, "canary_status": 200, "feed_drop": False, "feed_lag_polls": 0, "polls": 0}
 
 
 class _Resp:
@@ -151,7 +152,14 @@ class _Resp:
 
 def fake_get(url, headers=None, timeout=None, params=None, **kw):
     if url.startswith(notifier.NTFY_BASE):
-        lines = [] if NTFY["feed_drop"] else [_dumps({"id": p["id"], "event": "message"}) for p in PUSHES]
+        # The topic's own feed, as ntfy serves it: only with poll=1, only messages since `since`.
+        assert url == f"{notifier.NTFY_BASE}/{notifier.NTFY_TOPIC}/json", f"read-back from {url}"
+        assert (params or {}).get("poll") == "1", f"read-back without poll=1: {params}"
+        since = int((params or {}).get("since", 0))
+        NTFY["polls"] += 1
+        hidden = NTFY["feed_drop"] or NTFY["polls"] <= NTFY["feed_lag_polls"]
+        lines = [] if hidden else [_dumps({"id": p["id"], "event": "message", "time": p["time"]})
+                                   for p in PUSHES if p["time"] >= since]
         return _Resp(200, "\n".join(lines))
     FETCHED.append(url)
     base, _, page_no = url.partition("&page=")
@@ -159,27 +167,39 @@ def fake_get(url, headers=None, timeout=None, params=None, **kw):
     if base == cs.APPLE_STUDENTS_URL:
         ORDER.append("apple-page")
         status = SITE["status"].get(("students", n), SITE["status"].get("students", 200))
+        if n == 1 and SITE.get("students_seq"):
+            status = SITE["students_seq"].pop(0)
         return _Resp(status, SITE["students"].get(n, "") if status == 200 else "Forbidden")
     if base == cs.APPLE_ALL_US_URL:
         status = SITE["status"].get("all_us", 200)
         return _Resp(status, SITE["all_us"] if status == 200 else "Forbidden")
     if "/en-us/details/" in url:
-        return _Resp(200, D_ADS if "/200673612-" in url else D_SWE)
+        return _Resp(200, SITE.get("detail") or (D_ADS if "/200673612-" in url else D_SWE))
+    for source in cs.SOURCES:
+        if url == source["sitemap"]:
+            return _Resp(200, SITE.get("sitemaps", {}).get(source["company"], "<urlset></urlset>"))
     raise AssertionError(f"unexpected fetch: {url}")
 
 
 def fake_post(url, data=None, headers=None, json=None, timeout=None):
-    assert url.startswith(notifier.NTFY_BASE), url
     if json is not None:
+        # ntfy parses a JSON body only at its root URL, and only with the topic inside it. Posted to the
+        # topic URL instead, the JSON would arrive as plain text with no title, priority or link.
+        assert url == notifier.NTFY_BASE, f"JSON published to {url}"
+        assert json.get("topic") == notifier.NTFY_TOPIC, f"JSON publish without the topic: {json}"
         push = {"kind": "apple", "title": json["title"], "body": json["message"], "priority": json["priority"],
                 "click": json["click"], "tags": json["tags"]}
         if NTFY["apple_status"] != 200:
             return _Resp(NTFY["apple_status"])
         ORDER.append("apple-push")
     else:
+        assert url == f"{notifier.NTFY_BASE}/{notifier.NTFY_TOPIC}", f"published to {url}"
         title = headers.get("Title", "")
         push = {"kind": "canary" if title == "Job scraper alert" else "job", "title": title,
                 "body": data.decode("utf-8"), "priority": headers.get("Priority"), "click": headers.get("Click")}
+        if push["kind"] == "canary" and NTFY["canary_status"] != 200:
+            return _Resp(NTFY["canary_status"])
+    push["time"] = int(time.time())
     push["id"] = f"msg{len(PUSHES) + 1}"
     PUSHES.append(push)
     return _Resp(200, _dumps({"id": push["id"], "event": "message"}))
@@ -188,6 +208,8 @@ def fake_post(url, data=None, headers=None, json=None, timeout=None):
 requests.get, requests.post = fake_get, fake_post
 notifier.NTFY_TOPIC = "test-topic"
 cs.DETAIL_GAP_S = 0
+aw.DRILL_RETRY_GAP_S = 0
+aw.DELIVERY_POLL_WAITS_S = tuple(0 for _ in aw.DELIVERY_POLL_WAITS_S)   # as many read-backs, no waiting
 
 STORE: dict[str, dict] = {}
 STATE: dict[str, str] = {}
@@ -280,9 +302,13 @@ class _Query:
         return types.SimpleNamespace(data=[{c: r.get(c) for c in self.cols} for r in rows])
 
 
-for mod in (cs,):
-    mod.get_state, mod.set_state, mod.find_unknown_candidates = STATE.get, STATE.__setitem__, fake_unknown
-aw.get_state, aw.set_state, aw.read_state = STATE.get, STATE.__setitem__, read_state
+def get_state(key):
+    """db.get_state reports a failed read as a missing key."""
+    return None if STATE_DOWN["on"] else STATE.get(key)
+
+
+cs.get_state, cs.set_state, cs.find_unknown_candidates = get_state, STATE.__setitem__, fake_unknown
+aw.get_state, aw.set_state, aw.read_state = get_state, STATE.__setitem__, read_state
 aw.clear_state = lambda key: STATE.pop(key, None)
 aw.get_client = _Query
 aw.classify = main.classify = fake_classify
@@ -293,18 +319,34 @@ w.find_unknown_candidates = fake_unknown
 w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: None
 w.fetch_all_listings = lambda cfg: (ORDER.append("boards"), [])[1]
-cs.collect_listings = lambda force=False: [dict(r) for r in SITEMAP_ROWS]
+_real_collect_listings = cs.collect_listings
+
+
+def fake_collect(force=False, apple_internships=None):
+    """Like the real collect_listings, read as if the hourly sitemap were due on every pass: a row comes
+    back only while its id is not stored, and apple_internships gets every Apple internship title,
+    stored or not (the same dicts as the returned rows, as in the real one)."""
+    rows = [dict(r) for r in SITEMAP_ROWS if r["id"] not in STORE]
+    if apple_internships is not None:
+        by_id = {r["id"]: r for r in rows}
+        apple_internships.extend(by_id.get(r["id"], dict(r)) for r in SITEMAP_ROWS
+                                 if r["company"] == "Apple" and cs.INTERN_TITLE.search(r["title"]))
+    return rows
+
+
+cs.collect_listings = fake_collect
 
 
 def reset(records=REAL, stored=REAL, applied=(SWE_TITLE,)):
     """A world where Apple lists `records` and the tracker already holds `stored` (found Oct 6)."""
     for d in (STORE, STATE, SITE["status"]):
         d.clear()
+    SITE["students_seq"], SITE["detail"] = [], None
     CLAIMED.clear()
     SITEMAP_ROWS.clear()
     QUERIES.clear()
     STATE_DOWN["on"] = False
-    NTFY.update(apple_status=200, feed_drop=False)
+    NTFY.update(apple_status=200, canary_status=200, feed_drop=False, feed_lag_polls=0, polls=0)
     VERDICT.clear()
     VERDICT.update(tier="APPLY", reason="Undergrad CS internship, Summer 2027")
     SITE["students"] = students_pages(records)
@@ -336,6 +378,24 @@ def searches() -> list[str]:
 
 def ledger() -> set[str]:
     return set(json.loads(STATE[aw.LEDGER_KEY])["reqs"]) if aw.LEDGER_KEY in STATE else set()
+
+
+def sitemap_row(title, rid):
+    """A sitemap stub as collect_listings makes one: title from the URL slug, location the country."""
+    url = f"https://jobs.apple.com/en-us/details/{rid}/{re.sub(r'[^a-z0-9]+', '-', title.lower())}"
+    job = cs._make_job("Apple", title, "United States", url, None, None)
+    job["search_term"] = "career-sitemap"
+    return job
+
+
+# Apple's sitemap on 2026-10-30, the internship part of it: Feb 2026's Finance Development Program in two
+# cities (not on the internships page), and last year's pools.
+SITEMAP_TODAY = ([sitemap_row("Finance Development Program 2027 Internship Opportunities", "200646124-0157"),
+                  sitemap_row("Finance Development Program 2027 Internship Opportunities", "200646124-0836")]
+                 + [sitemap_row(t, f"20060{6140 + i}-3810") for i, t in enumerate(
+                     ["Software Engineering Internships", "Machine Learning AI Internships",
+                      "Hardware Engineering Internships", "MBA Internships Summer"])]
+                 + [sitemap_row("Senior Software Engineer", "200712399-3810")])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -583,34 +643,91 @@ check("a page 1 that is not newest-first is not trusted alone", len(searches()) 
 print("\n-- Apple's full job list (the sitemap) --")
 reset()
 run_pass()
+# Today's sitemap, with one city of the Finance Development Program stored and the other not -- the
+# state the bot is in now (the second city shares its title key, so it is never stored).
+SITEMAP_ROWS[:] = SITEMAP_TODAY
+store_row(SITEMAP_TODAY[0])
+for r in SITEMAP_TODAY[2:]:
+    store_row(r)
+pushes = run_pass()
+check("the first sitemap read after deploy pushes nothing, not even the never-stored second city",
+      kinds(pushes, "apple") == [], str([p["title"] for p in kinds(pushes, "apple")]))
+check("...and records its internship requisitions as seen", {"200646124", "200606140", "200606143"} <= ledger()
+      and json.loads(STATE[aw.LEDGER_KEY])["sitemap_seeded"] is True)
+check("...but never its full-time roles (the sitemap adds dozens a day; the ledger is read every pass)",
+      "200712399" not in ledger())
+check("the pass after is quiet too", kinds(run_pass(), "apple") == [])
 
-
-def sitemap_row(title, rid):
-    url = f"https://jobs.apple.com/en-us/details/{rid}/{re.sub(r'[^a-z0-9]+', '-', title.lower())}"
-    job = cs._make_job("Apple", title, "United States", url, None, None)
-    job["search_term"] = "career-sitemap"
-    return job
-
-
-SITEMAP_ROWS[:] = [sitemap_row("Software Engineering Internships Summer", "200712351-3810"),
-                   sitemap_row("Internal Communications Strategist", "200712352-3810"),
-                   sitemap_row("Hardware Phd Internships", "200712353-3810"),
-                   sitemap_row("Senior Software Engineer", "200712354-3810")]
+SITEMAP_ROWS[:] = SITEMAP_TODAY + [sitemap_row("Software Engineering Internships Summer", "200712351-3810"),
+                                   sitemap_row("Internal Communications Strategist", "200712352-3810"),
+                                   sitemap_row("Hardware Phd Internships", "200712353-3810")]
 pushes = run_pass()
 apple = kinds(pushes, "apple")
-check("an internship title there pushes 🍎", [p["title"] for p in apple] == ["🍎 APPLE - Software Engineering Internships Summer"],
+check("a new internship title there pushes 🍎", [p["title"] for p in apple] == ["🍎 APPLE - Software Engineering Internships Summer"],
       str([p["title"] for p in apple]))
+check("...with the verdict it was given this pass", apple and "Bot's verdict: APPLY" in apple[0]["body"],
+      apple[0]["body"] if apple else "")
 check("a PhD pool there is recorded without a push", "200712353" in ledger())
-check("full-time roles are never recorded (the sitemap adds dozens a day; the ledger is read every pass)",
-      not {"200712352", "200712354"} & ledger())
+check("'Internal' is not 'intern': never recorded", "200712352" not in ledger())
+
+print("\n-- the real sitemap reader hands over every Apple internship title, stored or not --")
+reset()
+SITE["sitemaps"] = {"Apple": "<urlset>" + "".join(f"<url><loc>{r['url']}</loc></url>" for r in SITEMAP_TODAY)
+                    + "<url><loc>https://jobs.apple.com/en-us/details/200712352-3810/internal-communications-strategist"
+                      "</loc></url></urlset>"}
+store_row(SITEMAP_TODAY[0])
+handed: list = []
+_saved_due = cs._due
+cs._due = lambda now: True
+rows = _real_collect_listings(apple_internships=handed)
+cs._due = _saved_due
+SITE.pop("sitemaps")
+check("both cities of the Finance Development Program, though one is stored",
+      {SITEMAP_TODAY[0]["id"], SITEMAP_TODAY[1]["id"]} <= {j["id"] for j in handed}, str([j["title"] for j in handed]))
+check("no full-time role and no 'Internal' title", not any(t in j["title"] for j in handed
+      for t in ("Senior Software Engineer", "Internal Communications")), str([j["title"] for j in handed]))
+check("...while the rows for the tracker are still only the unstored ones", SITEMAP_TODAY[0]["id"] not in
+      {j["id"] for j in rows} and SITEMAP_TODAY[1]["id"] in {j["id"] for j in rows})
+
+print("\n-- a sitemap push that fails is sent at the next hourly read --")
+reset()
+run_pass()
+SITEMAP_ROWS[:] = list(SITEMAP_TODAY)
+run_pass()
+SITEMAP_ROWS.append(sitemap_row("Treasury Internships Summer", "200712357-3810"))
+NTFY["apple_status"] = 500
+pushes = run_pass()
+check("ntfy refuses: nothing recorded, though the row is now stored", kinds(pushes, "apple") == []
+      and "200712357" not in ledger() and id_of(SITEMAP_ROWS[-1]["url"]) in STORE)
+NTFY["apple_status"] = 200
+pushes = run_pass()
+apple = kinds(pushes, "apple")
+check("the next read pushes it (the stored row still reaches the alert)", len(apple) == 1
+      and "Treasury" in apple[0]["title"], str([p["title"] for p in apple]))
+check("...once", kinds(run_pass(), "apple") == [])
+SITEMAP_ROWS.clear()
+
+print("\n-- a first pass where only the sitemap can be read does not seed --")
+reset()
+SITE["status"]["students"] = 403
+SITEMAP_ROWS[:] = SITEMAP_TODAY
+pushes = run_pass()
+check("internships page refused, sitemap read: nothing recorded, nothing pushed",
+      aw.LEDGER_KEY not in STATE and kinds(pushes, "apple") == [], str(pushes))
+SITE["status"].clear()
+pushes = run_pass(full_read_age_min=None)
+check("the next good pass seeds from the internships page, then the sitemap, still pushing nothing",
+      len(ledger()) > 24 and kinds(pushes, "apple") == [], f"{len(ledger())} {pushes}")
 SITEMAP_ROWS.clear()
 
 reset()
 run_pass()
+SITEMAP_ROWS[:] = SITEMAP_TODAY
+run_pass()
 both = new_record("Software Engineering Internships – Summer 2028", "200712355-3810")
 SITE["students"] = students_pages([both] + REAL)
-SITEMAP_ROWS[:] = [dict(sitemap_row("Software Engineering Internships Summer", "200712355-3810"), url=url_of(both),
-                        apply_url=url_of(both), id=id_of(url_of(both)))]
+SITEMAP_ROWS.append(dict(sitemap_row("Software Engineering Internships Summer", "200712355-3810"), url=url_of(both),
+                         apply_url=url_of(both), id=id_of(url_of(both))))
 pushes = run_pass()
 check("one posting on both the internships page and the sitemap: one 🍎 push", len(kinds(pushes, "apple")) == 1,
       str([p["title"] for p in kinds(pushes, "apple")]))
@@ -638,6 +755,180 @@ cs.find_unknown_candidates = lambda jobs, batch_size=5000: (_ for _ in ()).throw
 run_pass()
 cs.find_unknown_candidates = _orig_unknown
 check("the boards are still swept", "boards" in ORDER, str(ORDER))
+
+print("\n-- the reader survives surprises in Apple's data --")
+odd = _with(P1, lambda d: d["loaderData"]["search"]["searchResults"].__setitem__(
+    slice(0, 2), [None, dict(d["loaderData"]["search"]["searchResults"][1], locations=["Austin"])]))
+try:
+    got, _ = cs.parse_apple_search(odd)
+except Exception as exc:
+    got = [repr(exc)]
+check("a null result is skipped, and a location given as plain text is read",
+      len(got) == 19 and isinstance(got[0], dict) and got[0]["location"] == "Austin", f"{len(got)} {got[:1]}")
+reset()
+run_pass()
+SITE["students"] = {1: _with(P1, lambda d: d["loaderData"]["search"].update(totalRecords="25+"))}
+r = cs.read_apple_pages(cs.APPLE_STUDENTS_URL, 1, 1, expect_team="INTRN")
+check("a posting count that is not a number is unreadable, not a crash",
+      r.outcome == "unreadable" and "not a number" in r.problem, str(r))
+SITE["students"] = students_pages(REAL)
+_orig_parse = cs.parse_apple_search
+cs.parse_apple_search = lambda page, expect_team=None: (_ for _ in ()).throw(TypeError("surprise"))
+try:
+    r = cs.read_apple_pages(cs.APPLE_STUDENTS_URL, 1, 1)
+except Exception as exc:
+    r = cs.AppleRead(outcome="escaped", problem=repr(exc))
+check("any other parser error is 'unreadable' too, naming only its type (the logs are public)",
+      r.outcome == "unreadable" and r.problem == "parser error (TypeError)", str(r))
+try:
+    run_pass()
+    canary = kinds(run_pass(), "canary")
+except Exception as exc:
+    canary = [repr(exc)]
+check("...so the two-in-a-row alarm still fires", len(canary) == 1 and isinstance(canary[0], dict)
+      and "can't read" in canary[0]["body"], str(canary))
+try:
+    aw.shadow_check(now=time.time() + 7200)
+    shadow_ok = aw.SHADOW_CHECKED_KEY in STATE
+except Exception as exc:
+    shadow_ok = False
+check("...and the shadow watch still reaches its own checks", shadow_ok)
+cs.parse_apple_search = _orig_parse
+
+reset()
+run_pass()
+SITE["students"] = students_pages([new_record("Software Engineering Internships – Summer 2028", "200712358-3810")] + REAL)
+SITE["detail"] = _with(D_SWE, lambda d: d["loaderData"]["jobDetails"]["jobsData"].update(
+    minimumQualifications=["Pursuing a BS", "Python"]))
+pushes = run_pass()
+check("a posting page Apple changed: the posting is still classified (on its title) and pushed",
+      len(kinds(pushes, "apple")) == 1 and CLASSIFIED and CLASSIFIED[-1].endswith("Summer 2028"), str(pushes))
+
+print("\n-- Apple dropping the internships filter (it answers an unknown team with every U.S. job) --")
+reset()
+run_pass()
+unfiltered = _with(P1, lambda d: d["loaderData"]["search"].update(filters={"teams": []}, totalRecords=4483))
+SITE["students"] = {1: unfiltered}
+pushes = run_pass()
+check("the page reads as unreadable, so no full-time role is pushed as an internship",
+      kinds(pushes, "apple") == [], str([p["title"] for p in kinds(pushes, "apple")]))
+canary = kinds(run_pass(), "canary")
+check("...and the second such read alarms", len(canary) == 1 and "INTRN team filter was not applied" in canary[0]["body"],
+      str(canary))
+r = cs.read_apple_pages(cs.APPLE_STUDENTS_URL, 1, 1, expect_team="INTRN")
+SITE["students"] = {1: _with(P1, lambda d: d["loaderData"]["search"].update(totalRecords=4483))}
+r2 = cs.read_apple_pages(cs.APPLE_STUDENTS_URL, 1, 1, expect_team="INTRN")
+check("a filtered page claiming thousands of postings is unreadable too", r2.outcome == "unreadable"
+      and "too many" in r2.problem, str(r2))
+check("every U.S. job, which has no team filter, still reads (the shadow watch's page)",
+      cs.parse_apple_search(ALL_US)[1] > 1000)
+
+print("\n-- page 2 refused on the hourly read --")
+reset()
+run_pass()
+SITE["status"][("students", 2)] = 403
+pushes = run_pass(full_read_age_min=61)
+check("is not an outage: page 1, which finds new postings, was read", aw.HEALTH_KEY not in STATE
+      and kinds(pushes, "canary") == [], STATE.get(aw.HEALTH_KEY, ""))
+check("...and is tried again at the next hourly slot, not on every pass",
+      (_now() - datetime.fromisoformat(STATE[cs.APPLE_STUDENTS_FULL_STATE_KEY])).total_seconds() < 60)
+run_pass(full_read_age_min=None)
+check("the pass after reads page 1 only", searches() == [cs.APPLE_STUDENTS_URL], str(searches()))
+
+print("\n-- an empty page --")
+reset()
+run_pass()
+SITE["students"] = students_pages([])
+check("one empty read: no alarm", kinds(run_pass(), "canary") == [])
+canary = kinds(run_pass(), "canary")
+check("two: one alarm (Apple has listed 25 for months; an empty page is the 2026-10-29 symptom)",
+      len(canary) == 1 and "lists no postings" in canary[0]["body"], str(canary))
+reset()
+run_pass()
+SITE["status"]["students"] = 403
+run_pass()
+h = json.loads(STATE[aw.HEALTH_KEY])
+h["failing_since"] -= 3660
+STATE[aw.HEALTH_KEY] = json.dumps(h)
+check("refused for an hour: alarm", len(kinds(run_pass(), "canary")) == 1)
+SITE["status"].clear()
+SITE["students"] = students_pages([])
+check("then an empty page: no false 'readable again'", kinds(run_pass(), "canary") == [] and aw.HEALTH_KEY in STATE)
+SITE["students"] = students_pages(REAL)
+canary = kinds(run_pass(), "canary")
+check("then the real page: the all-clear", len(canary) == 1 and "readable again" in canary[0]["body"], str(canary))
+
+print("\n-- an alarm ntfy did not take is sent again --")
+reset()
+run_pass()
+SITE["status"]["students"] = 403
+run_pass()
+h = json.loads(STATE[aw.HEALTH_KEY])
+h["failing_since"] -= 3660
+STATE[aw.HEALTH_KEY] = json.dumps(h)
+NTFY["canary_status"] = 503
+run_pass()
+check("the alarm push fails: not marked sent", not json.loads(STATE[aw.HEALTH_KEY]).get("alerted"))
+NTFY["canary_status"] = 200
+canary = kinds(run_pass(), "canary")
+check("next pass: sent", len(canary) == 1 and "turned away" in canary[0]["body"], str(canary))
+
+print("\n-- a bot_state blip never restarts an alarm clock --")
+reset()
+run_pass()
+SITE["status"]["students"] = 403
+run_pass()
+before = STATE[aw.HEALTH_KEY]
+STATE_DOWN["on"] = True
+run_pass()
+STATE_DOWN["on"] = False
+check("the failure record is left exactly as it was", STATE[aw.HEALTH_KEY] == before, f"{before} -> {STATE[aw.HEALTH_KEY]}")
+SITE["status"].clear()
+t_s = time.time() + 10 * 3600
+STATE.pop(aw.SHADOW_CHECKED_KEY, None)
+aw.shadow_check(now=t_s)
+shadow_before = STATE[aw.SHADOW_KEY]
+STATE_DOWN["on"] = True
+FETCHED.clear()
+aw.shadow_check(now=t_s + 3700)
+STATE_DOWN["on"] = False
+check("a shadow check that cannot read its record skips the hour, untouched, and retries next pass",
+      STATE[aw.SHADOW_KEY] == shadow_before and FETCHED == [] and
+      datetime.fromisoformat(STATE[aw.SHADOW_CHECKED_KEY]).timestamp() < t_s + 3700)
+
+print("\n-- 'applied' means any status at or past applied --")
+reset(applied=())
+STORE[id_of(url_of(next(r for r in REAL if r["postingTitle"] == SWE_TITLE)))]["status"] = "rejected"
+run_pass()
+SITE["students"] = students_pages([new_record(SWE_TITLE, "200712359-3810")] + REAL)
+apple = kinds(run_pass(), "apple")
+check("an earlier posting marked rejected still counts as applied to", apple and
+      "You applied to an earlier posting of this title" in apple[0]["body"], apple[0]["body"] if apple else "")
+
+print("\n-- a grouped push that fails is sent again --")
+reset(records=REAL[:1], stored=REAL[:1])
+run_pass()
+launch = [new_record(f"Software Engineering Internships – Summer 2028 Team {i}", f"4{i:08d}-3810")
+          for i in range(aw.GROUPED_PUSH_OVER + 2)]
+SITE["students"] = students_pages(launch + REAL[:1])
+NTFY["apple_status"] = 500
+run_pass()
+check("ntfy refuses the burst's push: none of it recorded", not {r["id"].split("-")[0] for r in launch} & ledger())
+NTFY["apple_status"] = 200
+apple = kinds(run_pass(), "apple")
+check("next pass: one grouped push", len(apple) == 1 and apple[0]["title"].endswith(f"{len(launch)} new internship postings"),
+      str([p["title"] for p in apple]))
+check("...and all of it recorded", {r["id"].split("-")[0] for r in launch} <= ledger())
+
+print("\n-- the ledger lost while the hourly read is fresh --")
+reset()
+run_pass()
+STATE[aw.LEDGER_KEY] = "{not json"
+run_pass(full_read_age_min=10)
+check("asks for a full read anyway, and seeds from every page", len(searches()) == 2 and len(ledger()) == 24,
+      f"{searches()} {len(ledger())}")
+SITE["students"] = students_pages([new_record("Software Engineering Internships – Summer 2028", "200712360-3810")] + REAL)
+check("...and the next new posting pushes", len(kinds(run_pass(), "apple")) == 1)
 
 # ═════════════════════════════════════════════════════════════════════════════
 print("\n-- the shadow watch: the same reader, where Apple posts every day --")
@@ -703,11 +994,11 @@ SITE["all_us"] = ALL_US
 # ═════════════════════════════════════════════════════════════════════════════
 print("\n-- the weekly drill --")
 reset()
+run_pass()
 VERDICT.update(tier="APPLY_CAVEAT", reason="Undergrad pool; no term listed")
 store_before, state_before = copy.deepcopy(STORE), copy.deepcopy(STATE)
-PUSHES.clear()
-CLASSIFIED.clear()
-FETCHED.clear()
+for lst in (PUSHES, CLASSIFIED, FETCHED):
+    lst.clear()
 rc = aw.drill()
 apple, job = kinds(PUSHES, "apple"), kinds(PUSHES, "job")
 check("passes", rc == 0)
@@ -723,26 +1014,72 @@ check("...saying it is a drill, with the verdict, the shadow watch and the page'
 check("...and what the tracker knows (he applied to it)", "You've already applied to this posting." in d_body, d_body)
 check("sends the usual push too, marked DRILL", [p["title"] for p in job] == [f"DRILL - Apple - {SWE_TITLE}"],
       str([p["title"] for p in job]))
-check("writes nothing: tracker and state exactly as before", STORE == store_before and STATE == state_before)
+check("writes nothing to the tracker", STORE == store_before)
+check("...and in bot_state only its pass stamp", {k: v for k, v in STATE.items() if k != aw.DRILL_KEY}
+      == {k: v for k, v in state_before.items() if k != aw.DRILL_KEY}
+      and "passed_at" in json.loads(STATE.get(aw.DRILL_KEY, "{}")))
 
 reset()
+run_pass()
+SITE["students_seq"] = [403]
+PUSHES.clear()
+check("one odd answer from Apple: retried, and the drill passes", aw.drill() == 0
+      and kinds(PUSHES, "canary") == [] and len(kinds(PUSHES, "apple")) == 1, str(PUSHES))
+
+reset()
+run_pass()
 SITE["status"]["students"] = 403
 PUSHES.clear()
 rc = aw.drill()
 canary = kinds(PUSHES, "canary")
-check("Apple refusing the drill: it fails, and says where", rc == 1 and len(canary) == 1
+check("Apple refusing every try: it fails, and says where", rc == 1 and len(canary) == 1
       and "drill FAILED at reading Apple's internships page (HTTP 403)" in canary[0]["body"]
       and not kinds(PUSHES, "apple"), str(PUSHES))
 
 reset()
+run_pass()
+NTFY["feed_lag_polls"] = 1
+PUSHES.clear()
+check("ntfy's feed a moment behind (its cache is written in batches): polled again, passes", aw.drill() == 0
+      and kinds(PUSHES, "canary") == [], str(kinds(PUSHES, "canary")))
+
+reset()
+run_pass()
 NTFY["feed_drop"] = True
 PUSHES.clear()
 rc = aw.drill()
 canary = kinds(PUSHES, "canary")
-check("ntfy taking the push but not holding it: it fails at delivery", rc == 1 and canary
+check("ntfy taking the push but never holding it: it fails at delivery", rc == 1 and canary
       and "confirming delivery" in canary[-1]["body"], str(canary))
 
 reset()
+run_pass()
+STATE[cs.APPLE_STUDENTS_STATE_KEY] = (_now() - timedelta(hours=2)).isoformat()
+PUSHES.clear()
+rc = aw.drill()
+canary = kinds(PUSHES, "canary")
+check("the 5-minute check not running: it fails, and says so, instead of 'the Apple alert works'",
+      rc == 1 and canary and "checking the 5-minute Apple check (it last ran 120 minutes ago)" in canary[0]["body"]
+      and not kinds(PUSHES, "apple"), str(PUSHES))
+
+reset()
+run_pass()
+del STATE[aw.LEDGER_KEY]
+PUSHES.clear()
+check("the 5-minute check running but never having recorded Apple's postings: it fails",
+      aw.drill() == 1 and "has not recorded Apple's postings" in kinds(PUSHES, "canary")[0]["body"])
+
+reset()
+run_pass()
+STATE_DOWN["on"] = True
+PUSHES.clear()
+rc = aw.drill()
+STATE_DOWN["on"] = False
+check("the bot's state unreadable: it fails, and says so", rc == 1
+      and "reading the bot's state" in kinds(PUSHES, "canary")[0]["body"])
+
+reset()
+run_pass()
 VERDICT.clear()
 VERDICT.update(failed=True)
 PUSHES.clear()
@@ -750,6 +1087,21 @@ rc = aw.drill()
 apple = kinds(PUSHES, "apple")
 check("the classifier down: the 🍎 push still goes, saying the verdict is pending (the classifier has its own alarm)",
       rc == 0 and apple and "pending" in apple[0]["body"] and not kinds(PUSHES, "job"), str(PUSHES))
+
+print("\n-- a drill that stops running is noticed --")
+reset()
+t_d = time.time()
+STATE.pop(aw.SHADOW_CHECKED_KEY, None)
+PUSHES.clear()
+aw.shadow_check(now=t_d)
+check("no drill on record: the clock starts, no alarm", aw.DRILL_KEY in STATE and kinds(PUSHES, "canary") == [])
+STATE[aw.DRILL_KEY] = json.dumps({"passed_at": datetime.fromtimestamp(t_d - 9 * 86400, timezone.utc).isoformat()})
+aw.shadow_check(now=t_d + 3700)
+canary = kinds(PUSHES, "canary")
+check("9 days since the last pass: one alarm", len(canary) == 1 and "drill has not passed since" in canary[0]["body"],
+      str(canary))
+aw.shadow_check(now=t_d + 7400)
+check("...not repeated", len(kinds(PUSHES, "canary")) == 1)
 
 print()
 if _fails:

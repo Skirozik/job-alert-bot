@@ -110,12 +110,14 @@ def push_apple(title: str, body: str, url: str, drill: bool = False) -> str | No
         return None
 
 
-def push_canary(message: str) -> None:
-    """Send a canary/warning alert — used when the scraper looks broken."""
+def push_canary(message: str) -> bool:
+    """Send a canary/warning alert — used when the scraper looks broken.
+    True only when ntfy took it: apple_watch marks an alarm sent only then, so
+    a lost alarm is tried again on the next pass instead of silencing the outage."""
     if not NTFY_TOPIC:
-        return
+        return False
     try:
-        requests.post(
+        resp = requests.post(
             f"{NTFY_BASE}/{NTFY_TOPIC}",
             data=message.encode("utf-8"),
             headers={
@@ -125,6 +127,9 @@ def push_canary(message: str) -> None:
             },
             timeout=10,
         )
+        resp.raise_for_status()
         log.warning("Canary sent: %s", message)
+        return True
     except Exception as exc:
         log.error("Canary push failed: %s", exc)
+        return False

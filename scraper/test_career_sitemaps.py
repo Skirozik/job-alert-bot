@@ -168,8 +168,10 @@ RESULTS = [search_result("200664780-3810", "machine-learning-and-artificial-inte
                          "Applied Data Solutions Program, Internships \u2013 Summer 2027", ("Austin",)),
            search_result("200673612-0836", "applied-data-solutions-program-internships-summer-2027",
                          "Applied Data Solutions Program, Internships \u2013 Summer 2027", ("Cupertino",))]
-SEARCH_P1 = apple_page({"search": {"searchResults": RESULTS[:2], "totalRecords": 3}})
-SEARCH_P2 = apple_page({"search": {"searchResults": RESULTS[2:], "totalRecords": 3}})
+# Apple echoes the applied team filter; the internships read requires it.
+_TEAMS = {"teams": [{"code": "INTRN", "teamCode": "STDNT", "name": "Internships"}]}
+SEARCH_P1 = apple_page({"search": {"searchResults": RESULTS[:2], "totalRecords": 3, "filters": _TEAMS}})
+SEARCH_P2 = apple_page({"search": {"searchResults": RESULTS[2:], "totalRecords": 3, "filters": _TEAMS}})
 DETAIL = apple_page({"jobDetails": {"jobsData": {
     "jobSummary": "<p>Join a team building ML into products.</p>", "description": "Work on real models &amp; data.",
     "minimumQualifications": "<ul><li>Pursuing a BS in Computer Science</li><li>At the end of the internship, "
