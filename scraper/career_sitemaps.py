@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 import requests
 
 from ats_sources import MAX_LEN, _make_job
-from db import find_unknown_candidates, get_state, job_norm_key, set_state
+from db import clear_state, find_unknown_candidates, get_state, job_norm_key, set_state
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +85,14 @@ def _sitemap_urls(source: dict) -> list[str] | None:
         log.warning("Career sitemap %s unavailable: %s", source["company"], type(exc).__name__)
         return None
     locs = re.findall(r"<loc>\s*([^<]+?)\s*</loc>", r.text)
-    return [u for u in locs if re.search(source["url_re"], u)]
+    urls = [u for u in locs if re.search(source["url_re"], u)]
+    if not urls:
+        # These sitemaps list hundreds to thousands of jobs; a 200 listing none is a page the site served
+        # instead (a challenge, an empty set), and must not read as "no jobs" -- for Apple's, as "no
+        # internships" to seed against.
+        log.warning("Career sitemap %s lists no job pages (%d bytes)", source["company"], len(r.text))
+        return None
+    return urls
 
 
 def title_from_slug(url: str) -> str:
@@ -248,6 +255,9 @@ APPLE_STUDENTS_URL = "https://jobs.apple.com/en-us/search?location=united-states
 APPLE_ALL_US_URL = "https://jobs.apple.com/en-us/search?location=united-states-USA"
 APPLE_STUDENTS_STATE_KEY = "apple_students_checked_at"
 APPLE_STUDENTS_FULL_STATE_KEY = "apple_students_full_read_at"
+# Set when a burst ran past page 1 and the later pages could not be read; until they are, every pass
+# reads them again and their failure is an outage (postings 21+ of the burst are unseen).
+APPLE_STUDENTS_PAGE2_KEY = "apple_students_page2_needed"
 # Every 5-minute ATS pass. The gate only stops a pass that starts under 4 minutes after the last one
 # (a manual dispatch landing next to a scheduled run) from doubling the requests.
 APPLE_STUDENTS_INTERVAL_S = 240
@@ -441,7 +451,9 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
         return AppleStudents()
     seeding = full
     since_full = _since(APPLE_STUDENTS_FULL_STATE_KEY, now)
-    full = full or since_full is None or since_full >= APPLE_STUDENTS_FULL_READ_S
+    page2_needed = bool(get_state(APPLE_STUDENTS_PAGE2_KEY))
+    seeding = seeding or page2_needed
+    full = full or page2_needed or since_full is None or since_full >= APPLE_STUDENTS_FULL_READ_S
 
     read = read_apple_pages(APPLE_STUDENTS_URL, 1, 1, expect_team="INTRN")
     health = AppleRead(list(read.postings), read.total, read.outcome, read.problem)
@@ -459,10 +471,17 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
         rest_stubs = _apple_stubs(rest.postings)
         read.postings += rest.postings
         read.outcome, read.problem = rest.outcome, rest.problem
-        if (seeding or burst) and rest.outcome != "ok":
-            # Here the later pages matter: the ledger cannot be seeded without them, or a burst runs onto
-            # them. So their failure is an outage, and counts toward the alarms.
-            health.outcome, health.problem = rest.outcome, f"page 2 or later: {rest.problem}"
+        if (seeding or burst) and not read.complete:
+            # Here the later pages matter: the ledger cannot be seeded without them, or a burst ran onto
+            # them. So failing to read them -- refused, unreadable, or empty while the count says more --
+            # is an outage, and counts toward the alarms; a burst's are read again every pass until done.
+            problem = rest.problem or f"{len(read.postings)} of {read.total} postings read"
+            health.outcome = rest.outcome if rest.outcome != "ok" else "empty"
+            health.problem = f"page 2 or later: {problem}"
+            if burst and not page2_needed:
+                set_state(APPLE_STUDENTS_PAGE2_KEY, "1")
+        elif page2_needed and read.complete:
+            clear_state(APPLE_STUDENTS_PAGE2_KEY)
         stubs += rest_stubs
         unknown |= find_unknown_candidates(rest_stubs) if rest_stubs else set()
         # Stamped when ATTEMPTED, not only when complete: a page 2 that Apple refuses is tried again at
