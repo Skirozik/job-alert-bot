@@ -328,6 +328,7 @@ def get_state(key):
 
 
 cs.get_state, cs.set_state, cs.find_unknown_candidates = get_state, set_state, fake_unknown
+cs.read_state = read_state
 aw.get_state, aw.set_state, aw.read_state = get_state, set_state, read_state
 aw.clear_state = cs.clear_state = lambda key: STATE.pop(key, None)
 aw.get_client = _Query
@@ -578,13 +579,12 @@ renumbered = [dict(r, id="9" + r["id"][1:]) for r in REAL]
 SITE["students"] = students_pages(renumbered)
 pushes = run_pass()
 apple = kinds(pushes, "apple")
-check("page 1's postings come as one push, not a flood", len(apple) == 1 and apple[0]["title"].endswith(
-      "new internship postings"), str([p["title"] for p in apple]))
+expected = len({r["id"].split("-")[0] for r in renumbered if aw.wanted(r["postingTitle"], True)})
+check("judged against the ledger, it is a burst: every page read, one push for all of it, not a flood",
+      len(searches()) == 2 and len(apple) == 1 and apple[0]["title"] == f"🍎 APPLE - {expected} new internship postings",
+      str([p["title"] for p in apple]))
 check("...and the tracker takes them for the stored jobs, as before", CLASSIFIED == [], str(CLASSIFIED))
-pushes = run_pass(full_read_age_min=61)
-page2_wanted = sum(aw.wanted(r["postingTitle"], True) for r in renumbered[20:])
-check(f"the hourly full read brings page 2's {page2_wanted} wanted postings (one push each, as a burst of "
-      f"{aw.GROUPED_PUSH_OVER} or fewer)", len(kinds(pushes, "apple")) == page2_wanted, str(kinds(pushes, "apple")))
+check("the hourly full read after: nothing more", kinds(run_pass(full_read_age_min=61), "apple") == [])
 check("after that: quiet", run_pass(full_read_age_min=61) == [])
 
 print("\n-- a push that fails is sent again, once --")
@@ -1152,6 +1152,42 @@ check("is a failure, named with what was read", "page 2 or later: 20 of 25 posti
 canary = kinds(run_pass(full_read_age_min=None), "canary")
 check("...and the second such pass alarms (until it is seeded, no 🍎 push can go out)", len(canary) == 1, str(canary))
 
+print("\n-- next May's pools, reposted under last year's titles --")
+reset()
+run_pass()
+relaunch = [new_record(r["postingTitle"], f"7{i:08d}-3810") for i, r in enumerate(REAL[:22])]
+SITE["students"] = students_pages(relaunch + REAL)
+SITE["status"][("students", 2)] = 403
+run_pass()
+check("are a burst (judged against the alert's own ledger, not the tracker's title key)",
+      len(searches()) == 2 and STATE.get(cs.APPLE_STUDENTS_PAGE2_KEY) == "1"
+      and "page 2 or later" in STATE.get(aw.HEALTH_KEY, ""), f"{searches()} {STATE.get(aw.HEALTH_KEY)}")
+check("...whose page 1 is pushed at once", len(kinds(PUSHES, "apple")) == 1)
+
+print("\n-- the page-2 flag --")
+reset()
+run_pass()
+STATE[cs.APPLE_STUDENTS_PAGE2_KEY] = "1"
+SITE["status"][("students", 2)] = 403
+run_pass(full_read_age_min=None)
+STATE_DOWN["fail_reads"] = {cs.APPLE_STUDENTS_PAGE2_KEY: 1}
+health_before = STATE.get(aw.HEALTH_KEY)
+pushes = run_pass(full_read_age_min=None)
+check("a blip reading it reads page 2 anyway: no false 'readable again', the outage record kept",
+      len(searches()) == 2 and kinds(pushes, "canary") == [] and aw.HEALTH_KEY in STATE, f"{searches()} {pushes}")
+SITE["status"].clear()
+SITE["students"] = students_pages(REAL[:19])
+run_pass(full_read_age_min=None)
+check("cleared once the whole list reads, even when that is page 1 alone (the count fell to 19)",
+      cs.APPLE_STUDENTS_PAGE2_KEY not in STATE)
+
+print("\n-- a list longer than five pages --")
+reset(records=[new_record(f"Software Engineering Internships – Summer 2028 Team {i}", f"8{i:08d}-3810") for i in range(120)],
+      stored=())
+run_pass()
+check("is read to the end and seeds (the page limit reaches the plausibility bound)", len(searches()) == 6
+      and len(ledger()) == 120, f"{len(searches())} pages, {len(ledger())} reqs")
+
 # ═════════════════════════════════════════════════════════════════════════════
 print("\n-- the shadow watch: the same reader, where Apple posts every day --")
 reset()
@@ -1426,6 +1462,20 @@ STATE[aw.SHADOW_KEY] = json.dumps({"last_new_at": time.time() - 3600, "log": [[r
 STATE[aw.SHADOW_CHECKED_KEY] = (_now() - timedelta(hours=4)).isoformat()
 check("the drill's shadow line says when the watch has stopped", aw.shadow_summary() ==
       "Shadow watch: has not run in over 3 hours.", aw.shadow_summary())
+
+reset()
+run_pass()
+_orig_describe = aw.describe
+aw.describe = lambda *a, **k: (_ for _ in ()).throw(OverflowError("year 1"))
+PUSHES.clear()
+try:
+    rc = aw.drill()
+except Exception as exc:
+    rc = f"raised {type(exc).__name__}"
+aw.describe = _orig_describe
+apple = kinds(PUSHES, "apple")
+check("push details the drill cannot build: it sends the push plain, and passes", rc == 0 and apple
+      and "Details unavailable" in apple[0]["body"], str(PUSHES))
 
 reset()
 run_pass()

@@ -95,6 +95,8 @@ state: dict = {}
 cs.requests.get = fake_get
 cs.find_unknown_candidates = fake_unknown
 cs.get_state = lambda k: state.get(k)
+cs.read_state = lambda k: state.get(k)
+cs.clear_state = lambda k: state.pop(k, None)
 cs.set_state = lambda k, v: state.__setitem__(k, v)
 cs.DETAIL_GAP_S = 0
 

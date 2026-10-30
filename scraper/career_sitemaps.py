@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 import requests
 
 from ats_sources import MAX_LEN, _make_job
-from db import clear_state, find_unknown_candidates, get_state, job_norm_key, set_state
+from db import StateUnavailable, clear_state, find_unknown_candidates, get_state, job_norm_key, read_state, set_state
 
 log = logging.getLogger(__name__)
 
@@ -264,7 +264,7 @@ APPLE_STUDENTS_INTERVAL_S = 240
 # The search is newest first, so page 1 (20 postings) holds anything new. Every page is still read
 # once an hour, in case a posting lands further down (a repost keeping its old date).
 APPLE_STUDENTS_FULL_READ_S = 3600
-APPLE_STUDENTS_MAX_PAGES = 5      # 25 postings on 2026-10-30, 20 to a page
+APPLE_STUDENTS_MAX_PAGES = 15     # 25 postings on 2026-10-30, 20 to a page; 15 reaches APPLE_STUDENTS_MAX_PLAUSIBLE
 _APPLE_DATA = re.compile(r'window\.__staticRouterHydrationData\s*=\s*JSON\.parse\("(.*?)"\);', re.S)
 
 
@@ -439,19 +439,27 @@ def _apple_stubs(postings: list[dict]) -> list[dict]:
     return stubs
 
 
-def collect_apple_students(force: bool = False, full: bool = False) -> AppleStudents:
+def collect_apple_students(force: bool = False, full: bool = False, seen_reqs: set | None = None) -> AppleStudents:
     """Apple's U.S. student postings: the ones not stored yet, in the ATS job shape with descriptions
     (rows), and everything read this pass (read). Reads page 1 only, unless a full read is asked for
     (full -- apple_watch asks before its first run), is due (hourly), or page 1 says there may be more
     to find: it is not newest-first, or every posting on it is new. Nothing is read when the last pass
-    was under APPLE_STUDENTS_INTERVAL_S ago (unless force)."""
+    was under APPLE_STUDENTS_INTERVAL_S ago (unless force).
+
+    seen_reqs: the requisitions apple_watch has already seen. "Every posting on page 1 is new" is judged
+    against them when given, not against the tracker: Apple reposts its pools under the same year-less
+    titles, which the tracker's title key takes for stored jobs, so next May's launch would not look
+    like a burst to it."""
     now = time.time()
     since = _since(APPLE_STUDENTS_STATE_KEY, now)
     if not force and since is not None and since < APPLE_STUDENTS_INTERVAL_S:
         return AppleStudents()
     seeding = full
     since_full = _since(APPLE_STUDENTS_FULL_STATE_KEY, now)
-    page2_needed = bool(get_state(APPLE_STUDENTS_PAGE2_KEY))
+    try:
+        page2_needed = bool(read_state(APPLE_STUDENTS_PAGE2_KEY))
+    except StateUnavailable:
+        page2_needed = True     # unknown: read the later pages, rather than risk calling an outage over
     seeding = seeding or page2_needed
     full = full or page2_needed or since_full is None or since_full >= APPLE_STUDENTS_FULL_READ_S
 
@@ -459,7 +467,10 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
     health = AppleRead(list(read.postings), read.total, read.outcome, read.problem)
     stubs = _apple_stubs(read.postings)
     unknown = find_unknown_candidates(stubs) if stubs else set()
-    burst = bool(stubs) and len(unknown) == len(stubs)
+    if seen_reqs is not None:
+        burst = bool(read.postings) and not ({p["req"] for p in read.postings} & seen_reqs)
+    else:
+        burst = bool(stubs) and len(unknown) == len(stubs)
     why = ("a full read is due" if full else "page 1 is not newest-first" if not _newest_first(read.postings)
            else "every posting on page 1 is new" if burst else "")
     if why and read.outcome == "ok" and len(read.postings) < read.total:
@@ -480,8 +491,6 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
             health.problem = f"page 2 or later: {problem}"
             if burst and not page2_needed:
                 set_state(APPLE_STUDENTS_PAGE2_KEY, "1")
-        elif page2_needed and read.complete:
-            clear_state(APPLE_STUDENTS_PAGE2_KEY)
         stubs += rest_stubs
         unknown |= find_unknown_candidates(rest_stubs) if rest_stubs else set()
         # Stamped when ATTEMPTED, not only when complete: a page 2 that Apple refuses is tried again at
@@ -490,6 +499,8 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
         set_state(APPLE_STUDENTS_FULL_STATE_KEY, datetime.now(timezone.utc).isoformat())
     elif read.complete:
         set_state(APPLE_STUDENTS_FULL_STATE_KEY, datetime.now(timezone.utc).isoformat())
+    if page2_needed and read.complete:
+        clear_state(APPLE_STUDENTS_PAGE2_KEY)
 
     out = []
     for job in stubs:

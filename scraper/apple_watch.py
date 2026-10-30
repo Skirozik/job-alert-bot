@@ -144,13 +144,15 @@ def _write_ledger(reqs: set[str], sitemap_seeded: bool) -> None:
     set_state(LEDGER_KEY, json.dumps({"reqs": sorted(reqs), "sitemap_seeded": sitemap_seeded}))
 
 
-def needs_full_read() -> bool:
-    """True before the first run: the ledger is seeded from every page, never from page 1 alone, or the
-    postings further down would each look new an hour later."""
+def seen_reqs() -> set[str] | None:
+    """The ledger's requisitions, or None before the first run or when it cannot be read. None asks
+    for a full read: the ledger is seeded from every page, never from page 1 alone, or the postings
+    further down would each look new an hour later."""
     try:
-        return _ledger() is None
+        ledger = _ledger()
     except StateUnavailable:
-        return False
+        return None
+    return ledger["reqs"] if ledger else None
 
 
 # ── the push ──────────────────────────────────────────────────────────────────
@@ -598,7 +600,11 @@ def drill(now: datetime | None = None) -> int:
         job.update(tier=result.get("tier", "APPLY_CAVEAT"), reason=result.get("reason", ""),
                    suggested_resume=result.get("suggested_resume", "General"))
 
-    title, body, url = describe([pick], {job["id"]: job}, now)
+    try:
+        title, body, url = describe([pick], {job["id"]: job}, now)
+    except Exception as exc:
+        log.error("Apple drill: push details unavailable (%s); sending it plain", type(exc).__name__)
+        title, body, url = pick["title"], f"{_locations([pick])}\nDetails unavailable; open the posting.", pick["url"]
     body = "\n".join(["Weekly drill, not a new posting: if this reached your phone, the Apple alert works.",
                       body, shadow_summary(), health_summary()])
     sent_at = time.time()
