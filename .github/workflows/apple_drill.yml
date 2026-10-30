@@ -1,0 +1,51 @@
+name: Apple Alert Drill
+
+# Once a week, proves the Apple alert end to end on the live site from GitHub's
+# own runners (the machines Apple sometimes turns away): one real internship on
+# jobs.apple.com is treated as new and taken through the real reader, the
+# posting's page, the classifier and both pushes, marked DRILL. Nothing is
+# written to the tracker. ntfy's copy is read back to confirm delivery; any
+# failed step sends a "Job scraper alert" and turns this run red.
+#
+# Apple posts new internships a few times a year, so without this the first
+# sign of a broken alert would be a role you never heard about. See
+# scraper/apple_watch.py.
+
+on:
+  schedule:
+    # Mondays 14:00 UTC: 9 AM Eastern in winter, 10 AM in summer. GitHub runs
+    # scheduled workflows best-effort, so it can arrive ~30 minutes late.
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: apple-drill-ifiok
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run the Apple drill
+        working-directory: scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python apple_drill.py

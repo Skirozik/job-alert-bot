@@ -211,6 +211,14 @@ the migration is required for fully atomic group updates.
 
 To verify the zero-results alert works, temporarily edit `config.py` and change `SEARCH_TERMS` to `["xyzzy-no-such-job-12345"]`, run the scraper, and confirm you receive an ⚠️ push. Then revert.
 
+## The Apple alert
+
+Apple posts its internships only on jobs.apple.com. The ATS watcher reads its U.S. internships page on every 5-minute pass and sends a 🍎 push for each new requisition (`scraper/apple_watch.py`). Three things keep proving it works when Apple posts nothing new:
+
+- **Shadow watch**: hourly, the same reader on every U.S. Apple job, where Apple posts dozens a day. 48 hours with nothing new sends a "Job scraper alert".
+- **Weekly drill**: `.github/workflows/apple_drill.yml`, Mondays 14:00 UTC. One real posting is taken through the whole path and both pushes arrive marked DRILL; nothing is written to the tracker. Run it any time from Actions → Apple Alert Drill → Run workflow.
+- **Tests**: `scraper/test_apple_watch.py` replays real arrivals on Apple's own pages, saved in `fixtures/apple/`. Every offline test runs on each push (`.github/workflows/tests.yml`).
+
 ---
 
 ## Implemented phases
@@ -250,6 +258,7 @@ LinkedIn_Job_Bot/
 │   ├── github_sources.py                # supplementary GitHub internship-list sources
 │   ├── classifier.py                    # Claude Haiku classifier (cached prompt, tool output)
 │   ├── notifier.py                      # ntfy.sh push notifications
+│   ├── apple_watch.py                   # the 🍎 Apple push, its alarms, shadow watch and drill
 │   ├── digest.py                        # Resend email digest, run on its own schedule
 │   ├── db.py                            # Supabase client + dedup + insert + run-lock/stats
 │   ├── config.py                        # search terms, locations, env vars
@@ -262,6 +271,8 @@ LinkedIn_Job_Bot/
 ├── .github/
 │   └── workflows/
 │       ├── scrape.yml                   # GitHub Actions cron (every 20 min)
+│       ├── apple_drill.yml              # weekly end-to-end drill of the Apple alert
+│       ├── tests.yml                    # every offline scraper test, on each push
 │       └── digest.yml                   # GitHub Actions cron (8am & 6pm ET)
 ├── Candidate_Profile_and_Filters.md     # your profile — classifier reads this
 ├── LinkedIn_Searches.md                 # search terms reference

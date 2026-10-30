@@ -1,0 +1,53 @@
+name: Scraper Tests
+
+# Every offline scraper test, on every pull request and every push to master.
+# A test here needs no database, no API key and no push topic: the environment
+# below is dummy on purpose, so a test that reaches for a real service fails
+# instead of quietly using one.
+#
+# Two tests stay manual, by name below: test_current_classifications.py reads
+# the live database, and test_ibm_skill_routing.py needs the private
+# application profile, which is not in the repo.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run the offline tests
+        working-directory: scraper
+        env:
+          SUPABASE_URL: http://offline.invalid
+          SUPABASE_SERVICE_KEY: offline
+          ANTHROPIC_API_KEY: offline
+          NTFY_TOPIC: ""
+        run: |
+          failed=""
+          for t in test_*.py; do
+            case "$t" in
+              test_current_classifications.py|test_ibm_skill_routing.py) echo "skip  $t (manual)"; continue ;;
+            esac
+            echo "::group::$t"
+            if python -X utf8 "$t"; then echo "::endgroup::"; else echo "::endgroup::"; echo "::error::$t failed"; failed="$failed $t"; fi
+          done
+          if [ -n "$failed" ]; then echo "Failed:$failed"; exit 1; fi
