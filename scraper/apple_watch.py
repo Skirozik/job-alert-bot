@@ -15,9 +15,9 @@ both pushes and keeps proving that it can:
     year's "Software Undergrad Engineering Internships" as a duplicate before
     anything reads it. One requisition posted in two cities (Applied Data
     Solutions: Austin and Cupertino) is one push. The bot's usual push for an
-    APPLY row still goes out too; this does not replace it. The internships page
-    seeds the ledger on the first run, and the sitemap's internship titles are
-    recorded silently the first time the sitemap is read after that.
+    APPLY row still goes out too; this does not replace it. The first run seeds
+    the ledger from the internships page and, at the same moment, the sitemap's
+    internship titles (it lists months-old ones the page does not).
   - record_students_read(): an alarm when the internships page loads but cannot
     be read (or lists nothing) twice running, or has failed for an hour. On
     2026-10-29 two of six reads came back with nothing and nothing said so.
@@ -39,6 +39,7 @@ fails leaves the stored record alone rather than starting it again.
 
 import json
 import logging
+import os
 import re
 import statistics
 import time
@@ -76,6 +77,10 @@ DRILL_TITLE = "Software Undergrad Engineering Internships"
 DRILL_TRIES = 3
 DRILL_RETRY_GAP_S = 30                # one odd answer from Apple must not fail the drill
 DRILL_MAX_CHECK_AGE_S = 45 * 60       # the internships check runs every 5 minutes; 45 is a broken pinger
+DRILL_MAX_SHADOW_AGE_S = 3 * 3600     # hourly; older means passes die before the end (sitemap, shadow watch)
+# The external pinger runs the drill at 9 AM; GitHub's own schedule, the fallback, lands hours later
+# (this repo's morning crons arrive ~4.5 h late). A scheduled run after a pass this recent stands down.
+DRILL_SCHEDULED_SKIP_S = 20 * 3600
 # ntfy.sh writes its message cache in batches (about a second), so a read straight after publishing
 # can miss a message that was delivered. Poll after each of these waits before calling it missing.
 DELIVERY_POLL_WAITS_S = (1.5, 2, 4)
@@ -240,7 +245,7 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
 
     A push that fails is not recorded, so the next read sends it again: a duplicate costs one swipe,
     a requisition recorded but never pushed is the miss this module exists to prevent."""
-    if not postings:
+    if not postings and on_students_page:
         return 0
     now = now or datetime.now(timezone.utc)
     try:
@@ -254,8 +259,13 @@ def alert(postings: list[dict], processed: list[dict] = (), on_students_page: bo
         groups.setdefault(req_of(p), []).append(p)
     if ledger is None:
         if on_students_page and complete:
-            _write_ledger(set(groups), sitemap_seeded=False)
-            log.info("Apple alerts: first run, %d requisitions recorded as already seen; nothing pushed", len(groups))
+            # The sitemap is seeded in the same instant, so nothing can arrive between the two seeds and
+            # be recorded unpushed. If it cannot be fetched now, its first later read seeds it instead.
+            sitemap = cs.apple_sitemap_internships()
+            reqs = set(groups) | {req_of(j) for j in sitemap or []}
+            _write_ledger(reqs, sitemap_seeded=sitemap is not None)
+            log.info("Apple alerts: first run, %d requisitions recorded as already seen (%s); nothing pushed", len(reqs),
+                     "internships page and sitemap" if sitemap is not None else "internships page; sitemap unavailable")
         else:
             log.info("Apple alerts: waiting for one complete read of the internships page before the first run")
         return 0
@@ -415,8 +425,10 @@ def _check_drill_ran(now: float) -> None:
                                          "clock_started": True}))
         return
     if now - passed.timestamp() >= DRILL_STALE_S and not d.get("alerted"):
-        if notifier.push_canary(f"The weekly Apple drill has not passed since {_day(passed.isoformat())}. Run it from "
-                                "GitHub: Actions → Apple Alert Drill → Run workflow, and check why it stopped."):
+        what = (f"has never passed (watching since {_day(passed.isoformat())})" if d.get("clock_started")
+                else f"has not passed since {_day(passed.isoformat())}")
+        if notifier.push_canary(f"The weekly Apple drill {what}. Run it from GitHub: Actions → Apple Alert Drill → "
+                                "Run workflow, and check why it stopped."):
             set_state(DRILL_KEY, json.dumps(dict(d, alerted=True)))
 
 
@@ -469,7 +481,9 @@ def _retry(attempt, ok):
 
 
 def _production_problem(now: float) -> str | None:
-    """Why the 5-minute Apple check is not running as it should, or None. Raises StateUnavailable."""
+    """Why the 5-minute Apple check is not working as it should, or None. Raises StateUnavailable.
+    The drill's own reads retry; production's do not, so a production outage must fail the drill
+    rather than hide behind a drill that got through."""
     last = _when(read_state(cs.APPLE_STUDENTS_STATE_KEY))
     if last is None:
         return "it has never run"
@@ -478,7 +492,23 @@ def _production_problem(now: float) -> str | None:
         return f"it last ran {int(age // 60)} minutes ago"
     if read_state(LEDGER_KEY) is None:
         return "it has not recorded Apple's postings yet"
+    shadow = _when(read_state(SHADOW_CHECKED_KEY))
+    if shadow is None or now - shadow.timestamp() > DRILL_MAX_SHADOW_AGE_S:
+        return "its passes stop before the sitemap and shadow-watch checks"
+    h = _strict_json(HEALTH_KEY)
+    if h.get("alerted") or (h.get("failing_since") and now - h["failing_since"] >= REFUSED_ALERT_AFTER_S):
+        since = datetime.fromtimestamp(h.get("failing_since", now), timezone.utc)
+        return (f"its reads of the internships page have failed since {_day(since.isoformat())} "
+                f"{since.astimezone(_ET):%H:%M} ET ({h.get('problem')})")
     return None
+
+
+def _detail_ok(got) -> bool:
+    status, page = got
+    try:
+        return status == 200 and bool(cs.parse_apple_detail(page))
+    except Exception:
+        return False
 
 
 def drill(now: datetime | None = None) -> int:
@@ -490,17 +520,37 @@ def drill(now: datetime | None = None) -> int:
 
     def fail(step: str, detail: str) -> int:
         log.error("Apple drill FAILED at %s: %s", step, detail)
-        notifier.push_canary(f"Weekly Apple drill FAILED at {step} ({detail}). "
-                             "A new Apple internship may not reach you until this is fixed.")
+        if notifier.push_canary(f"Weekly Apple drill FAILED at {step} ({detail}). "
+                                "A new Apple internship may not reach you until this is fixed."):
+            # The workflow's last step alarms for a run that dies without reaching here; not twice.
+            if os.environ.get("GITHUB_OUTPUT"):
+                with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                    out.write("alerted=true\n")
         return 1
 
     if not notifier.NTFY_TOPIC:
         log.error("Apple drill: NTFY_TOPIC is not set")
         return 1
-    try:
-        problem = _production_problem(now.timestamp())
-    except (StateUnavailable, QuotaExceeded) as exc:
-        return fail("reading the bot's state", type(exc).__name__)
+    problem, last_error = None, None
+    for n in range(DRILL_TRIES):
+        if n:
+            time.sleep(DRILL_RETRY_GAP_S)
+        try:
+            if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+                d = _strict_json(DRILL_KEY)
+                passed = _when(d.get("passed_at"))
+                if passed and not d.get("clock_started") and now.timestamp() - passed.timestamp() < DRILL_SCHEDULED_SKIP_S:
+                    log.info("Apple drill: passed at %s already (the 9 AM pinger); this scheduled run stands down",
+                             passed.isoformat())
+                    return 0
+            problem, last_error = _production_problem(now.timestamp()), None
+            break
+        except StateUnavailable as exc:
+            last_error = exc        # one bot_state blip must not fail the drill
+        except QuotaExceeded as exc:
+            return fail("reading the bot's state", type(exc).__name__)
+    if last_error:
+        return fail("reading the bot's state", type(last_error).__name__)
     if problem:
         return fail("checking the 5-minute Apple check", problem)
 
@@ -514,7 +564,7 @@ def drill(now: datetime | None = None) -> int:
         return fail("choosing a posting", "no undergrad internship on the page")
 
     job = cs._apple_stubs([pick])[0]
-    status, page = _retry(lambda: cs._apple_get(job["url"]), lambda r: r[0] == 200)
+    status, page = _retry(lambda: cs._apple_get(job["url"]), _detail_ok)
     unreadable = None
     try:
         job["description"] = cs.parse_apple_detail(page) if status == 200 else None
@@ -541,6 +591,19 @@ def drill(now: datetime | None = None) -> int:
         return fail("sending the usual push", "ntfy did not take it")
     if not _delivered(msg_id, sent_at):
         return fail("confirming delivery", "ntfy took the push but its feed does not have it")
-    set_state(DRILL_KEY, json.dumps({"passed_at": now.isoformat()}))
+    # Verified, because set_state swallows errors: a pass that is not recorded would set off the
+    # "drill has not passed" alarm a week later.
+    stamp = json.dumps({"passed_at": now.isoformat()})
+    for n in range(DRILL_TRIES):
+        if n:
+            time.sleep(DRILL_RETRY_GAP_S)
+        set_state(DRILL_KEY, stamp)
+        try:
+            if read_state(DRILL_KEY) == stamp:
+                break
+        except StateUnavailable:
+            pass
+    else:
+        return fail("recording the pass", "bot_state would not take the write")
     log.info("Apple drill passed: %s, verdict %s", pick["title"], job["tier"])
     return 0

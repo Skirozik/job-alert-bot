@@ -76,13 +76,14 @@ SOURCES = [
 ]
 
 
-def _sitemap_urls(source: dict) -> list[str]:
+def _sitemap_urls(source: dict) -> list[str] | None:
+    """Job-page URLs from a source's sitemap, or None when the sitemap could not be fetched."""
     try:
         r = requests.get(source["sitemap"], headers=HEADERS, timeout=TIMEOUT)
         r.raise_for_status()
     except Exception as exc:
         log.warning("Career sitemap %s unavailable: %s", source["company"], type(exc).__name__)
-        return []
+        return None
     locs = re.findall(r"<loc>\s*([^<]+?)\s*</loc>", r.text)
     return [u for u in locs if re.search(source["url_re"], u)]
 
@@ -158,27 +159,48 @@ def _due(now: float) -> bool:
 INTERN_TITLE = re.compile(r"\bintern(?:s|ship|ships)?\b", re.I)
 
 
-def collect_listings(force: bool = False, apple_internships: list | None = None) -> list[dict]:
+def _sitemap_stub(source: dict, url: str) -> dict | None:
+    job = _make_job(source["company"], title_from_slug(url) if source["detail"] == "slug" else "?",
+                    source["location"], url, None, None)
+    if job:
+        job["search_term"] = "career-sitemap"
+    return job
+
+
+def apple_sitemap_internships() -> list[dict] | None:
+    """Every internship-titled posting in Apple's sitemap, or None when it could not be fetched.
+    apple_watch reads it once, the moment its ledger is created, so the sitemap's months-old postings
+    are recorded at the same instant as the internships page's."""
+    source = next(s for s in SOURCES if s["company"] == "Apple")
+    urls = _sitemap_urls(source)
+    if urls is None:
+        return None
+    return [j for j in (_sitemap_stub(source, u) for u in urls) if j and INTERN_TITLE.search(j["title"])]
+
+
+def collect_listings(force: bool = False, apple_sitemap: dict | None = None) -> list[dict]:
     """New listings from every career sitemap, in the ATS job shape. Returns []
     when the last pass was under MIN_INTERVAL_S ago (unless force).
 
-    apple_internships, when given, is filled with EVERY Apple internship-titled
+    apple_sitemap, when given, gets "internships": EVERY Apple internship-titled
     posting in the sitemap, stored or not, for apple_watch to diff against its
-    own ledger. The new-listing answer cannot serve there: a posting is stored
-    before its push is sent, and the second city of a two-city role is never
-    stored at all, so neither would ever come back from it."""
+    own ledger -- set only when Apple's sitemap was actually read this call (an
+    empty list then means it lists none). The new-listing answer cannot serve
+    there: a posting is stored before its push is sent, and the second city of
+    a two-city role is never stored at all, so neither would come back."""
     now = time.time()
     if not force and not _due(now):
         return []
 
     stubs: list[dict] = []
+    apple_read = False
     for source in SOURCES:
-        for url in _sitemap_urls(source):
-            job = _make_job(source["company"], title_from_slug(url) if source["detail"] == "slug" else "?",
-                            source["location"], url, None, None)
+        urls = _sitemap_urls(source)
+        apple_read = apple_read or (source["company"] == "Apple" and urls is not None)
+        for url in urls or []:
+            job = _sitemap_stub(source, url)
             if job:
                 job["_source"] = source
-                job["search_term"] = "career-sitemap"
                 stubs.append(job)
 
     # Id-only question: a stub's norm_key is '|', which the SQL ignores, so
@@ -209,8 +231,8 @@ def collect_listings(force: bool = False, apple_internships: list | None = None)
         out.append(job)
     for job in stubs:
         job.pop("_source", None)
-    if apple_internships is not None:
-        apple_internships.extend(j for j in stubs if j["company"] == "Apple" and INTERN_TITLE.search(j["title"]))
+    if apple_sitemap is not None and apple_read:
+        apple_sitemap["internships"] = [j for j in stubs if j["company"] == "Apple" and INTERN_TITLE.search(j["title"])]
 
     left = sum(1 for j in stubs if j["id"] in unknown) - len(out)
     log.info("Career sitemaps: %d listed, %d new, %d pages opened, %d returned, %d left for later",
@@ -318,8 +340,10 @@ def parse_apple_search(page: str, expect_team: str | None = None) -> tuple[list[
         locations = r.get("locations") if isinstance(r.get("locations"), list) else []
         names = [l.get("name") if isinstance(l, dict) else l for l in locations]
         names = [n for n in names if isinstance(n, str) and n]
+        posted = r.get("postDateInGMT")
         out.append({"url": f"https://jobs.apple.com/en-us/details/{rid}/{slug}", "title": title.strip(),
-                    "location": ", ".join(names) or "United States", "posted_at": r.get("postDateInGMT"),
+                    "location": ", ".join(names) or "United States",
+                    "posted_at": posted if isinstance(posted, str) else None,
                     "apple_id": str(rid), "req": str(rid).split("-")[0]})
     if results and not out:
         raise ApplePageUnreadable(f"{len(results)} results, none with an id, title and link")
@@ -381,7 +405,7 @@ def read_apple_pages(url: str, first: int = 1, last: int = 1, total: int | None 
 
 
 def _newest_first(postings: list[dict]) -> bool:
-    dates = [p.get("posted_at") or "" for p in postings]
+    dates = [str(p.get("posted_at") or "") for p in postings]
     return all(a >= b for a, b in zip(dates, dates[1:]))
 
 
@@ -415,6 +439,7 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
     since = _since(APPLE_STUDENTS_STATE_KEY, now)
     if not force and since is not None and since < APPLE_STUDENTS_INTERVAL_S:
         return AppleStudents()
+    seeding = full
     since_full = _since(APPLE_STUDENTS_FULL_STATE_KEY, now)
     full = full or since_full is None or since_full >= APPLE_STUDENTS_FULL_READ_S
 
@@ -422,8 +447,9 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
     health = AppleRead(list(read.postings), read.total, read.outcome, read.problem)
     stubs = _apple_stubs(read.postings)
     unknown = find_unknown_candidates(stubs) if stubs else set()
+    burst = bool(stubs) and len(unknown) == len(stubs)
     why = ("a full read is due" if full else "page 1 is not newest-first" if not _newest_first(read.postings)
-           else "every posting on page 1 is new" if stubs and len(unknown) == len(stubs) else "")
+           else "every posting on page 1 is new" if burst else "")
     if why and read.outcome == "ok" and len(read.postings) < read.total:
         time.sleep(DETAIL_GAP_S)
         rest = read_apple_pages(APPLE_STUDENTS_URL, 2, APPLE_STUDENTS_MAX_PAGES, total=read.total,
@@ -433,6 +459,10 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
         rest_stubs = _apple_stubs(rest.postings)
         read.postings += rest.postings
         read.outcome, read.problem = rest.outcome, rest.problem
+        if (seeding or burst) and rest.outcome != "ok":
+            # Here the later pages matter: the ledger cannot be seeded without them, or a burst runs onto
+            # them. So their failure is an outage, and counts toward the alarms.
+            health.outcome, health.problem = rest.outcome, f"page 2 or later: {rest.problem}"
         stubs += rest_stubs
         unknown |= find_unknown_candidates(rest_stubs) if rest_stubs else set()
         # Stamped when ATTEMPTED, not only when complete: a page 2 that Apple refuses is tried again at

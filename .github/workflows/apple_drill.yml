@@ -14,11 +14,14 @@ name: Apple Alert Drill
 # scraper/apple_watch.py.
 
 on:
+  # The real 9 AM trigger is the external pinger (FAST_PINGS_SETUP.md): a
+  # workflow_dispatch from cron-job.org, Mondays 09:00 America/New_York.
+  # GitHub's own schedule below is the fallback. It is best-effort, and this
+  # repo's morning crons arrive ~4.5 hours late, so expect it early afternoon;
+  # after a drill that passed in the last 20 hours it stands down.
   schedule:
-    # 9 AM Eastern on Mondays, all year. GitHub cron is UTC, so both 13:07
-    # (summer, UTC-4) and 14:07 (winter, UTC-5) are scheduled and the gate below
-    # keeps the one that is 9 AM. Off the top of the hour, when GitHub's queue is
-    # busiest; it still runs best-effort and can arrive ~30 minutes late.
+    # Both 13:07 UTC (9 AM in summer, UTC-4) and 14:07 (winter, UTC-5); the
+    # gate below keeps the one that is 9 AM Eastern this time of year.
     - cron: '7 13 * * 1'
     - cron: '7 14 * * 1'
   workflow_dispatch:
@@ -62,7 +65,10 @@ jobs:
         run: pip install -r scraper/requirements.txt
 
       - name: Run the Apple drill
+        id: drill
         if: steps.gate.outputs.skip != 'true'
+        # Leaves the job time for the alarm below if the drill hangs.
+        timeout-minutes: 8
         working-directory: scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -70,3 +76,19 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python apple_drill.py
+
+      # A drill that dies before it can say so -- the job killed by its
+      # timeout, or setup failing before Python runs -- still sends the alarm.
+      - name: Alarm when the drill did not finish
+        if: ${{ always() && steps.gate.outputs.skip != 'true' && steps.drill.outcome != 'success' && steps.drill.outputs.alerted != 'true' }}
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case "${{ steps.drill.outcome }}" in
+            failure|cancelled) why="it failed or ran out of time" ;;
+            *) why="the run failed before the drill started" ;;
+          esac
+          curl -fsS -H "Title: Job scraper alert" -H "Priority: urgent" -H "Tags: warning,robot" \
+            -d "Weekly Apple drill did not finish: $why. A new Apple internship may not reach you until this is fixed. $RUN_URL" \
+            "https://ntfy.sh/$NTFY_TOPIC"
