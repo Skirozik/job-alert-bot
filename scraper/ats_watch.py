@@ -135,7 +135,8 @@ def run():
         # hold back its 🍎 push, which then goes out without a verdict.
         apple = None
         try:
-            apple = career_sitemaps.collect_apple_students(full=apple_watch.needs_full_read())
+            seen = apple_watch.seen_reqs()
+            apple = career_sitemaps.collect_apple_students(full=seen is None, seen_reqs=seen)
             apple_watch.record_students_read(apple.health)
         except QuotaExceeded:
             raise
