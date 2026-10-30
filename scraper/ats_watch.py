@@ -136,7 +136,7 @@ def run():
         apple = None
         try:
             apple = career_sitemaps.collect_apple_students(full=apple_watch.needs_full_read())
-            apple_watch.record_students_read(apple.read)
+            apple_watch.record_students_read(apple.health)
         except QuotaExceeded:
             raise
         except Exception as exc:
@@ -164,8 +164,9 @@ def run():
         # A sitemap problem must never cost the board sweep; a spent quota
         # still stops the run.
         sitemap_rows: list[dict] = []
+        apple_internships: list[dict] = []
         try:
-            sitemap_rows = career_sitemaps.collect_listings()
+            sitemap_rows = career_sitemaps.collect_listings(apple_internships=apple_internships)
         except QuotaExceeded:
             raise
         except Exception as exc:
@@ -176,16 +177,15 @@ def run():
         n, k = _sweep(listings, seen_ids, seen_norm_keys)
         new_jobs, notified = new_jobs + n, notified + k
 
-        # Apple internship titles that reached the sitemap without (yet) being
-        # on the internships page, then the hourly proof that the Apple reader
-        # still sees Apple's new postings. Internship titles only: the sitemap
-        # adds 15-40 full-time Apple roles a day, and every requisition handed
-        # to alert() is kept in its ledger, which is read on every pass.
+        # Apple internship titles in the sitemap, which can carry ones the
+        # internships page does not (every one, stored or not: alert() diffs
+        # them against its own ledger), then the hourly proof that the Apple
+        # reader still sees Apple's new postings. Internship titles only: the
+        # sitemap adds 15-40 full-time Apple roles a day, and every requisition
+        # handed to alert() is kept in its ledger, which is read on every pass.
         try:
-            apple_sitemap = [j for j in sitemap_rows
-                             if j.get("company") == "Apple" and apple_watch.is_internship_title(j.get("title"))]
-            if apple_sitemap:
-                apple_watch.alert(apple_sitemap, apple_sitemap, on_students_page=False)
+            if apple_internships:
+                apple_watch.alert(apple_internships, sitemap_rows, on_students_page=False)
             apple_watch.shadow_check()
         except QuotaExceeded:
             raise

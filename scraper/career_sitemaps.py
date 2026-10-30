@@ -154,9 +154,19 @@ def _due(now: float) -> bool:
         return True
 
 
-def collect_listings(force: bool = False) -> list[dict]:
+# "Intern" as a word: "Internal Communications Strategist" is not an internship.
+INTERN_TITLE = re.compile(r"\bintern(?:s|ship|ships)?\b", re.I)
+
+
+def collect_listings(force: bool = False, apple_internships: list | None = None) -> list[dict]:
     """New listings from every career sitemap, in the ATS job shape. Returns []
-    when the last pass was under MIN_INTERVAL_S ago (unless force)."""
+    when the last pass was under MIN_INTERVAL_S ago (unless force).
+
+    apple_internships, when given, is filled with EVERY Apple internship-titled
+    posting in the sitemap, stored or not, for apple_watch to diff against its
+    own ledger. The new-listing answer cannot serve there: a posting is stored
+    before its push is sent, and the second city of a two-city role is never
+    stored at all, so neither would ever come back from it."""
     now = time.time()
     if not force and not _due(now):
         return []
@@ -199,6 +209,8 @@ def collect_listings(force: bool = False) -> list[dict]:
         out.append(job)
     for job in stubs:
         job.pop("_source", None)
+    if apple_internships is not None:
+        apple_internships.extend(j for j in stubs if j["company"] == "Apple" and INTERN_TITLE.search(j["title"]))
 
     left = sum(1 for j in stubs if j["id"] in unknown) - len(out)
     log.info("Career sitemaps: %d listed, %d new, %d pages opened, %d returned, %d left for later",
@@ -247,9 +259,12 @@ class AppleRead:
 @dataclass
 class AppleStudents:
     """collect_apple_students' answer. rows: postings not stored yet, ready for the ATS loop. read:
-    every posting read this pass, for apple_watch; None when the pass was inside the interval."""
+    every posting read this pass, for apple_watch.alert. health: page 1's read alone, for
+    apple_watch.record_students_read -- page 1 is what finds a new posting, so a refused page 2 on the
+    hourly read is not an outage. Both None when the pass was inside the interval."""
     rows: list[dict] = field(default_factory=list)
     read: AppleRead | None = None
+    health: AppleRead | None = None
 
 
 def _apple_loader_data(page: str) -> dict:
@@ -258,32 +273,57 @@ def _apple_loader_data(page: str) -> dict:
     if not m:
         return {}
     try:
-        return json.loads(json.loads('"' + m.group(1) + '"')).get("loaderData") or {}
+        data = json.loads(json.loads('"' + m.group(1) + '"'))
     except ValueError:
         return {}
+    loader = data.get("loaderData") if isinstance(data, dict) else None
+    return loader if isinstance(loader, dict) else {}
 
 
-def parse_apple_search(page: str) -> tuple[list[dict], int]:
+# A filtered internships search with more postings than this has lost its filter (25 on 2026-10-30;
+# every U.S. job is ~4,500).
+APPLE_STUDENTS_MAX_PLAUSIBLE = 300
+
+
+def parse_apple_search(page: str, expect_team: str | None = None) -> tuple[list[dict], int]:
     """(postings, total) from one search page. A posting's URL is built from its id -- '200673612-0836', one
     per posting location -- in the same form the sitemap uses, so a role already stored from the sitemap
     keeps its id. The part before the dash is the requisition, shared by a role's locations ("req").
-    A genuinely empty search is ([], 0); a page the reader cannot read raises ApplePageUnreadable."""
+    A genuinely empty search is ([], 0); a page the reader cannot read raises ApplePageUnreadable.
+
+    expect_team: the team code the search must echo back as applied ("INTRN"). Apple answers an unknown
+    team slug with HTTP 200 and EVERY U.S. job, so without this check a retired slug would turn each
+    new full-time role into an internship push."""
     search = _apple_loader_data(page).get("search")
     if not isinstance(search, dict) or not isinstance(search.get("searchResults"), list):
         raise ApplePageUnreadable("no search results embedded in the page")
+    try:
+        total = int(search.get("totalRecords") or 0)
+    except (TypeError, ValueError):
+        raise ApplePageUnreadable("the posting count is not a number")
+    if expect_team:
+        teams = (search.get("filters") or {}).get("teams") if isinstance(search.get("filters"), dict) else None
+        if not any(isinstance(t, dict) and t.get("code") == expect_team for t in teams or []):
+            raise ApplePageUnreadable(f"the {expect_team} team filter was not applied")
+        if total > APPLE_STUDENTS_MAX_PLAUSIBLE:
+            raise ApplePageUnreadable(f"{total} postings, too many for the {expect_team} filter")
     results = search["searchResults"]
     out = []
     for r in results:
-        rid, slug, title = r.get("id"), r.get("transformedPostingTitle"), (r.get("postingTitle") or "").strip()
-        if not (rid and slug and title):
+        if not isinstance(r, dict):
             continue
-        names = [l.get("name") for l in r.get("locations") or [] if l.get("name")]
-        out.append({"url": f"https://jobs.apple.com/en-us/details/{rid}/{slug}", "title": title,
+        rid, slug, title = r.get("id"), r.get("transformedPostingTitle"), r.get("postingTitle")
+        if not (rid and isinstance(slug, str) and slug and isinstance(title, str) and title.strip()):
+            continue
+        locations = r.get("locations") if isinstance(r.get("locations"), list) else []
+        names = [l.get("name") if isinstance(l, dict) else l for l in locations]
+        names = [n for n in names if isinstance(n, str) and n]
+        out.append({"url": f"https://jobs.apple.com/en-us/details/{rid}/{slug}", "title": title.strip(),
                     "location": ", ".join(names) or "United States", "posted_at": r.get("postDateInGMT"),
                     "apple_id": str(rid), "req": str(rid).split("-")[0]})
     if results and not out:
         raise ApplePageUnreadable(f"{len(results)} results, none with an id, title and link")
-    return out, int(search.get("totalRecords") or 0)
+    return out, total
 
 
 def parse_apple_detail(page: str) -> str | None:
@@ -311,10 +351,12 @@ def _apple_get(url: str) -> tuple[int | None, str]:
     return r.status_code, r.text or ""
 
 
-def read_apple_pages(url: str, first: int = 1, last: int = 1, total: int | None = None) -> AppleRead:
+def read_apple_pages(url: str, first: int = 1, last: int = 1, total: int | None = None,
+                     expect_team: str | None = None) -> AppleRead:
     """Pages first..last of an Apple search, stopping early once `total` postings are in hand (or the
     search's own total, once page 1 has said it). A refused or unreadable page ends the read there,
-    with that outcome; it is retried at the next pass, never around."""
+    with that outcome; it is retried at the next pass, never around. Never raises for what Apple
+    sends: any surprise in the page is "unreadable", so the alarms that depend on this still run."""
     read = AppleRead(total=total or 0)
     for page_no in range(first, last + 1):
         if page_no > first:
@@ -324,10 +366,12 @@ def read_apple_pages(url: str, first: int = 1, last: int = 1, total: int | None 
             read.outcome, read.problem = "refused", f"HTTP {status}" if status else "no answer"
             break
         try:
-            got, page_total = parse_apple_search(page)
-        except ApplePageUnreadable as exc:
-            read.outcome, read.problem = "unreadable", str(exc)
-            log.warning("Apple page unreadable (page %d, %d bytes): %s", page_no, len(page), exc)
+            got, page_total = parse_apple_search(page, expect_team=expect_team)
+        except Exception as exc:
+            # The type name only, for anything unexpected: the Actions logs are public.
+            read.outcome = "unreadable"
+            read.problem = str(exc) if isinstance(exc, ApplePageUnreadable) else f"parser error ({type(exc).__name__})"
+            log.warning("Apple page unreadable (page %d, %d bytes): %s", page_no, len(page), read.problem)
             break
         read.postings += got
         read.total = page_total or read.total
@@ -374,21 +418,28 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
     since_full = _since(APPLE_STUDENTS_FULL_STATE_KEY, now)
     full = full or since_full is None or since_full >= APPLE_STUDENTS_FULL_READ_S
 
-    read = read_apple_pages(APPLE_STUDENTS_URL, 1, 1)
+    read = read_apple_pages(APPLE_STUDENTS_URL, 1, 1, expect_team="INTRN")
+    health = AppleRead(list(read.postings), read.total, read.outcome, read.problem)
     stubs = _apple_stubs(read.postings)
     unknown = find_unknown_candidates(stubs) if stubs else set()
-    why = ("hourly" if full else "page 1 is not newest-first" if not _newest_first(read.postings)
+    why = ("a full read is due" if full else "page 1 is not newest-first" if not _newest_first(read.postings)
            else "every posting on page 1 is new" if stubs and len(unknown) == len(stubs) else "")
     if why and read.outcome == "ok" and len(read.postings) < read.total:
         time.sleep(DETAIL_GAP_S)
-        rest = read_apple_pages(APPLE_STUDENTS_URL, 2, APPLE_STUDENTS_MAX_PAGES, total=read.total)
-        log.info("Apple students: read every page (%s)", why)
+        rest = read_apple_pages(APPLE_STUDENTS_URL, 2, APPLE_STUDENTS_MAX_PAGES, total=read.total,
+                                expect_team="INTRN")
+        log.info("Apple students: read every page (%s)%s", why,
+                 "" if rest.outcome == "ok" else f"; a later page failed ({rest.outcome}: {rest.problem})")
         rest_stubs = _apple_stubs(rest.postings)
         read.postings += rest.postings
         read.outcome, read.problem = rest.outcome, rest.problem
         stubs += rest_stubs
         unknown |= find_unknown_candidates(rest_stubs) if rest_stubs else set()
-    if read.complete:
+        # Stamped when ATTEMPTED, not only when complete: a page 2 that Apple refuses is tried again at
+        # the next hourly slot, not on every pass. (The first run's seeding read, asked for with full,
+        # keeps retrying each pass until it completes; apple_watch needs that read.)
+        set_state(APPLE_STUDENTS_FULL_STATE_KEY, datetime.now(timezone.utc).isoformat())
+    elif read.complete:
         set_state(APPLE_STUDENTS_FULL_STATE_KEY, datetime.now(timezone.utc).isoformat())
 
     out = []
@@ -398,9 +449,14 @@ def collect_apple_students(force: bool = False, full: bool = False) -> AppleStud
         if out:
             time.sleep(DETAIL_GAP_S)
         status, detail = _apple_get(job["url"])
-        job["description"] = parse_apple_detail(detail) if status == 200 else None
+        try:
+            job["description"] = parse_apple_detail(detail) if status == 200 else None
+        except Exception as exc:
+            # Classified on its title instead; the posting must not be held back by its own page.
+            log.warning("Apple posting page unreadable (%s): %s", job["id"], type(exc).__name__)
+            job["description"] = None
         out.append(job)
     log.info("Apple students: %d listed (%d in all, %s), %d new, %d returned", len(read.postings), read.total,
              read.outcome if not read.problem else f"{read.outcome}: {read.problem}", len(unknown), len(out))
     set_state(APPLE_STUDENTS_STATE_KEY, datetime.now(timezone.utc).isoformat())
-    return AppleStudents(rows=out, read=read)
+    return AppleStudents(rows=out, read=read, health=health)

@@ -8,14 +8,19 @@ name: Apple Alert Drill
 # failed step sends a "Job scraper alert" and turns this run red.
 #
 # Apple posts new internships a few times a year, so without this the first
-# sign of a broken alert would be a role you never heard about. See
+# sign of a broken alert would be a role you never heard about. The drill first
+# checks that the 5-minute Apple check is running, and the hourly shadow watch
+# alarms if no drill has passed in 8 days (a dropped or disabled schedule). See
 # scraper/apple_watch.py.
 
 on:
   schedule:
-    # Mondays 14:00 UTC: 9 AM Eastern in winter, 10 AM in summer. GitHub runs
-    # scheduled workflows best-effort, so it can arrive ~30 minutes late.
-    - cron: '0 14 * * 1'
+    # 9 AM Eastern on Mondays, all year. GitHub cron is UTC, so both 13:07
+    # (summer, UTC-4) and 14:07 (winter, UTC-5) are scheduled and the gate below
+    # keeps the one that is 9 AM. Off the top of the hour, when GitHub's queue is
+    # busiest; it still runs best-effort and can arrive ~30 minutes late.
+    - cron: '7 13 * * 1'
+    - cron: '7 14 * * 1'
   workflow_dispatch:
 
 concurrency:
@@ -28,10 +33,24 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # Decided by which cron fired, not by the hour the run starts, so a late
+      # start can neither skip the week nor run the drill twice.
+      - name: Keep only the 9 AM Eastern run
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then exit 0; fi
+          if [ "$(TZ=America/New_York date +%z)" = "-0400" ]; then want='7 13 * * 1'; else want='7 14 * * 1'; fi
+          if [ "${{ github.event.schedule }}" != "$want" ]; then
+            echo "Not the 9 AM Eastern slot this time of year; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python 3.12
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -39,9 +58,11 @@ jobs:
           cache-dependency-path: scraper/requirements.txt
 
       - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
         run: pip install -r scraper/requirements.txt
 
       - name: Run the Apple drill
+        if: steps.gate.outputs.skip != 'true'
         working-directory: scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
