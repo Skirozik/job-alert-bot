@@ -739,6 +739,22 @@ def get_state(key: str) -> Optional[str]:
     return None
 
 
+class StateUnavailable(Exception):
+    """bot_state could not be read. Raised by read_state only; get_state reports it as None."""
+
+
+def read_state(key: str) -> Optional[str]:
+    """get_state, for state whose ABSENCE starts a one-time action (apple_watch seeds its ledger when
+    the key is missing). get_state reads an error as a missing key, which would re-run that action on
+    every blip; this returns None only when the key is genuinely unset, and raises otherwise."""
+    try:
+        result = get_client().table("bot_state").select("value").eq("key", key).execute()
+    except Exception as exc:
+        _raise_if_quota(exc)
+        raise StateUnavailable(f"{key}: {exc}") from exc
+    return result.data[0]["value"] if result.data else None
+
+
 def set_state(key: str, value: str) -> None:
     try:
         get_client().table("bot_state").upsert({"key": key, "value": value},

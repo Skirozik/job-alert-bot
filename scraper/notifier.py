@@ -18,11 +18,12 @@ _TIER_TAGS = {"APPLY": "green_circle", "APPLY_CAVEAT": "warning"}
 _TIER_PRIORITY = {"APPLY": "high", "APPLY_CAVEAT": "high"}
 
 
-def push_job(job: dict) -> None:
-    """Send a push notification for a single APPLY or APPLY_CAVEAT job."""
+def push_job(job: dict, title_prefix: str = "") -> bool:
+    """Send a push notification for a single APPLY or APPLY_CAVEAT job. True when ntfy took it.
+    title_prefix marks a test push ("DRILL - ", from apple_watch.drill)."""
     if not NTFY_TOPIC:
         log.warning("NTFY_TOPIC not set — skipping push for job %s", job.get("id"))
-        return
+        return False
 
     tier = job.get("tier", "APPLY_CAVEAT")
     emoji = _TIER_EMOJI.get(tier, "🟡")
@@ -56,7 +57,7 @@ def push_job(job: dict) -> None:
             headers={
                 # "GOLD" as a WORD, never the emoji: this is ascii-encoded
                 # with errors="replace", so a star here would arrive as "?".
-                "Title": (("GOLD - " if starred else "")
+                "Title": (title_prefix + ("GOLD - " if starred else "")
                           + f"{job.get('company', '')} - {job.get('title', '')}"
                           ).encode("ascii", "replace").decode("ascii"),
                 # Priority deliberately unchanged. "urgent" is reserved for the
@@ -73,16 +74,50 @@ def push_job(job: dict) -> None:
         )
         resp.raise_for_status()
         log.info("Push sent: %s", title)
+        return True
     except Exception as exc:
         log.error("ntfy push failed for job %s: %s", job.get("id"), exc)
+        return False
 
 
-def push_canary(message: str) -> None:
-    """Send a canary/warning alert — used when the scraper looks broken."""
+def push_apple(title: str, body: str, url: str, drill: bool = False) -> str | None:
+    """The Apple push: "🍎 APPLE - <title>", at ntfy's top priority, opening the posting.
+    Returns ntfy's message id when ntfy took it (apple_watch.drill reads it back), else None.
+
+    Published as JSON rather than headers, so the title can carry the 🍎 itself: the Title header in
+    push_job is ascii-encoded, which is why emoji there arrive as "?". Top priority is shared with
+    push_canary on purpose -- a new Apple role is as rare as a broken scraper, and as urgent.
+    """
     if not NTFY_TOPIC:
-        return
+        log.warning("NTFY_TOPIC not set — skipping Apple push")
+        return None
+    payload = {
+        "topic": NTFY_TOPIC,
+        "title": ("🍎 DRILL - APPLE - " if drill else "🍎 APPLE - ") + title,
+        "message": body,
+        "priority": 5,
+        "tags": ["drill"] if drill else [],
+        "click": url,
+    }
     try:
-        requests.post(
+        resp = requests.post(NTFY_BASE, json=payload, timeout=10)
+        resp.raise_for_status()
+        msg_id = (resp.json() or {}).get("id") or "sent"
+        log.info("Apple push sent%s: %s", " (drill)" if drill else "", title)
+        return msg_id
+    except Exception as exc:
+        log.error("Apple push failed (%s): %s", title, exc)
+        return None
+
+
+def push_canary(message: str) -> bool:
+    """Send a canary/warning alert — used when the scraper looks broken.
+    True only when ntfy took it: apple_watch marks an alarm sent only then, so
+    a lost alarm is tried again on the next pass instead of silencing the outage."""
+    if not NTFY_TOPIC:
+        return False
+    try:
+        resp = requests.post(
             f"{NTFY_BASE}/{NTFY_TOPIC}",
             data=message.encode("utf-8"),
             headers={
@@ -92,6 +127,9 @@ def push_canary(message: str) -> None:
             },
             timeout=10,
         )
+        resp.raise_for_status()
         log.warning("Canary sent: %s", message)
+        return True
     except Exception as exc:
         log.error("Canary push failed: %s", exc)
+        return False

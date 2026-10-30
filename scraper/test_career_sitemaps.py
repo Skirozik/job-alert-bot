@@ -95,6 +95,8 @@ state: dict = {}
 cs.requests.get = fake_get
 cs.find_unknown_candidates = fake_unknown
 cs.get_state = lambda k: state.get(k)
+cs.read_state = lambda k: state.get(k)
+cs.clear_state = lambda k: state.pop(k, None)
 cs.set_state = lambda k, v: state.__setitem__(k, v)
 cs.DETAIL_GAP_S = 0
 
@@ -168,8 +170,10 @@ RESULTS = [search_result("200664780-3810", "machine-learning-and-artificial-inte
                          "Applied Data Solutions Program, Internships \u2013 Summer 2027", ("Austin",)),
            search_result("200673612-0836", "applied-data-solutions-program-internships-summer-2027",
                          "Applied Data Solutions Program, Internships \u2013 Summer 2027", ("Cupertino",))]
-SEARCH_P1 = apple_page({"search": {"searchResults": RESULTS[:2], "totalRecords": 3}})
-SEARCH_P2 = apple_page({"search": {"searchResults": RESULTS[2:], "totalRecords": 3}})
+# Apple echoes the applied team filter; the internships read requires it.
+_TEAMS = {"teams": [{"code": "INTRN", "teamCode": "STDNT", "name": "Internships"}]}
+SEARCH_P1 = apple_page({"search": {"searchResults": RESULTS[:2], "totalRecords": 3, "filters": _TEAMS}})
+SEARCH_P2 = apple_page({"search": {"searchResults": RESULTS[2:], "totalRecords": 3, "filters": _TEAMS}})
 DETAIL = apple_page({"jobDetails": {"jobsData": {
     "jobSummary": "<p>Join a team building ML into products.</p>", "description": "Work on real models &amp; data.",
     "minimumQualifications": "<ul><li>Pursuing a BS in Computer Science</li><li>At the end of the internship, "
@@ -183,7 +187,15 @@ check("the URL is built from the posting id, in the sitemap's form (so stored ro
                          "machine-learning-and-artificial-intelligence-undergrad-internships", posts[0]["url"])
 check("title and location come from the data", posts[1]["title"].startswith("Applied Data Solutions")
       and posts[1]["location"] == "Austin")
-check("a page without the embedded data parses to nothing", cs.parse_apple_search("<html></html>") == ([], 0))
+try:
+    cs.parse_apple_search("<html></html>")
+    check("a page without the embedded data raises, never reads as 'no postings'", False)
+except cs.ApplePageUnreadable:
+    check("a page without the embedded data raises, never reads as 'no postings'", True)
+check("a genuinely empty search is no postings, not an error",
+      cs.parse_apple_search(apple_page({"search": {"searchResults": [], "totalRecords": 0}})) == ([], 0))
+check("each posting carries its requisition (the id before the dash)", posts[1]["req"] == "200673612"
+      and posts[1]["apple_id"] == "200673612-0157", str(posts[1]))
 desc = cs.parse_apple_detail(DETAIL)
 check("detail: summary, description and both qualification lists, as plain text",
       desc and desc.startswith("Join a team") and "Work on real models & data." in desc
@@ -209,8 +221,9 @@ cs.requests.get = apple_get
 state.clear(); KNOWN.clear(); calls.clear()
 KNOWN.add(cs._make_job("Apple", "x", "", "https://jobs.apple.com/en-us/details/200664780-3810/"
                        "machine-learning-and-artificial-intelligence-undergrad-internships", None, None)["id"])
-out = cs.collect_apple_students()
-check("both pages are read, and no more", fetched[:2] == [cs.APPLE_STUDENTS_URL, cs.APPLE_STUDENTS_URL + "&page=2"]
+got = cs.collect_apple_students()
+out = got.rows
+check("the first pass reads every page, and no more", fetched[:2] == [cs.APPLE_STUDENTS_URL, cs.APPLE_STUDENTS_URL + "&page=2"]
       and sum("search" in u for u in fetched) == 2, str(fetched))
 check("a stored posting is not reopened or returned",
       not any("200664780" in u for u in fetched[2:]) and not any("200664780" in j["url"] for j in out), str(fetched))
@@ -220,10 +233,35 @@ check("rows use the ATS id scheme and are tagged apple-students",
       all(j["id"].startswith("ats:") and j["search_term"] == "apple-students" and j["company"] == "Apple" for j in out))
 check("the dedup question carries real norm_keys (titles are known here)",
       calls and all(k != "|" for k in calls[-1]["keys"]), str(calls[-1:]))
-check("the pass is stamped", cs.APPLE_STUDENTS_STATE_KEY in state)
+check("the pass is stamped, and so is the full read", cs.APPLE_STUDENTS_STATE_KEY in state
+      and cs.APPLE_STUDENTS_FULL_STATE_KEY in state)
+check("everything read is handed on, stored or not", got.read and len(got.read.postings) == 3 and got.read.complete)
 fetched.clear()
-check("a second call inside 30 minutes fetches nothing", cs.collect_apple_students() == [] and not fetched)
-check("the interval is 30 minutes", cs.APPLE_STUDENTS_INTERVAL_S == 1800)
+quiet = cs.collect_apple_students()
+check("a second call inside 4 minutes fetches nothing", quiet.rows == [] and quiet.read is None and not fetched)
+check("the gate is under the 5-minute pass, so every pass reads", cs.APPLE_STUDENTS_INTERVAL_S < 300)
+
+import datetime as _dt
+_ago = lambda s: (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=s)).isoformat()
+state[cs.APPLE_STUDENTS_STATE_KEY] = _ago(300)
+KNOWN.update(j["id"] for j in out)
+fetched.clear()
+got = cs.collect_apple_students()
+check("a normal pass reads page 1 only (newest first)", fetched == [cs.APPLE_STUDENTS_URL], str(fetched))
+check("...and says it is not the whole list", got.read and not got.read.complete)
+
+state[cs.APPLE_STUDENTS_STATE_KEY] = _ago(300)
+state[cs.APPLE_STUDENTS_FULL_STATE_KEY] = _ago(3601)
+fetched.clear()
+cs.collect_apple_students()
+check("once an hour, every page is read again", fetched == [cs.APPLE_STUDENTS_URL, cs.APPLE_STUDENTS_URL + "&page=2"],
+      str(fetched))
+
+state[cs.APPLE_STUDENTS_STATE_KEY] = _ago(300)
+fetched.clear()
+cs.collect_apple_students(full=True)
+check("a full read when asked for (apple_watch's first run)", len([u for u in fetched if "search" in u]) == 2,
+      str(fetched))
 
 
 def refused(url, headers=None, timeout=None, stream=False):
@@ -232,8 +270,12 @@ def refused(url, headers=None, timeout=None, stream=False):
 
 cs.requests.get = refused
 state.clear()
-check("a refused page returns nothing and is still stamped (retried next interval, never around)",
-      cs.collect_apple_students() == [] and cs.APPLE_STUDENTS_STATE_KEY in state)
+got = cs.collect_apple_students()
+check("a refused page returns nothing and is still stamped (retried next pass, never around)",
+      got.rows == [] and cs.APPLE_STUDENTS_STATE_KEY in state)
+check("...and says it was refused, with the status", got.read.outcome == "refused" and got.read.problem == "HTTP 403",
+      str(got.read))
+check("...and is not taken for a full read", cs.APPLE_STUDENTS_FULL_STATE_KEY not in state)
 
 print()
 if _fails:

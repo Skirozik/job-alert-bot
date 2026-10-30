@@ -196,9 +196,13 @@ w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: kw
 w.insert_job = lambda job: True
 w.process_job = lambda job: (processed.append(job["id"]), False)[1]
-# The career-sitemap pass reads live sitemaps; this test is about the board loop.
+# The career-sitemap and Apple passes read live sites; this test is about the board loop.
 _orig_sitemaps = w.career_sitemaps.collect_listings
-w.career_sitemaps.collect_listings = lambda force=False: []
+w.career_sitemaps.collect_listings = lambda force=False, apple_sitemap=None: []
+_orig_apple = (w.career_sitemaps.collect_apple_students, w.apple_watch.seen_reqs, w.apple_watch.shadow_check)
+w.career_sitemaps.collect_apple_students = lambda force=False, full=False, seen_reqs=None: w.career_sitemaps.AppleStudents()
+w.apple_watch.seen_reqs = lambda: set()
+w.apple_watch.shadow_check = lambda now=None: None
 
 LISTINGS = [
     {"id": "ats:new1",   "company": "Acme",  "title": "Software Engineer Intern", "location": "Atlanta"},
@@ -249,6 +253,7 @@ check("the full-time twin is still stored INELIGIBLE by the title pre-filter",
 for k, v in _w_orig.items():
     setattr(w, k, v)
 w.career_sitemaps.collect_listings = _orig_sitemaps
+w.career_sitemaps.collect_apple_students, w.apple_watch.seen_reqs, w.apple_watch.shadow_check = _orig_apple
 
 print(f"\n{_ran - _fails} passed, {_fails} failed")
 sys.exit(1 if _fails else 0)
