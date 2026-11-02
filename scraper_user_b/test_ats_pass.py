@@ -275,6 +275,7 @@ EXPECTED_KEPT = [
     ("Tailscale", "Solutions Engineer - Commercial (Expansion Sales)", "Remote (United States)", "SALES_SOLUTIONS"),
     ("Tailscale", "Windows Engineer", "Remote (United States)", "SYSTEMS_IT"),
     ("Drata", "Associate Solutions Architect", "Remote - US ", "SALES_SOLUTIONS"),
+    ("Drata", "Commercial Account Executive - California/Nevada", "Remote - US ", "TECH_SALES"),
     ("Kyndryl", "Early Career Consult Program – Cybersecurity Engineer", "Dallas (USDALFRI) Frisco AI HUB", "SECURITY"),
     ("Kyndryl", "Early Career Consult Program – Cybersecurity Defense Associate", "Dallas (USDALFRI) Frisco AI HUB",
      "SECURITY"),
@@ -296,21 +297,23 @@ check("...norm_key = make_norm_key(company, title): the full-time key ('|ft')",
       all(j["norm_key"] == make_norm_key(j["company"], j["title"]) and j["norm_key"].endswith("|ft") for j in cands))
 check("...Greenhouse and Ashby rows carry a description; Workday rows none (main fetches it per job, later)",
       all(bool(j["description"]) == (j["company"] != "Kyndryl") for j in cands))
-check("stats: 4 boards, 3 with listings, 63 listings, 9 kept",
-      (stats["boards"], stats["boards_with_listings"], stats["listings"], stats["kept"]) == (4, 3, 63, 9),
+check("stats: 4 boards, 3 with listings, 63 listings, 10 kept",
+      (stats["boards"], stats["boards_with_listings"], stats["listings"], stats["kept"]) == (4, 3, 63, 10),
       str({k: stats[k] for k in ("boards", "boards_with_listings", "listings", "kept")}))
-check("...dropped by rule", dict(stats["dropped_by"]) == {"non-US location": 40, "off-family": 13,
+check("...dropped by rule", dict(stats["dropped_by"]) == {"non-US location": 40, "off-family": 11,
+                                                          "senior-segment account title (enterprise/strategic/named/major/key/global)": 1,
                                                           "seniority/leadership title": 1}, str(stats["dropped_by"]))
 check("...every listing is kept or counted under exactly one rule",
       stats["listings"] == stats["kept"] + sum(stats["dropped_by"].values()))
 check("...per board: platform, listings, kept", stats["by_board"] == {
     "Tailscale": {"platform": "greenhouse", "listings": 8, "kept": 3},
-    "Drata": {"platform": "ashby", "listings": 5, "kept": 1},
+    "Drata": {"platform": "ashby", "listings": 5, "kept": 2},
     "Kyndryl": {"platform": "workday", "listings": 50, "kept": 5},
     "Broken Board": {"platform": "greenhouse", "listings": 0, "kept": 0}}, str(stats["by_board"]))
 check("...the board that failed is named", stats["empty_boards"] == ["Broken Board"], str(stats["empty_boards"]))
 check("...kept by family", dict(stats["kept_by_family"]) == {"SUPPORT_ENG": 2, "SALES_SOLUTIONS": 2, "SYSTEMS_IT": 1,
-                                                              "SECURITY": 3, "PROGRAM": 1}, str(stats["kept_by_family"]))
+                                                              "SECURITY": 3, "PROGRAM": 1, "TECH_SALES": 1},
+      str(stats["kept_by_family"]))
 check("...dropped samples read 'company | title | location'",
       "Tailscale | Customer Support Engineer (Tier 1) | Remote (Canada)" in stats["dropped_samples"].get("non-US location", [])
       and "Drata | Senior IT Engineer | Hybrid - San Francisco" in stats["dropped_samples"].get("seniority/leadership title", []))
@@ -406,10 +409,12 @@ rows = [tdp,
         listing("Acme", "Account Executive", "Austin, TX", WD + "Austin-TX/AE_R9")]
 c, s = sweep(rows, {"AT&T": {"platform": "workday", "token": "att:wd1:ATTCollege"},
                     "Acme": {"platform": "workday", "token": "acme:wd5:Site"}})
-check("the early-career program pass-through is on for ATS rows: AT&T's TDP is kept as PROGRAM",
-      [(j["title"], j["family"]) for j in c] == [("AT&T Technology Development Program", "PROGRAM")], str(c))
+check("the early-career program pass-through is on for ATS rows: AT&T's TDP is kept as PROGRAM "
+      "(and a plain 'Account Executive' as TECH_SALES)",
+      [(j["title"], j["family"]) for j in c] == [("AT&T Technology Development Program", "PROGRAM"),
+                                                ("Account Executive", "TECH_SALES")], str(c))
 check("...while the gate's rules drop the rest, each under its own rule",
-      dict(s["dropped_by"]) == {"internship/co-op title": 1, "off-family": 2, "seniority/leadership title": 1},
+      dict(s["dropped_by"]) == {"internship/co-op title": 1, "off-family": 1, "seniority/leadership title": 1},
       str(s["dropped_by"]))
 
 beta = listing("Beta", "Associate Sales Engineer", "Chicago, IL", "https://job-boards.greenhouse.io/beta/jobs/1",
@@ -537,16 +542,16 @@ with p.install(main), patched(main, ats_pass=ats_pass), patched(ats_pass, ATS_BO
         captured_logs() as logs:
     state = main.RunState()
     queue = main.collect_ats(state)
-check("collect_ats queues the 9 gate-passing rows, stored-row lookup included (none stored yet)",
+check("collect_ats queues the 10 gate-passing rows, stored-row lookup included (none stored yet)",
       [j["title"] for j in queue] == [t for _c, t, _l, _f in EXPECTED_KEPT]
       and ("db.find_known_candidates", [j["id"] for j in queue]) in p.log)
 check("...each with a queue order and source 'ats'", all(j.get("_order") and j["source"] == "ats" for j in queue))
 check("...and the run's ATS stats (boards, with listings, listings, kept, candidates, per board)",
       (state.ats["boards"], state.ats["boards_with_listings"], state.ats["listings"], state.ats["kept"],
-       state.ats["candidates"]) == (4, 3, 63, 9, 9)
+       state.ats["candidates"]) == (4, 3, 63, 10, 10)
       and state.ats["by_board"].get("Kyndryl") == {"platform": "workday", "listings": 50, "kept": 5},
       str({k: v for k, v in state.ats.items() if k != "dropped_samples"}))
-check("...the interface log line", "ATS: 63 listings from 3/4 boards | kept by the gate 9 | new 9" in logs.messages())
+check("...the interface log line", "ATS: 63 listings from 3/4 boards | kept by the gate 10 | new 10" in logs.messages())
 
 rec = Recorded(*RECORDED)
 fdb, fcl, fno = Forbidden("db"), Forbidden("classifier"), Forbidden("notifier")
@@ -560,17 +565,18 @@ with env_cleared(), rec.installed(), patched(ats_pass, ATS_BOARDS=BOARDS, SAMPLE
 report = out.getvalue()
 check("dry run with the real pass: exit 0 with every secret blank; db, classifier, notifier untouched",
       code == 0 and all(f.touched == [] for f in (fdb, fcl, fno)), str(code))
-check("...the ATS line", "ats:      4 boards (3 with listings) | raw 63 | kept 9 | new in run 9 | dropped: non-US "
-                         "location 40, off-family 13, seniority/leadership title 1" in report, report[:400])
+check("...the ATS line", "ats:      4 boards (3 with listings) | raw 63 | kept 10 | new in run 10 | dropped: non-US "
+                         "location 40, off-family 11, senior-segment account title (enterprise/strategic/named/major/key/global) 1, "
+                         "seniority/leadership title 1" in report, report[:400])
 check("...one line per board, listings / kept",
       all(line in report for line in ("  per board, listings / kept by the gate:", "    Tailscale (greenhouse): 8 / 3",
-                                      "    Drata (ashby): 5 / 1", "    Kyndryl (workday): 50 / 5",
+                                      "    Drata (ashby): 5 / 2", "    Kyndryl (workday): 50 / 5",
                                       "    Broken Board (greenhouse): 0 / 0")))
 check("...the board that returned nothing is named",
       "  boards with no listings (an error or an empty board): Broken Board" in report)
-check("...what the caps would allow", "would classify: ats 9 / linkedin 0 / jobright 0; leftover 0" in report)
+check("...what the caps would allow", "would classify: ats 10 / linkedin 0 / jobright 0; leftover 0" in report)
 check("...kept samples, entry-marked and primary families first",
-      "kept sample (ats, 3 of 9): company | title | location | family\n  Drata | Associate Solutions Architect |"
+      "kept sample (ats, 3 of 10): company | title | location | family\n  Drata | Associate Solutions Architect |"
       in report)
 check("...a dropped sample's count is the rule's total, not the sample size",
       "dropped sample (ats, non-US location, 3 of 40):" in report
