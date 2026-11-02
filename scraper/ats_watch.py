@@ -104,7 +104,9 @@ def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str]) -
             insert_job(job)
             continue
 
-        if _is_non_internship_title(job["title"]):
+        # A source that lists the role as an internship itself is taken at its word (Google's
+        # internships list: "Student Researcher, BS/MS" has no intern marker in its title).
+        if _is_non_internship_title(job["title"]) and not job.get("internship_listing"):
             job["tier"] = "INELIGIBLE"
             job["reason"] = "Pre-filtered: no internship marker in title"
             job["suggested_resume"] = "General"
