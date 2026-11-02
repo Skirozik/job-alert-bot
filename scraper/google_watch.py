@@ -15,8 +15,7 @@ so that page is all of it; past 20, a new role still arrives at the top.
 
   - check(): every 5-minute ATS pass, the U.S. internships list. Roles not in the tracker go through
     the usual ATS path (classified on the description the page carries, stored, the usual push for
-    an APPLY), then alert() runs. The ATS title pre-filter takes Google's word that a role on this
-    list is an internship: "Student Researcher, BS/MS" has no intern marker in its title.
+    an APPLY), then alert() runs.
   - alert(): every role read is recorded in a ledger (bot_state LEDGER_KEY), keyed on Google's job
     id. One the ledger has not seen gets a 🔎 push, whatever the classifier said, with its verdict in
     the body -- unless its title is for PhD, Masters or MBA students only, or is not an internship
@@ -213,11 +212,12 @@ def parse_results(page: str, interns: bool = True) -> tuple[list[dict], int]:
                     "description": description[:MAX_LEN] or None})
     if abroad * 2 > len(records):
         raise GooglePageUnreadable(f"{abroad} of {len(records)} roles outside the U.S.: the location filter was not applied")
-    if abroad:
-        log.info("Google list: %d role(s) with no U.S. location skipped", abroad)
     if records and not out and not abroad:
         raise GooglePageUnreadable(f"{len(records)} roles, none with an id and a title")
-    return out, total
+    if abroad:
+        log.info("Google list: %d role(s) with no U.S. location skipped", abroad)
+    # The skipped ones out of the count too, so "the list holds more than this page" stays true.
+    return out, total - abroad
 
 
 def _get(url: str) -> tuple[int | None, str]:
@@ -256,10 +256,6 @@ def _stubs(postings: list[dict]) -> list[dict]:
         if job:
             job["search_term"] = "google-careers"
             job["norm_key"] = job_norm_key(job)
-            # On Google's internships list, so ats_watch's title pre-filter takes it at its word:
-            # "Student Researcher, BS/MS" carries no intern marker but is one. CapitalG's standing
-            # roles share the list and are not.
-            job["internship_listing"] = bool(_INTERNSHIP.search(p["title"]))
             stubs.append(job)
     return stubs
 
@@ -338,7 +334,7 @@ def _stored_rows(p: dict, job_id: str) -> list[dict]:
     error: the push then goes out without the lines these feed, rather than not at all."""
     key = job_norm_key({"company": p["company"], "title": p["title"]})
     try:
-        return (get_client().table("jobs").select("id,status,tier,reason,found_at")
+        return (get_client().table("jobs").select("id,title,status,tier,reason,found_at")
                 .eq("company", p["company"]).or_(f'norm_key.eq."{key}",id.eq."{job_id}"').limit(50).execute().data or [])
     except Exception as exc:
         log.warning("Google push: tracker lookup failed (%s) — sending without it", type(exc).__name__)
@@ -358,7 +354,10 @@ def describe(p: dict, processed: dict, now: datetime, stored: list[dict] | None 
     if job:
         lines.append(_verdict(job["tier"], job.get("reason", "")))
     elif own:
-        lines.append(_verdict(own[0].get("tier"), own[0].get("reason", "")) + f" (rated {_day(own[0].get('found_at'))})")
+        # A role pushed because Google retitled it for undergraduates was rated under its old title.
+        was = own[0].get("title")
+        lines.append(_verdict(own[0].get("tier"), own[0].get("reason", "")) + f" (rated {_day(own[0].get('found_at'))}"
+                     + (f" as \"{was}\")" if was and was != p["title"] else ")"))
     elif same_title:
         first = min(same_title, key=lambda r: r.get("found_at") or "")
         lines.append(_verdict(first.get("tier"), first.get("reason", ""))
@@ -442,18 +441,18 @@ def check(sweep) -> tuple[int, int, int]:
     got = None
     try:
         got = collect()
-        record_read(got.read)
     except QuotaExceeded:
         raise
     except Exception as exc:
         log.error("Google internships list skipped this pass: %s", exc)
         # A reader that crashes is a reader that cannot read: it counts toward the alarm.
-        try:
-            record_read(GoogleRead(outcome="unreadable", problem=f"reader error ({type(exc).__name__})"))
-        except QuotaExceeded:
-            raise
-        except Exception as exc2:
-            log.error("Google list health not recorded: %s", exc2)
+        got = GoogleInterns(read=GoogleRead(outcome="unreadable", problem=f"reader error ({type(exc).__name__})"))
+    try:
+        record_read(got.read)
+    except QuotaExceeded:
+        raise
+    except Exception as exc:
+        log.error("Google list health not recorded: %s", exc)
     new = notified = 0
     if got and got.rows:
         try:
