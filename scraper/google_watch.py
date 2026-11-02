@@ -217,7 +217,7 @@ def parse_results(page: str, interns: bool = True) -> tuple[list[dict], int]:
     if abroad:
         log.info("Google list: %d role(s) with no U.S. location skipped", abroad)
     # The skipped ones out of the count too, so "the list holds more than this page" stays true.
-    return out, total - abroad
+    return out, max(total - abroad, len(out))
 
 
 def _get(url: str) -> tuple[int | None, str]:
@@ -276,7 +276,15 @@ def collect(force: bool = False) -> GoogleInterns:
         return GoogleInterns()
     read = read_list(INTERNS_URL)
     stubs = _stubs(read.postings)
-    unknown = find_unknown_candidates(stubs) if stubs else set()
+    try:
+        unknown = find_unknown_candidates(stubs) if stubs else set()
+    except QuotaExceeded:
+        raise
+    except Exception as exc:
+        # The tracker failing is not Google failing: the read stands, and its new roles are pushed
+        # unrated. They are rated on the next pass whose lookup works.
+        log.error("Google internships: tracker lookup failed (%s); pushing without it", type(exc).__name__)
+        unknown = set()
     rows = [j for j in stubs if j["id"] in unknown]
     log.info("Google internships: %d listed (%d in all, %s), %d not in the tracker", len(read.postings),
              read.total, read.outcome if not read.problem else f"{read.outcome}: {read.problem}", len(rows))
@@ -438,7 +446,6 @@ def check(sweep) -> tuple[int, int, int]:
     (ats_watch's: dedup, classify, store, the usual push), then push the new ones. Returns (new,
     notified) from sweep and the number of rows handed to it. Three separate guards, as for Apple: a
     failure classifying a new role must not hold back its 🔎 push. A spent quota still stops the run."""
-    got = None
     try:
         got = collect()
     except QuotaExceeded:
@@ -454,21 +461,21 @@ def check(sweep) -> tuple[int, int, int]:
     except Exception as exc:
         log.error("Google list health not recorded: %s", exc)
     new = notified = 0
-    if got and got.rows:
+    if got.rows:
         try:
             new, notified = sweep(got.rows)
         except QuotaExceeded:
             raise
         except Exception as exc:
             log.error("Google internships: processing the new roles failed (%s); pushing them anyway", exc)
-    if got and got.read:
+    if got.read:
         try:
             alert(got.read, got.rows)
         except QuotaExceeded:
             raise
         except Exception as exc:
             log.error("Google alerts skipped this pass: %s", exc)
-    return new, notified, len(got.rows) if got else 0
+    return new, notified, len(got.rows)
 
 
 # ── health of the internships list ────────────────────────────────────────────

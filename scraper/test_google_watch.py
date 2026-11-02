@@ -418,6 +418,8 @@ got, _ = gw.parse_results(_with(INTERNS, [bare]))
 check("a role missing everything but its id and title is still read, with defaults",
       got and got[0]["company"] == "Google" and got[0]["location"] == "United States" and got[0]["posted_at"] is None
       and got[0]["description"] is None, str(got))
+check("a page whose count is below its own roles never reports fewer than it read",
+      gw.parse_results(_with(INTERNS, REAL[:3], total=0)) [1] == 3)
 check("a short record is skipped, not a crash", gw.parse_results(_with(INTERNS, [["1"]] + REAL))[0][0]["google_id"]
       == REAL[0][0])
 
@@ -522,6 +524,9 @@ check("its 🔎 push carries the classifier's verdict", google and "Bot's verdic
 check("stored with that verdict", STORE.get(id_of(SR_ID), {}).get("tier") == "APPLY")
 check("the tracker's title pre-filter takes Student Researcher as an internship from any source (LinkedIn too)",
       not main._is_non_internship_title(SR_TITLE) and not main._is_non_internship_title("Student Researcher (Seed) - 2027"))
+check("...but not a graduate appointment, which would cost a classifier call to come back ineligible",
+      main._is_non_internship_title("Graduate Student Researcher - Smith Lab")
+      and main._is_non_internship_title("PhD Student Researcher, Robotics"))
 check("...and still not a student-department job", main._is_non_internship_title("Research Coordinator, Student Affairs"))
 
 print("\n-- a graduate-only role Google later opens to undergraduates --")
@@ -721,6 +726,20 @@ pushes = run_pass()
 gw.record_read = _orig_record
 check("the health record failing to save after a good read: not counted as unreadable, and the push still goes",
       gw.HEALTH_KEY not in STATE and len(kinds(pushes, "google")) == 1, str(pushes))
+
+reset()
+run_pass()
+serve([new_record(NEW_TITLE, NEW_ID)] + REAL)
+_orig_unknown = gw.find_unknown_candidates
+gw.find_unknown_candidates = lambda jobs, batch_size=5000: 1 / 0
+pushes = run_pass()
+gw.find_unknown_candidates = _orig_unknown
+check("the tracker lookup failing after a good read: the 🔎 push still goes, unrated, and Google is not blamed",
+      len(kinds(pushes, "google")) == 1 and "not rated yet" in kinds(pushes, "google")[0]["body"]
+      and gw.HEALTH_KEY not in STATE and CLASSIFIED == [], str(pushes))
+pushes = run_pass()
+check("...the next pass rates and stores it, with the usual push, and no second 🔎",
+      CLASSIFIED == [NEW_TITLE] and kinds(pushes, "google") == [] and len(kinds(pushes, "job")) == 1, str(pushes))
 
 reset()
 run_pass()
