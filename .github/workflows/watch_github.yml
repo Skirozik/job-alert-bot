@@ -51,11 +51,24 @@ jobs:
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
 
+      # The candidate profile is not in the repo (it names the owner, and this
+      # remote is public): write it from a repository secret at job start.
+      - name: Materialize candidate profile
+        env:
+          PROFILE: ${{ secrets.CANDIDATE_PROFILE_MD }}
+        run: |
+          printf '%s' "$PROFILE" > Candidate_Profile_and_Filters.md
+          test -s Candidate_Profile_and_Filters.md || {
+            echo "::error::CANDIDATE_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+
       - name: Poll GitHub internship trackers
         working-directory: scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLASSIFIER_MODEL: ${{ secrets.CLASSIFIER_MODEL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python github_watch.py

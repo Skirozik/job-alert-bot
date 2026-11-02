@@ -90,6 +90,14 @@ def steps(text: str) -> dict:
 
 section("workflow: .github/workflows/scrape_user_b.yml")
 wf = read(WORKFLOW)
+# The workflow reaches User B's secrets through the USER_B_SECRETS repository
+# variable, so the public file never spells their real names. Read those
+# references as if the suffix were USER_B, so the checks below see one name each.
+raw_wf = wf
+wf = re.sub(r"secrets\[format\('([A-Z_]*)\{0\}([A-Z_]*)', vars\.USER_B_SECRETS\)\]",
+            lambda m: f"secrets.{m.group(1)}USER_B{m.group(2)}", wf)
+check("User B's secrets are reached only through vars.USER_B_SECRETS (no name spelled in the file)",
+      not re.search(r"secrets\.[A-Z_]*USER_B", raw_wf) and "vars.USER_B_SECRETS" in raw_wf)
 check("named 'Job Scraper (User B)'", wf.splitlines()[0] == "name: Job Scraper (User B)")
 
 crons = CRON_RE.findall(wf)
@@ -133,7 +141,7 @@ check("pip cache and install both use scraper_user_b/requirements.txt",
 
 profile_step = st.get("Materialize candidate profile", "")
 profile_name = config.CANDIDATE_PROFILE_PATH.name
-check("the rubric comes from secrets[format('{0}_PROFILE_MD', vars.USER_B_SECRETS)], passed through env:",
+check("the rubric comes from User B's PROFILE_MD secret, passed through env:",
       re.search(r"^\s+PROFILE:\s*\$\{\{\s*secrets\.USER_B_PROFILE_MD\s*\}\}\s*$", profile_step, re.M) is not None)
 check(f"...written to {profile_name}, the file config.CANDIDATE_PROFILE_PATH names",
       f"printf '%s' \"$PROFILE\" > {profile_name}" in profile_step)
@@ -152,12 +160,13 @@ check("runs 'python main.py' -- a real run, no --dry-run",
 env_map = dict(re.findall(r"^\s+([A-Z_]+):\s*\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}\s*$", run_step, re.M))
 check("env: User B's database, the shared API key, pings to User B's topic, alerts to the owner's",
       env_map == {"SUPABASE_URL": "SUPABASE_URL_USER_B", "SUPABASE_SERVICE_KEY": "SUPABASE_SERVICE_KEY_USER_B",
-                  "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY", "NTFY_TOPIC": "NTFY_TOPIC_USER_B",
+                  "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY", "CLASSIFIER_MODEL": "CLASSIFIER_MODEL",
+                  "NTFY_TOPIC": "NTFY_TOPIC_USER_B",
                   "OWNER_NTFY_TOPIC": "NTFY_TOPIC"}, str(env_map))
 secrets_used = set(re.findall(r"secrets\.([A-Z0-9_]+)", wf))
-check("the workflow reads only User B's four secrets and the two shared ones (no other persona's)",
+check("the workflow reads only User B's four secrets and the three shared ones (no other persona's)",
       secrets_used == {"USER_B_PROFILE_MD", "SUPABASE_URL_USER_B", "SUPABASE_SERVICE_KEY_USER_B", "NTFY_TOPIC_USER_B",
-                       "ANTHROPIC_API_KEY", "NTFY_TOPIC"}, str(sorted(secrets_used)))
+                       "ANTHROPIC_API_KEY", "CLASSIFIER_MODEL", "NTFY_TOPIC"}, str(sorted(secrets_used)))
 config_env = set(re.findall(r'os\.environ\.get\(\s*"([A-Z_]+)"', read(HERE / "config.py")))
 check("it sets every variable config.py reads, except the local-only CANDIDATE_PROFILE_PATH",
       set(env_map) == config_env - {"CANDIDATE_PROFILE_PATH"} == set(testkit.SECRET_ENV), str(sorted(config_env)))
@@ -357,7 +366,7 @@ check("finish_run writes finished_at plus the FINISH_RUN_KEYS stats",
 section(".env.user_b.example (repo root)")
 example = read(ENV_EXAMPLE)
 assigned = dict(re.findall(r"^([A-Z_]+)=(.*)$", example, re.M))
-check("sets exactly the five variables config.py reads from the environment",
+check("sets exactly the six variables config.py reads from the environment",
       set(assigned) == set(testkit.SECRET_ENV), str(sorted(assigned)))
 check("CANDIDATE_PROFILE_PATH appears only as a commented-out option",
       "CANDIDATE_PROFILE_PATH" not in assigned
@@ -388,8 +397,8 @@ if git:
               "user_b_private/brief.md", "rubric_r2_snapshot.md", f"scraper_user_b/{profile_name}"]
     check("...and the rubric's drafts, copies and private fixtures", all(ignored(d) for d in drafts),
           str([d for d in drafts if not ignored(d)]))
-    check("...but not the main pipeline's tracked Candidate_Profile_and_Filters.md",
-          not ignored("Candidate_Profile_and_Filters.md"))
+    check("...and the main pipeline's own Candidate_Profile_and_Filters.md, written from a secret",
+          ignored("Candidate_Profile_and_Filters.md"))
     tracked = subprocess.run([git, "-C", str(REPO), "ls-files", "--", profile_name, ".env.user_b"],
                              capture_output=True, text=True).stdout.split()
     check("...and neither file is tracked", not tracked, str(tracked))

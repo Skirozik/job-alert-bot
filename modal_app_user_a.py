@@ -1,3 +1,5 @@
+import os
+
 import modal
 
 # Standalone Modal app for the User A persona's job search — deliberately
@@ -17,7 +19,10 @@ image = (
     )
 )
 
-app = modal.App("job-alert-scraper-user_a", image=image)
+# The live app and its Modal secret keep the names they were created under,
+# which stay out of this public repo: set MODAL_APP_NAME and
+# MODAL_SECRET_NAME to them before `modal deploy`.
+app = modal.App(os.environ.get("MODAL_APP_NAME", "job-alert-scraper-user_a"), image=image)
 
 
 @app.function(
@@ -34,7 +39,7 @@ app = modal.App("job-alert-scraper-user_a", image=image)
     # all 11 searches return zero, and the loss is biased toward the last
     # search terms), so buy the headroom. Still far under the 2h cron period.
     timeout=1500,
-    secrets=[modal.Secret.from_name("job-alert-secrets-user_a")],
+    secrets=[modal.Secret.from_name(os.environ.get("MODAL_SECRET_NAME", "job-alert-secrets-user_a"))],
 )
 def scrape():
     import sys

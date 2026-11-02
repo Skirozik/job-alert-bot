@@ -30,9 +30,12 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True
 
-SECRET_ENV = ("SUPABASE_URL", "SUPABASE_SERVICE_KEY", "ANTHROPIC_API_KEY", "NTFY_TOPIC", "OWNER_NTFY_TOPIC")
+SECRET_ENV = ("SUPABASE_URL", "SUPABASE_SERVICE_KEY", "ANTHROPIC_API_KEY", "CLASSIFIER_MODEL", "NTFY_TOPIC",
+              "OWNER_NTFY_TOPIC")
 for _name in SECRET_ENV:
     os.environ[_name] = ""
+# Not a secret, and the classifier refuses to call without one.
+os.environ["CLASSIFIER_MODEL"] = "test-model"
 
 
 # ── reporting ────────────────────────────────────────────────────────────────

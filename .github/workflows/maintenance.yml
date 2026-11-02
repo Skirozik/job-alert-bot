@@ -66,6 +66,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
 
+      # The candidate profile is not in the repo (it names the owner, and this
+      # remote is public): write it from a repository secret at job start.
+      - name: Materialize candidate profile
+        env:
+          PROFILE: ${{ secrets.CANDIDATE_PROFILE_MD }}
+        run: |
+          printf '%s' "$PROFILE" > Candidate_Profile_and_Filters.md
+          test -s Candidate_Profile_and_Filters.md || {
+            echo "::error::CANDIDATE_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+
       - name: Run ${{ inputs.task }}${{ inputs.confirm && ' (WRITING)' || ' (dry run)' }}
         working-directory: scraper
         env:
@@ -74,6 +86,7 @@ jobs:
           # repair_descriptionless_promotions is the first task here that calls
           # the classifier; without this every classify() failed "transient".
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLASSIFIER_MODEL: ${{ secrets.CLASSIFIER_MODEL }}
         run: |
           set -euo pipefail
 

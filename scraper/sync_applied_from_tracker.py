@@ -14,6 +14,7 @@ Run from the scraper directory:
 
 import csv
 import logging
+import os
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -34,7 +35,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-TRACKER_CSV_PATH = Path(r"C:\Users\<user>\OneDrive\Desktop\internship-2026\tracker.csv")
+TRACKER_CSV_PATH = Path(os.environ.get(
+    "TRACKER_CSV_PATH", Path.home() / "OneDrive" / "Desktop" / "internship-2026" / "tracker.csv"))
 
 
 def normalize_url(url: str) -> str:

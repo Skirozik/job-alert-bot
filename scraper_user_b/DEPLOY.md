@@ -111,7 +111,10 @@ empty boards, a broken jobright list, the Supabase quota, crashes, and preflight
 
 ### 2.3 Repository secrets
 
-GitHub → Settings → Secrets and variables → Actions → New repository secret:
+GitHub → Settings → Secrets and variables → Actions → New repository secret. The workflow
+finds each one by a suffix kept in the repository variable `USER_B_SECRETS` (same page,
+Variables tab), so the public file never spells the real names; the table writes that
+suffix as `USER_B`:
 
 | Secret | Value |
 |---|---|
@@ -120,6 +123,7 @@ GitHub → Settings → Secrets and variables → Actions → New repository sec
 | `NTFY_TOPIC_USER_B` | the topic from 2.2 |
 | `USER_B_PROFILE_MD` | the whole rubric file, uploaded as shown below |
 | `ANTHROPIC_API_KEY` | already set (shared by every pipeline) |
+| `CLASSIFIER_MODEL` | already set (shared): the model id the classifier calls |
 | `NTFY_TOPIC` | already set: the **owner's** topic, which receives this pipeline's infrastructure alerts |
 
 Upload the rubric from wherever it lives outside the repo:

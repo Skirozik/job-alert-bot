@@ -66,6 +66,20 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: pip install -r scraper/requirements.txt
 
+      # The candidate profile is not in the repo (it names the owner, and this
+      # remote is public): write it from a repository secret at job start.
+      - name: Materialize candidate profile
+        id: profile
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          PROFILE: ${{ secrets.CANDIDATE_PROFILE_MD }}
+        run: |
+          printf '%s' "$PROFILE" > Candidate_Profile_and_Filters.md
+          test -s Candidate_Profile_and_Filters.md || {
+            echo "::error::CANDIDATE_PROFILE_MD secret is empty or unset — the classifier cannot run without it"
+            exit 1
+          }
+
       - name: Run the Apple drill
         id: drill
         if: steps.gate.outputs.skip != 'true'
@@ -76,6 +90,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLASSIFIER_MODEL: ${{ secrets.CLASSIFIER_MODEL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python apple_drill.py
 
@@ -102,7 +117,7 @@ jobs:
       # Runs whether or not the Apple drill passed, once the setup above worked.
       - name: Run the Google drill
         id: google
-        if: ${{ !cancelled() && steps.gate.outputs.skip != 'true' && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.gate.outputs.skip != 'true' && steps.install.outcome == 'success' && steps.profile.outcome == 'success' }}
         # Room for its own retries (three reads 30 s apart, the read-back, the pass stamp), so a slow
         # Google ends in the drill's own alarm naming the step, not in this timeout.
         timeout-minutes: 8
@@ -111,6 +126,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLASSIFIER_MODEL: ${{ secrets.CLASSIFIER_MODEL }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python google_drill.py
 

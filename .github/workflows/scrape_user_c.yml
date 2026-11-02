@@ -76,5 +76,6 @@ jobs:
           SUPABASE_URL: ${{ secrets[format('SUPABASE_URL_{0}', vars.USER_C_SECRETS)] }}
           SUPABASE_SERVICE_KEY: ${{ secrets[format('SUPABASE_SERVICE_KEY_{0}', vars.USER_C_SECRETS)] }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLASSIFIER_MODEL: ${{ secrets.CLASSIFIER_MODEL }}
           NTFY_TOPIC: ${{ secrets[format('NTFY_TOPIC_{0}', vars.USER_C_SECRETS)] }}
         run: python main.py

@@ -95,7 +95,9 @@ AUTOFILL_BROWSER_PROFILE_DIR = INTERNSHIP_DIR / "autofill_browser_profile"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+# The model the classifier calls, from the CLASSIFIER_MODEL secret (or .env).
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM = os.environ.get("RESEND_FROM", "")
-ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "you@example.com")
+ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "")

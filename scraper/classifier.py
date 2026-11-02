@@ -24,7 +24,7 @@ import time
 from typing import Optional
 
 import anthropic
-from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH
+from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH, CLASSIFIER_MODEL
 from salary_extraction import extract_salary
 
 log = logging.getLogger(__name__)
@@ -161,7 +161,7 @@ _UNDERGRAD_WORD_RE = re.compile(r"\bbachelor|undergraduate|\bB\.?S\.?\b", re.IGN
 _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
-MODEL = "MODEL_ID"
+MODEL = CLASSIFIER_MODEL
 
 # NEVER store a verdict the model did not produce.
 #
@@ -324,6 +324,11 @@ Location: {job.get("location", "")}
 Description: {job.get("description") or "(not available — classify on title/company/location only)"}"""
 
     global _API_HARD_DOWN
+
+    # No model configured (the CLASSIFIER_MODEL secret, or its .env line, is
+    # missing): every call would fail the same way, so park without calling.
+    if not MODEL:
+        return _failed("CLASSIFIER_MODEL is not set — skipped without calling", "auth")
 
     # Breaker: a billing or auth failure earlier in this run means every
     # further call would fail identically. Return without touching the API.

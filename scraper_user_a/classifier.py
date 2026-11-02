@@ -25,7 +25,7 @@ import time
 from typing import Optional
 
 import anthropic
-from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH
+from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH, CLASSIFIER_MODEL
 from salary_extraction import extract_salary
 
 log = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
-MODEL = "MODEL_ID"
+MODEL = CLASSIFIER_MODEL
 
 # On a transient API failure the job is NOT stored at all — see _failed() and
 # main.process_job(). A missing row self-heals, because the next run

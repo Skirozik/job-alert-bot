@@ -82,7 +82,7 @@ finally:
         os.environ["CANDIDATE_PROFILE_PATH"] = saved
     importlib.reload(config)
 check("secrets come from the environment only (blank in tests)",
-      all(getattr(config, k) == "" for k in testkit.SECRET_ENV))
+      all(getattr(config, k) == "" for k in testkit.SECRET_ENV if k != "CLASSIFIER_MODEL"))
 check("the owner's topic is a separate setting from User B's", hasattr(config, "OWNER_NTFY_TOPIC"))
 
 section("what linkedin.fetch_listings actually sends")

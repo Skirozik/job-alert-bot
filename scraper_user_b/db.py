@@ -4,7 +4,7 @@ Fork of scraper_user_c/db.py, with the main pipeline's guards ported from
 scraper/db.py:
 
   * QuotaExceeded: a spent Supabase quota stops the run instead of failing
-    open (every fail-open branch that could lead to another fetch or the model
+    open (every fail-open branch that could lead to another fetch or model
     call re-raises it);
   * find_known_candidates: two indexed IN lookups per <=100 candidates replace
     the fork's full-table download (load_dedup_index is gone), so egress per

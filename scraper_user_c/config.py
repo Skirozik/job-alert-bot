@@ -97,4 +97,6 @@ CANDIDATE_PROFILE_PATH = REPO_ROOT / "User_C_Candidate_Profile_and_Filters.md"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+# The model the classifier calls, from the CLASSIFIER_MODEL secret (or .env).
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")

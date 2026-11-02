@@ -1,292 +1,91 @@
-# LinkedIn Internship Job Alert Bot
+# Job alert bot
 
-Scrapes LinkedIn (plus a few GitHub-tracked internship lists) every 20 min, classifies each new internship against your candidate profile using the model, and pushes APPLY/MAYBE matches to your phone (ntfy.sh), a twice-daily email digest (Resend), and a password-protected web dashboard. Runs entirely on GitHub Actions — your PC never needs to be on.
+I wanted to be one of the first people to apply when an internship opens. Big companies post on their own careers sites first, and a role can take 6 to 48 hours to reach LinkedIn. So this bot reads those sites directly, rates every new posting against my profile, and sends the good ones to my phone within minutes. It runs on GitHub Actions, so my laptop doesn't have to be on.
 
----
+## Where it looks
 
-## How it works
+| Source | How often | What it reads |
+|---|---|---|
+| 104 company job boards | every 5 min | Greenhouse (63), Workday (22), Ashby (15), Lever (2) and SmartRecruiters (2) |
+| Meta, Apple and D. E. Shaw | every 5 min | their careers sitemaps |
+| Apple and Google | every 5 min | the U.S. internship lists on jobs.apple.com and google.com/about/careers |
+| GitHub internship lists | every 2 min | SimplifyJobs, speedyapply and a few others, postings up to 7 days old |
+| LinkedIn | every 5 min, 15 min and 1 hr | the first results page, the full search, and every results page, for 10 search terms in the U.S. and Atlanta |
 
-```
-GitHub Actions (every 20 min)
-  └─ scraper/main.py
-       ├─ Run-lock: skip if another scheduler's run is still in progress (scrape_runs table)
-       ├─ Drain the PENDING queue: reclassify up to 40 jobs parked by an earlier
-       │   run, push any that promote to APPLY / APPLY_CAVEAT
-       ├─ Load dedup index once (all known job ids + norm_keys, one bulk query)
-       ├─ Fetch + process tracked GitHub internship-list repos first (no rate
-       │   limiting, newest postings first — their pushes don't wait on LinkedIn)
-       ├─ 10 LinkedIn searches (5 terms × 2 locations, f_E=1 internship filter), with
-       │   retry/backoff on rate limiting
-       ├─ Canary: 0 LinkedIn results across all searches → push "may be blocked" alert
-       ├─ Fetch job description for each new LinkedIn listing
-       ├─ the model classifies: APPLY / APPLY_CAVEAT / INELIGIBLE
-       │   (prompt-cached, structured tool output)
-       ├─ If the classifier is unavailable, PARK as PENDING with the fetched
-       │   description instead of dropping the job, and canary once per 6h
-       ├─ Store first, then ntfy.sh push for APPLY and APPLY_CAVEAT (only once stored)
-       └─ Record run stats (raw/new/notified/rate-limited counts) in scrape_runs
+LinkedIn is read through its public job search, without logging in.
 
-GitHub Actions (8am & 6pm ET)
-  └─ scraper/digest.py → emails a digest of APPLY/MAYBE jobs found since the last digest
+## What happens to a new posting
 
-web/ (Next.js, deploy anywhere — e.g. Vercel)
-  └─ Password-protected dashboard reading the same Supabase table, with live updates
-```
+1. Every source checks the database first. The same role found on LinkedIn, a company board and a GitHub list shares one key, so it's rated and pushed once.
+2. A title filter drops senior, new-grad and non-internship titles before anything costs money.
+3. The bot fetches the description and an LLM (through Anthropic's API) rates it APPLY, APPLY_CAVEAT or INELIGIBLE against my profile, with a reason. The profile lives in a GitHub secret, and so does the model name.
+4. The row is stored before anything is sent. APPLY and APPLY_CAVEAT go to my phone through [ntfy](https://ntfy.sh), and each push is claimed in the database first, so three workflows running at the same time can't send it twice.
+5. If the API is down, the job is parked as PENDING with its description, and later runs retry it.
 
----
+## How I know it still works
 
-## Setup (one-time, ~15 minutes)
+A watcher that breaks without an error looks the same as a slow week. These are the checks that tell them apart.
 
-### 1. Create a Supabase project
+- Canary pushes go out when LinkedIn returns zero results, when the Apple or Google list can't be read twice in a row, or when the classifier goes down.
+- Apple and Google each get an hourly read of all their U.S. jobs, where something new shows up most days. A long stretch with nothing new sends an alarm.
+- Every Monday at 9 AM Eastern, a drill takes one real Apple posting and one real Google posting through the whole path, and both pushes have to come back.
+- When the free Supabase quota runs out, the run stops. Otherwise the bot would re-fetch and re-rate every job it already has.
+- 22 offline test files run on every push, some of them against saved copies of real careers pages in `fixtures/`.
 
-1. Go to [supabase.com](https://supabase.com) → New project (free tier)
-2. In the SQL Editor, run this schema:
+## Timing
 
-```sql
-create table jobs (
-  id               text primary key,
-  title            text,
-  company          text,
-  location         text,
-  url              text,
-  search_term      text,
-  description      text,
-  logo_url         text,
-  norm_key         text,
-  tier             text,                    -- APPLY | APPLY_CAVEAT | INELIGIBLE
-                                            -- plus PENDING, a queue state (not a
-                                            -- verdict) for jobs awaiting retry
-                                            -- after a classifier outage
-  reason           text,
-  suggested_resume text,
-  status           text default 'new',      -- new | saved | applied | dismissed
-  posted_at        timestamptz,
-  found_at         timestamptz default now(),
-  apply_url        text,
-  is_easy_apply    boolean default false,
-  salary           text,
-  notified_at      timestamptz,             -- set once, by claim_job_notification.
-                                            -- The ledger that makes a push
-                                            -- at-most-once across the three
-                                            -- concurrent workflows.
-  target_key       text                     -- cross-source identity of the
-                                            -- APPLICATION (not the row): the
-                                            -- same Workday req reached via
-                                            -- LinkedIn, the ATS and a GitHub
-                                            -- tracker shares one target_key.
-                                            -- NULL when it cannot be proven,
-                                            -- which makes no claim at all.
-);
+GitHub's own cron is best effort. Schedules set to 5, 10 and 20 minutes came in at 29, 32 and 40 minute median gaps when I measured them. So an external pinger ([cron-job.org](https://cron-job.org)) calls the workflow-dispatch API on the real schedule, and the cron stays as a fallback. The numbers and the setup are in [FAST_PINGS_SETUP.md](FAST_PINGS_SETUP.md).
 
-create index jobs_norm_key_idx on jobs (norm_key);
-create index jobs_tier_idx on jobs (tier);
-create index jobs_found_at_idx on jobs (found_at desc);
-```
+## The rest
 
-3. Also run this — a small run-lock/stats table (guards against two schedulers overlapping, e.g. if you also deploy `modal_app.py`) and a generic key-value state table (used by the email digest to track its last send time). Both are optional: the scraper degrades gracefully without them, just without the lock or digest watermark.
+- An email digest of new matches goes out twice a day through [Resend](https://resend.com), and review jobs nobody touched in 45 days get archived.
+- `web/` is a password-protected Next.js dashboard on Vercel. Applied, Save and Dismiss sync live across devices, and one deployment serves several people, each reading their own database.
+- Forks of the pipeline run for three other people (`scraper_user_a`, `scraper_user_b`, `scraper_user_c`), each with its own Supabase project, rubric and push topic.
 
-```sql
-create table scrape_runs (
-  id           bigint generated always as identity primary key,
-  source       text not null default 'linkedin',
-  started_at   timestamptz not null default now(),
-  finished_at  timestamptz,
-  total_raw    int,
-  new_jobs     int,
-  notified     int,
-  rate_limited int
-);
+## Running your own
 
-create index scrape_runs_active_source_idx
-  on scrape_runs (source, started_at desc)
-  where finished_at is null;
+1. Make a free [Supabase](https://supabase.com) project. In the SQL Editor, run [schema.sql](schema.sql), then every file in `migrations/` in name order.
+2. Install the [ntfy app](https://ntfy.sh) and subscribe to a topic name nobody could guess.
+3. Write your profile and filters in plain English. That file is the classifier's whole rubric.
+4. Add these repository secrets (Settings, then Secrets and variables, then Actions).
 
-create table bot_state (
-  key   text primary key,
-  value text
-);
-```
+| Secret | What it is |
+|---|---|
+| `SUPABASE_URL` | Supabase, Settings, API, Project URL |
+| `SUPABASE_SERVICE_KEY` | the service_role key from the same page |
+| `ANTHROPIC_API_KEY` | from console.anthropic.com |
+| `CLASSIFIER_MODEL` | the id of the model the classifier calls |
+| `CANDIDATE_PROFILE_MD` | the whole profile file from step 3 |
+| `NTFY_TOPIC` | the topic from step 2 |
+| `RESEND_API_KEY`, `RESEND_FROM`, `ALERT_EMAIL` | for the email digest |
 
-4. Go to Settings → API → copy **Project URL**, **service_role** key, and **anon** key (the web dashboard needs the anon key; everything else uses service_role)
+5. Turn on Actions and run Job Scraper once by hand. For the real 5-minute cadence, set up the pinger in [FAST_PINGS_SETUP.md](FAST_PINGS_SETUP.md).
+6. For the dashboard, deploy `web/` to Vercel with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY` and `DASHBOARD_PASSWORD`. [web/.env.local.example](web/.env.local.example) shows how to add more people.
 
-### 2. Set up ntfy.sh on your phone
-
-1. Install the [ntfy app](https://ntfy.sh) on iOS or Android
-2. Pick a private topic name — something hard to guess, e.g. `my-jobs-x7k2m9`
-3. In the app: tap ＋ → subscribe to your topic
-4. You'll receive a push whenever a new APPLY or MAYBE job is found
-
-### 3. Get an Anthropic API key
-
-Go to [console.anthropic.com](https://console.anthropic.com) → API Keys → Create key.
-The classifier uses `MODEL_ID` — cost is ~$0.0001 per job classified.
-
-### 4. Get a Resend API key (for the email digest)
-
-Go to [resend.com](https://resend.com) → API Keys. Free tier = 3,000 emails/month.
-You'll also need to verify a sender domain (or use their onboarding domain for testing).
-Powers `scraper/digest.py`, which runs on its own schedule (`.github/workflows/digest.yml`)
-and emails a summary of new APPLY/MAYBE jobs at ~8am and ~6pm ET.
-
-### 5. Push to a private GitHub repo
+To run it locally, copy `.env.example` to `.env`, fill it in, and put your profile at the repo root as `Candidate_Profile_and_Filters.md` (git ignores it).
 
 ```bash
-cd LinkedIn_Job_Bot
-git init
-git add .
-git commit -m "init job alert bot"
-gh repo create job-alert-bot --private --source=. --push
-```
-
-### 6. Add GitHub repo secrets
-
-Go to your repo → Settings → Secrets and variables → Actions → New repository secret.
-Add each of these:
-
-| Secret | Where to find it |
-|--------|-----------------|
-| `SUPABASE_URL` | Supabase → Settings → API → Project URL |
-| `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role key |
-| `ANTHROPIC_API_KEY` | console.anthropic.com → API Keys |
-| `NTFY_TOPIC` | The topic name you picked in step 2 |
-| `RESEND_API_KEY` | resend.com → API Keys (used by the digest workflow) |
-| `RESEND_FROM` | Your verified sender email |
-| `ALERT_EMAIL` | you@example.com |
-
-These same secrets are read by both `.github/workflows/scrape.yml` and `.github/workflows/digest.yml`.
-
-### 7. Test the scraper locally
-
-```bash
-cd LinkedIn_Job_Bot
-cp .env.example .env
-# Fill in .env with your real values
-
 cd scraper
 pip install -r requirements.txt
 python main.py
 ```
 
-You should see logs like:
-```
-10:32:01 INFO === Job scraper starting — 5 terms × 2 locations ===
-10:32:01 INFO Searching: 'software engineer intern' in United States
-10:32:04 INFO   Got 12 listings
-...
-10:32:45 INFO Processing: 'iOS Engineer Intern' @ Acme Corp [3987654321]
-10:32:48 INFO   Description: 2847 chars
-10:32:49 INFO   → APPLY | Strong iOS/SwiftUI fit, App Store experience directly relevant | Resume: Mobile
-10:32:49 INFO   Push sent: 🟢 Acme Corp — iOS Engineer Intern
-```
-
-### 8. Enable GitHub Actions
-
-Go to your repo → Actions tab → enable workflows if prompted.
-Trigger a test run: Actions → Job Scraper → Run workflow.
-The digest workflow (Actions → Job Digest Email) can also be run on demand the same way.
-
-### 9. Deploy the web dashboard (optional)
-
-`web/` is a password-protected Next.js dashboard that reads from the same Supabase table.
-Deploy it anywhere that runs Next.js (e.g. [vercel.com](https://vercel.com) → New Project →
-set the root directory to `web/`), with these environment variables:
-
-| Variable | Where to find it |
-|----------|-----------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API → anon/public key |
-| `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role key |
-| `DASHBOARD_PASSWORD` | Any password you choose — gates the whole dashboard |
-
-For an existing Supabase project, also run
-[`migrations/20260822_atomic_job_status_updates.sql`](migrations/20260822_atomic_job_status_updates.sql)
-in the Supabase SQL Editor. It makes Applied, Save, Dismiss, and Reset update every
-member of a collapsed duplicate group in one transaction. The dashboard has a
-verified compatibility fallback while this migration is being rolled out, but
-the migration is required for fully atomic group updates.
-
----
-
-## Testing the canary alert
-
-To verify the zero-results alert works, temporarily edit `config.py` and change `SEARCH_TERMS` to `["xyzzy-no-such-job-12345"]`, run the scraper, and confirm you receive an ⚠️ push. Then revert.
-
-## The Apple alert
-
-Apple posts its internships only on jobs.apple.com. The ATS watcher reads its U.S. internships page on every 5-minute pass and sends a 🍎 push for each new requisition (`scraper/apple_watch.py`). Three things keep proving it works when Apple posts nothing new:
-
-- **Shadow watch**: hourly, the same reader on every U.S. Apple job, where Apple posts dozens a day. 48 hours with nothing new sends a "Job scraper alert".
-- **Weekly drill**: `.github/workflows/apple_drill.yml`, Mondays 9 AM Eastern from the external pinger (see `FAST_PINGS_SETUP.md`), with GitHub's own schedule as a later fallback. It first checks the 5-minute Apple check is running, then one real posting is taken through the whole path and both pushes arrive marked DRILL; nothing is written to the tracker. A week with no passing drill sends a "Job scraper alert". Run it any time from Actions → Apple and Google Alert Drill → Run workflow.
-- **Tests**: `scraper/test_apple_watch.py` replays real arrivals on Apple's own pages, saved in `fixtures/apple/`. Every offline test runs on each push (`.github/workflows/tests.yml`).
-
-## The Google alert
-
-The same alert for Google's U.S. internships (`scraper/google_watch.py`), read from the first page of google.com/about/careers results on the same 5-minute pass, right after Apple. Each new role gets a 🔎 push with the bot's verdict, unless its title is for PhD, Masters or MBA students only. Only that first page is ever read: Google's robots.txt disallows the later ones, and the U.S. internship list (18 roles on 2026-11-02) fits on it.
-
-- **Alarms**: the list unreadable or empty twice running, refused for an hour, or answering with far more roles than an internship list holds (Google ignores a filter it does not know and returns every U.S. job).
-- **Shadow watch**: hourly, the same reader on every U.S. Google job. Google publishes nothing on weekends, so the alarm counts weekday hours: 72 of them with nothing new sends a "Job scraper alert".
-- **Weekly drill**: `scraper/google_drill.py`, run by the same workflow right after the Apple drill, and on its own: one failing does not skip the other.
-- **Tests**: `scraper/test_google_watch.py`, on Google's real pages saved in `fixtures/google/`.
-
----
-
-## Implemented phases
-
-- **Phase 2 — Email digest**: `scraper/digest.py`, on its own schedule (`.github/workflows/digest.yml`), sends a digest of APPLY/MAYBE jobs found since the last send.
-- **Phase 3 — Web dashboard**: `web/` — tier badge, classifier reason, suggested resume, salary, Apply/Save/Dismiss buttons, and real-time updates (including status changes syncing across open tabs/devices).
-- **Phase 4 — Additional sources**: `scraper/github_sources.py` pulls recent (≤7 day old) listings from `SimplifyJobs/Summer2026-Internships`, `speedyapply/2026-SWE-College-Jobs`, and `speedyapply/2026-AI-College-Jobs` — no rate limiting, since they're plain README fetches.
-
-## Future upgrades
-
-### Railway (for truly real-time polling, ~5 min intervals)
-GitHub Actions cron has up to 60 min drift during peak hours. For faster alerts:
-1. Sign up at [railway.app](https://railway.app) (free $5/month credit)
-2. Create a new project → Deploy from GitHub repo
-3. Set the same environment variables in Railway's dashboard
-4. Add a `Procfile` to the repo root: `worker: cd scraper && python main.py`
-5. Use Railway's cron scheduler: `*/5 * * * *`
-
-The scraper code is identical — only the scheduler changes. The `scrape_runs` run-lock
-(see setup step 1) means it's now safe to run this *alongside* the GitHub Actions
-workflow rather than instead of it, if you want to experiment without fully committing.
-
-### More sources
-`LinkedIn_Searches.md` lists a couple more free sources not yet wired in:
-- **Jobicy** (remote roles, free RSS/API)
-- **Adzuna** (free API, US coverage)
-
----
-
-## File structure
+## Layout
 
 ```
-LinkedIn_Job_Bot/
-├── scraper/
-│   ├── main.py                          # entry point (scrape → classify → notify → store)
-│   ├── linkedin.py                      # LinkedIn guest API fetch + parse (with retry/backoff)
-│   ├── github_sources.py                # supplementary GitHub internship-list sources
-│   ├── classifier.py                    # the model classifier (cached prompt, tool output)
-│   ├── notifier.py                      # ntfy.sh push notifications
-│   ├── apple_watch.py                   # the 🍎 Apple push, its alarms, shadow watch and drill
-│   ├── google_watch.py                  # the 🔎 Google push, its alarms, shadow watch and drill
-│   ├── digest.py                        # Resend email digest, run on its own schedule
-│   ├── db.py                            # Supabase client + dedup + insert + run-lock/stats
-│   ├── config.py                        # search terms, locations, env vars
-│   └── requirements.txt
-├── web/                                 # password-protected Next.js dashboard
-│   ├── app/                             # pages + API routes (auth, debug, job status)
-│   ├── components/                     # JobList, JobCard
-│   ├── lib/                             # Supabase clients + session-token helpers
-│   └── middleware.ts                    # dashboard auth gate
-├── .github/
-│   └── workflows/
-│       ├── scrape.yml                   # GitHub Actions cron (every 20 min)
-│       ├── apple_drill.yml              # weekly end-to-end drill of the Apple and Google alerts
-│       ├── tests.yml                    # every offline scraper test, on each push
-│       └── digest.yml                   # GitHub Actions cron (8am & 6pm ET)
-├── Candidate_Profile_and_Filters.md     # your profile — classifier reads this
-├── LinkedIn_Searches.md                 # search terms reference
-├── .env.example                         # template — copy to .env for local dev
-├── .gitignore
-└── README.md
+scraper/                  the main pipeline
+  main.py                 LinkedIn search, classify, store, push
+  ats_watch.py            the 104 company boards, plus the Apple and Google lists
+  github_watch.py         the GitHub internship lists
+  linkedin_watch.py       LinkedIn's first results page, every 5 min
+  classifier.py           the LLM classifier
+  apple_watch.py          Apple's alarms, shadow watch and drill
+  google_watch.py         Google's alarms, shadow watch and drill
+  digest.py               the twice-a-day email
+  test_*.py               offline tests
+scraper_user_a/, _b/, _c/ the other three people's pipelines
+web/                      the Next.js dashboard
+migrations/               database changes, in order
+fixtures/                 saved copies of real careers pages for the tests
+.github/workflows/        every schedule, the weekly drill and the test run
 ```

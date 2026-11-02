@@ -44,7 +44,7 @@ from typing import Optional
 import anthropic
 import families
 import title_gate
-from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH
+from config import ANTHROPIC_API_KEY, CANDIDATE_PROFILE_PATH, CLASSIFIER_MODEL
 from salary_extraction import extract_salary
 
 log = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 _client: Optional[anthropic.Anthropic] = None
 _profile: Optional[str] = None
 
-MODEL = "MODEL_ID"
+MODEL = CLASSIFIER_MODEL
 # Per request, in seconds. The SDK default is 600 s per attempt, and with the SDK's own two retries one hung call
 # could outlast the 12 minutes between the 48-minute work budget and the 60-minute workflow timeout. A normal call
 # takes a few seconds.
@@ -209,6 +209,11 @@ Location: {job.get("location", "")}
 Description: {job.get("description") or "(not available — classify on title/company/location only)"}"""
 
     global _API_HARD_DOWN
+
+    # No model configured (the CLASSIFIER_MODEL secret, or its .env line, is
+    # missing): every call would fail the same way, so park without calling.
+    if not MODEL:
+        return _failed("CLASSIFIER_MODEL is not set — skipped without calling", "auth")
 
     # Breaker: a billing or auth failure earlier in this run means every
     # further call would fail identically. Return without touching the API.

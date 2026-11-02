@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import ANTHROPIC_API_KEY
+from config import ANTHROPIC_API_KEY, CLASSIFIER_MODEL
 
 import anthropic
 
@@ -209,7 +209,7 @@ def match_field(label: str, profile: dict) -> Optional[tuple[str, str]]:
     try:
         known_fields = [k for k, v in flat.items() if v not in (None, "")]
         resp = _get_client().messages.create(
-            model="MODEL_ID",
+            model=CLASSIFIER_MODEL,
             max_tokens=100,
             tools=[_FIELD_MATCH_TOOL],
             tool_choice={"type": "tool", "name": "match_field"},

@@ -89,7 +89,7 @@ res = classifier.classify(dict(JOB))
 kw = calls[0] if calls else {}
 check("a tool_use reply comes back as the result", res.get("tier") == "APPLY" and not res.get("failed"))
 check("the configured model, max_tokens 400, temperature 0",
-      kw.get("model") == "MODEL_ID" and kw.get("max_tokens") == 400 and kw.get("temperature") == 0)
+      kw.get("model") == classifier.MODEL and kw.get("max_tokens") == 400 and kw.get("temperature") == 0)
 check("the verdict is forced through classify_job",
       kw.get("tool_choice") == {"type": "tool", "name": "classify_job"} and kw.get("tools") == [TOOL])
 sysblock = (kw.get("system") or [{}])[0]

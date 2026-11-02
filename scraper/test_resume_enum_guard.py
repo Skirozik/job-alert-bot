@@ -19,6 +19,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import classifier
 
+# The real profile is a secret, not in the repo; these checks never read it.
+classifier._profile = "(test profile)"
+
 failures = []
 
 
