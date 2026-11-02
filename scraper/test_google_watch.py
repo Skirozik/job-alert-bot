@@ -404,6 +404,9 @@ except gw.GooglePageUnreadable as exc:
     print(f"        (raised: {exc})")
 check("one role with no U.S. place on the U.S. list is skipped, and the other 18 are read",
       len(one_abroad) == 18 and "900000000000000001" not in {p["google_id"] for p in one_abroad}, str(len(one_abroad)))
+check("...and left out of the count, so the whole list still reads as on the page",
+      gw.parse_results(_with(INTERNS, [new_record("Software Engineering Intern, Summer 2027", "900000000000000001",
+                                                  countries=("PR",))] + REAL))[1] == 18)
 empty = _with(INTERNS, None, 0)
 check("a genuinely empty list ([null, null, 0, 20], as Google serves one) is no roles, not an error",
       gw.parse_results(empty) == ([], 0))
@@ -517,8 +520,9 @@ check("classified, not dropped by the title pre-filter", CLASSIFIED == [SR_TITLE
 check("its 🔎 push carries the classifier's verdict", google and "Bot's verdict: APPLY — Undergrad CS" in google[0]["body"],
       str(google))
 check("stored with that verdict", STORE.get(id_of(SR_ID), {}).get("tier") == "APPLY")
-check("the same title from a board without that listing is still pre-filtered (the rule is unchanged)",
-      main._is_non_internship_title(SR_TITLE))
+check("the tracker's title pre-filter takes Student Researcher as an internship from any source (LinkedIn too)",
+      not main._is_non_internship_title(SR_TITLE) and not main._is_non_internship_title("Student Researcher (Seed) - 2027"))
+check("...and still not a student-department job", main._is_non_internship_title("Research Coordinator, Student Affairs"))
 
 print("\n-- a graduate-only role Google later opens to undergraduates --")
 reset()
@@ -533,6 +537,14 @@ check("retitled to take undergraduates: one 🔎 push", [p["title"] for p in kin
       == ["🔎 GOOGLE - Software Engineering Intern, BS/MS/PhD, Summer 2027"], str(pushes))
 check("...no longer skipped, so it never pushes again", phd[0] not in set(json.loads(STATE[gw.LEDGER_KEY])["skipped"])
       and run_pass() == [])
+reset(stored=[r for r in REAL if r is not phd])
+run_pass()
+check("a PhD role not in the tracker is rated and stored under its Google id on the first pass",
+      STORE.get(id_of(phd[0]), {}).get("title") == phd[1], str(CLASSIFIED))
+serve([retitled] + [r for r in REAL if r is not phd])
+google = kinds(run_pass(), "google")
+check("retitled: the push says its verdict was for the old title", google and
+      f'(rated {aw._day(STORE[id_of(phd[0])]["found_at"])} as "{phd[1]}")' in google[0]["body"], google and google[0]["body"])
 ms_id = "900000000000000050"
 serve([new_record("Software Engineering Intern, MS, Summer 2028", ms_id)] + REAL)
 check("a new MS-only role: no push", kinds(run_pass(), "google") == [])
@@ -699,6 +711,16 @@ gw.parse_results = _orig_parse
 check("a reader that crashes: counted as unreadable, alarmed on the second pass, boards still swept",
       len(kinds(second, "canary")) == 1 and "parser error (ZeroDivisionError)" in kinds(second, "canary")[0]["body"]
       and "boards" in ORDER, str(second))
+
+reset()
+run_pass()
+serve([new_record(NEW_TITLE, NEW_ID)] + REAL)
+_orig_record = gw.record_read
+gw.record_read = lambda read, now=None: 1 / 0
+pushes = run_pass()
+gw.record_read = _orig_record
+check("the health record failing to save after a good read: not counted as unreadable, and the push still goes",
+      gw.HEALTH_KEY not in STATE and len(kinds(pushes, "google")) == 1, str(pushes))
 
 reset()
 run_pass()

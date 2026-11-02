@@ -114,8 +114,10 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: python google_drill.py
 
+      # Skipped because the run was cancelled (by hand, or the job's timeout during the Apple drill,
+      # whose own alarm then speaks for the run) is not a Google failure.
       - name: Alarm when the Google drill did not finish
-        if: ${{ always() && steps.gate.outputs.skip != 'true' && steps.google.outcome != 'success' && steps.google.outputs.alerted != 'true' && (github.event_name != 'schedule' || steps.google.outcome == 'failure' || steps.google.outcome == 'cancelled') }}
+        if: ${{ always() && steps.gate.outputs.skip != 'true' && steps.google.outcome != 'success' && steps.google.outputs.alerted != 'true' && (steps.google.outcome != 'skipped' || !cancelled()) && (github.event_name != 'schedule' || steps.google.outcome == 'failure' || steps.google.outcome == 'cancelled') }}
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
