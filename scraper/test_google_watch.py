@@ -388,14 +388,22 @@ for label, page, interns in (
         ("a challenge page", "<html><body>Our systems have detected unusual traffic</body></html>", True),
         ("Google moved the id and title", _with(INTERNS, [[None, None] + r[2:] for r in REAL]), True),
         ("every U.S. job served for the internships list (Google ignores a level it does not know)", ALL_US, True),
-        ("a role outside the U.S. on the U.S. list", _with(INTERNS, [new_record("Software Engineering Intern, Summer 2027",
-                                                                                "900000000000000001", countries=("IN",))]
-                                                            + REAL), True)):
+        ("most of the U.S. list abroad (Google dropped the location filter)",
+         _with(INTERNS, [new_record(f"Software Engineering Intern {i}, Summer 2027", f"90000000000000100{i}",
+                                    countries=("IN",)) for i in range(4)] + REAL[:3]), True)):
     try:
         gw.parse_results(page, interns=interns)
         check(f"{label}: unreadable", False, "parsed as if it were fine")
     except gw.GooglePageUnreadable as exc:
         check(f"{label}: unreadable ({exc})", True)
+try:
+    one_abroad, _ = gw.parse_results(_with(INTERNS, [new_record("Software Engineering Intern, Summer 2027",
+                                                                 "900000000000000001", countries=("PR",))] + REAL))
+except gw.GooglePageUnreadable as exc:
+    one_abroad = []
+    print(f"        (raised: {exc})")
+check("one role with no U.S. place on the U.S. list is skipped, and the other 18 are read",
+      len(one_abroad) == 18 and "900000000000000001" not in {p["google_id"] for p in one_abroad}, str(len(one_abroad)))
 empty = _with(INTERNS, None, 0)
 check("a genuinely empty list ([null, null, 0, 20], as Google serves one) is no roles, not an error",
       gw.parse_results(empty) == ([], 0))
@@ -497,6 +505,62 @@ check("all four are recorded, so the others never push later", {r[0] for r in ba
 check("the CapitalG role is stored by the title pre-filter, never classified",
       "Open Product Career Opportunities, CapitalG Portfolio Companies" not in CLASSIFIED
       and any(r["title"].startswith("Open Product") and r["tier"] == "INELIGIBLE" for r in STORE.values()))
+
+print("\n-- a Student Researcher role: Google lists it as an internship, so the classifier rates it --")
+reset()
+run_pass()
+SR_ID, SR_TITLE = "900000000000000040", "Student Researcher, BS/MS, Summer 2028"
+serve([new_record(SR_TITLE, SR_ID)] + REAL)
+pushes = run_pass()
+google = kinds(pushes, "google")
+check("classified, not dropped by the title pre-filter", CLASSIFIED == [SR_TITLE], str(CLASSIFIED))
+check("its 🔎 push carries the classifier's verdict", google and "Bot's verdict: APPLY — Undergrad CS" in google[0]["body"],
+      str(google))
+check("stored with that verdict", STORE.get(id_of(SR_ID), {}).get("tier") == "APPLY")
+check("the same title from a board without that listing is still pre-filtered (the rule is unchanged)",
+      main._is_non_internship_title(SR_TITLE))
+
+print("\n-- a graduate-only role Google later opens to undergraduates --")
+reset()
+run_pass()
+phd = next(r for r in REAL if r[1] == "Software Engineering Intern, PhD, Summer 2027")
+check("seeded: the PhD role is recorded as skipped", phd[0] in set(json.loads(STATE[gw.LEDGER_KEY])["skipped"]))
+retitled = copy.deepcopy(phd)
+retitled[1] = "Software Engineering Intern, BS/MS/PhD, Summer 2027"
+serve([retitled] + [r for r in REAL if r is not phd])
+pushes = run_pass()
+check("retitled to take undergraduates: one 🔎 push", [p["title"] for p in kinds(pushes, "google")]
+      == ["🔎 GOOGLE - Software Engineering Intern, BS/MS/PhD, Summer 2027"], str(pushes))
+check("...no longer skipped, so it never pushes again", phd[0] not in set(json.loads(STATE[gw.LEDGER_KEY])["skipped"])
+      and run_pass() == [])
+ms_id = "900000000000000050"
+serve([new_record("Software Engineering Intern, MS, Summer 2028", ms_id)] + REAL)
+check("a new MS-only role: no push", kinds(run_pass(), "google") == [])
+serve([new_record("Software Engineering Intern, BS/MS, Summer 2028", ms_id)] + REAL)
+NTFY["google_status"] = 502
+run_pass()
+check("retitled BS/MS, but ntfy refuses the push: still skipped, so it is tried again",
+      ms_id in set(json.loads(STATE[gw.LEDGER_KEY])["skipped"]))
+NTFY["google_status"] = 200
+check("...and sent on the next pass", len(kinds(run_pass(), "google")) == 1)
+
+print("\n-- the ledger is capped, never dropping a role still on the list --")
+reset()
+_max = gw.LEDGER_MAX
+gw.LEDGER_MAX = 22
+run_pass()
+older = [new_record(f"Data Intern {i}, BS, Summer 2028", f"9000000000000006{i:02d}") for i in range(4)]
+serve(older + REAL)
+run_pass()
+newer = [new_record(f"Product Intern {i}, BS, Summer 2028", f"9000000000000007{i:02d}") for i in range(3)]
+serve(newer + REAL)
+run_pass()
+ids = json.loads(STATE[gw.LEDGER_KEY])["ids"]
+gw.LEDGER_MAX = _max
+check("trimmed to the cap", len(ids) == 22, str(len(ids)))
+check("every role on the list now is kept", {r[0] for r in newer + REAL} <= set(ids))
+check("the oldest recorded that left the list went first", set(ids) - {r[0] for r in newer + REAL} == {older[3][0]},
+      str(sorted(set(ids) - {r[0] for r in newer + REAL})))
 
 print("\n-- LinkedIn's copy is already in the tracker, and he applied to it --")
 reset(applied=(FDE_TITLE,))
@@ -830,8 +894,10 @@ serve(graduate_only)
 PUSHES.clear()
 CLASSIFIED.clear()
 rc = gw.drill()
-check("a list with no undergraduate internship on it: the drill still runs, on the first role",
-      rc == 0 and CLASSIFIED == [graduate_only[0][1]], str(CLASSIFIED))
+note = kinds(PUSHES, "google")[0]["body"] if kinds(PUSHES, "google") else ""
+check("a list with no undergraduate internship on it: the drill still runs, on the first role, and says so",
+      rc == 0 and CLASSIFIED == [graduate_only[0][1]] and "No undergraduate internship is on Google's list today" in note,
+      str(CLASSIFIED) + note[:200])
 
 for label, setup, step in (
         ("the 5-minute check last ran an hour ago",

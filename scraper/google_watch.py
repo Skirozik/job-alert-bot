@@ -15,12 +15,14 @@ so that page is all of it; past 20, a new role still arrives at the top.
 
   - check(): every 5-minute ATS pass, the U.S. internships list. Roles not in the tracker go through
     the usual ATS path (classified on the description the page carries, stored, the usual push for
-    an APPLY), then alert() runs.
+    an APPLY), then alert() runs. The ATS title pre-filter takes Google's word that a role on this
+    list is an internship: "Student Researcher, BS/MS" has no intern marker in its title.
   - alert(): every role read is recorded in a ledger (bot_state LEDGER_KEY), keyed on Google's job
     id. One the ledger has not seen gets a 🔎 push, whatever the classifier said, with its verdict in
     the body -- unless its title is for PhD, Masters or MBA students only, or is not an internship
-    (the list carries CapitalG's "Open ... Career Opportunities"). The first run records the whole
-    list and pushes nothing.
+    (the list carries CapitalG's "Open ... Career Opportunities"); such a role is pushed later if
+    Google retitles it for undergraduates. The first run records the whole list and pushes nothing.
+    The ledger keeps the newest LEDGER_MAX ids, so what it costs to read on every pass stays bounded.
   - record_read(): an alarm when the list loads but cannot be read (or lists nothing) twice running,
     or has failed for an hour. Google answers a filter it does not know with every U.S. job (1,728 on
     2026-11-02) and a 200, so a list too long to be internships is a failure, never a burst.
@@ -53,7 +55,7 @@ import requests
 import notifier
 from apple_watch import _APPLIED_OR_LATER, _ET, _day, _delivered, _posted, _verdict, _when
 from ats_sources import MAX_LEN, _make_job
-from career_sitemaps import HEADERS, TIMEOUT, _plain
+from career_sitemaps import HEADERS, _plain
 from classifier import classify
 from db import (QuotaExceeded, StateUnavailable, clear_state, find_unknown_candidates, get_client, get_state,
                 job_norm_key, read_state, set_state)
@@ -78,7 +80,10 @@ DRILL_KEY = "google_drill_passed"
 # Every 5-minute ATS pass. The gate only stops a pass that starts under 4 minutes after the last one
 # (a manual dispatch landing next to a scheduled run) from doubling the requests.
 INTERVAL_S = 240
-PAGE_SIZE = 20
+# Half the shared 30 s: the read sits in front of the 104-board sweep on every pass, and answers in ~0.3 s.
+GOOGLE_TIMEOUT_S = 15
+# Ids kept in the ledger. Oldest go first, never one still on the list; a few hundred a year are posted.
+LEDGER_MAX = 500
 # A filtered internships list with more roles than this has lost its filter (18 on 2026-11-02; every
 # U.S. job is ~1,700).
 MAX_PLAUSIBLE = 300
@@ -127,10 +132,6 @@ class GoogleRead:
     outcome: str = "ok"
     problem: str = ""
 
-    @property
-    def complete(self) -> bool:
-        return self.outcome == "ok" and len(self.postings) >= self.total
-
 
 @dataclass
 class GoogleInterns:
@@ -177,12 +178,13 @@ def _field(record: list, i: int):
 def parse_results(page: str, interns: bool = True) -> tuple[list[dict], int]:
     """(postings, total) from one results page. A genuinely empty list is ([], 0); a page the reader
     cannot read raises GooglePageUnreadable. interns: the page is the internships list, which
-    holds a few dozen roles at most -- far more means Google dropped the level filter."""
+    holds a few dozen roles at most -- far more means Google dropped the level filter. A role with
+    no place in the U.S. is skipped; most of the page abroad means the location filter was dropped."""
     data = _job_list(page)
     records, total = data[0] or [], data[2]
     if interns and total > MAX_PLAUSIBLE:
         raise GooglePageUnreadable(f"{total} roles, too many for the internship filter")
-    out = []
+    out, abroad = [], 0
     for r in records:
         if not isinstance(r, list) or len(r) < 2:
             continue
@@ -193,7 +195,8 @@ def parse_results(page: str, interns: bool = True) -> tuple[list[dict], int]:
         names = [p[0] for p in places if isinstance(p, list) and p and isinstance(p[0], str) and p[0]]
         countries = {p[5] for p in places if isinstance(p, list) and len(p) > 5 and isinstance(p[5], str)}
         if countries and "US" not in countries:
-            raise GooglePageUnreadable("a role outside the U.S. on the U.S. list: the location filter was not applied")
+            abroad += 1
+            continue
         company = _field(r, 7)
         parts = [_html(_field(r, 10)), _html(_field(r, 3))]
         if _html(_field(r, 4)):
@@ -208,7 +211,11 @@ def parse_results(page: str, interns: bool = True) -> tuple[list[dict], int]:
                     # Published, else last updated, else created: the publish time is when it went live.
                     "posted_at": _stamp(_field(r, 14)) or _stamp(_field(r, 13)) or _stamp(_field(r, 12)),
                     "description": description[:MAX_LEN] or None})
-    if records and not out:
+    if abroad * 2 > len(records):
+        raise GooglePageUnreadable(f"{abroad} of {len(records)} roles outside the U.S.: the location filter was not applied")
+    if abroad:
+        log.info("Google list: %d role(s) with no U.S. location skipped", abroad)
+    if records and not out and not abroad:
         raise GooglePageUnreadable(f"{len(records)} roles, none with an id and a title")
     return out, total
 
@@ -216,7 +223,7 @@ def parse_results(page: str, interns: bool = True) -> tuple[list[dict], int]:
 def _get(url: str) -> tuple[int | None, str]:
     """(HTTP status, body). Status None when no answer came back; logged when it is not 200."""
     try:
-        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        r = requests.get(url, headers=HEADERS, timeout=GOOGLE_TIMEOUT_S)
     except Exception as exc:
         log.warning("Google page unavailable: %s", type(exc).__name__)
         return None, ""
@@ -249,6 +256,10 @@ def _stubs(postings: list[dict]) -> list[dict]:
         if job:
             job["search_term"] = "google-careers"
             job["norm_key"] = job_norm_key(job)
+            # On Google's internships list, so ats_watch's title pre-filter takes it at its word:
+            # "Student Researcher, BS/MS" carries no intern marker but is one. CapitalG's standing
+            # roles share the list and are not.
+            job["internship_listing"] = bool(_INTERNSHIP.search(p["title"]))
             stubs.append(job)
     return stubs
 
@@ -289,20 +300,30 @@ def _strict_json(key: str) -> dict:
         return {}
 
 
-def _ledger() -> set[str] | None:
-    """The job ids already seen, or None before the first run. Raises StateUnavailable."""
+def _ledger() -> dict | None:
+    """{"ids": every job id seen, oldest first; "skipped": those recorded without a push because the
+    title was graduate-only or not an internship}, or None before the first run. Raises
+    StateUnavailable. A skipped role whose title Google later opens to undergraduates is pushed then."""
     raw = read_state(LEDGER_KEY)
     if raw is None:
         return None
     try:
-        return set(json.loads(raw)["ids"])
-    except (ValueError, KeyError, TypeError):
+        data = json.loads(raw)
+        return {"ids": [str(i) for i in data["ids"]], "skipped": {str(i) for i in data.get("skipped", [])}}
+    except (ValueError, KeyError, TypeError, AttributeError):
         log.error("Google alert ledger is unreadable — starting it again from the current list")
         return None
 
 
-def _write_ledger(ids: set[str]) -> None:
-    set_state(LEDGER_KEY, json.dumps({"ids": sorted(ids)}))
+def _write_ledger(ids: list[str], skipped: set[str], listed: set[str]) -> None:
+    """ids oldest first, trimmed to LEDGER_MAX from the oldest end, never dropping one on the list now."""
+    ids = list(dict.fromkeys(ids))
+    over = len(ids) - LEDGER_MAX
+    if over > 0:
+        drop = set([i for i in ids if i not in listed][:over])
+        ids = [i for i in ids if i not in drop]
+    kept = set(ids)
+    set_state(LEDGER_KEY, json.dumps({"ids": ids, "skipped": sorted(skipped & kept)}))
 
 
 # ── the push ──────────────────────────────────────────────────────────────────
@@ -364,21 +385,26 @@ def alert(read: GoogleRead, processed: list[dict] = (), now: datetime | None = N
         return 0
     now = now or datetime.now(timezone.utc)
     try:
-        seen = _ledger()
+        ledger = _ledger()
     except StateUnavailable as exc:
         log.error("Google alerts skipped this pass: ledger unreadable (%s)", exc)
         return 0
-    if seen is None:
-        _write_ledger({p["google_id"] for p in read.postings})
+    listed = {p["google_id"] for p in read.postings}
+    if ledger is None:
+        _write_ledger([p["google_id"] for p in read.postings],
+                      {p["google_id"] for p in read.postings if not wanted(p["title"])}, listed)
         log.info("Google alerts: first run, %d of %d roles recorded as already seen; nothing pushed",
                  len(read.postings), read.total)
         return 0
 
-    fresh = [p for p in read.postings if p["google_id"] not in seen]
+    seen, skipped = set(ledger["ids"]), ledger["skipped"]
+    fresh = [p for p in read.postings
+             if p["google_id"] not in seen or (p["google_id"] in skipped and wanted(p["title"]))]
     if not fresh:
         return 0
     to_push = [p for p in fresh if wanted(p["title"])]
-    done = {p["google_id"] for p in fresh if not wanted(p["title"])}
+    not_pushed = {p["google_id"] for p in fresh if not wanted(p["title"])}
+    done = set(not_pushed)
     by_id = {j.get("id"): j for j in processed}
     sent = 0
     if len(to_push) > GROUPED_PUSH_OVER:
@@ -403,7 +429,8 @@ def alert(read: GoogleRead, processed: list[dict] = (), now: datetime | None = N
     log.info("Google alerts: %d new roles, %d pushes sent, %d recorded without a push (graduate-only or not "
              "an internship)", len(fresh), sent, len(fresh) - len(to_push))
     if done:
-        _write_ledger(seen | done)
+        _write_ledger(ledger["ids"] + [p["google_id"] for p in fresh if p["google_id"] in done],
+                      (skipped | not_pushed) - (done - not_pushed), listed)
     return sent
 
 
@@ -707,8 +734,10 @@ def drill(now: datetime | None = None) -> int:
     except Exception as exc:
         log.error("Google drill: push details unavailable (%s); sending it plain", type(exc).__name__)
         title, body, url = pick["title"], f"{_where(pick)}\nDetails unavailable; open the posting.", pick["url"]
-    body = "\n".join(["Weekly drill, not a new posting: if this reached your phone, the Google alert works.",
-                      body, shadow_summary(), health_summary()])
+    lines = ["Weekly drill, not a new posting: if this reached your phone, the Google alert works."]
+    if not wanted(pick["title"]):
+        lines.append("No undergraduate internship is on Google's list today, so the drill used this role.")
+    body = "\n".join(lines + [body, shadow_summary(), health_summary()])
     sent_at = time.time()
     msg_id = notifier.push_google(title, body, url, drill=True)
     if not msg_id or msg_id == "sent":

@@ -34,7 +34,7 @@ concurrency:
 jobs:
   drill:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       # Decided by which cron fired, not by the hour the run starts, so a late
@@ -103,7 +103,9 @@ jobs:
       - name: Run the Google drill
         id: google
         if: ${{ !cancelled() && steps.gate.outputs.skip != 'true' && steps.install.outcome == 'success' }}
-        timeout-minutes: 4
+        # Room for its own retries (three reads 30 s apart, the read-back, the pass stamp), so a slow
+        # Google ends in the drill's own alarm naming the step, not in this timeout.
+        timeout-minutes: 8
         working-directory: scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
