@@ -1,0 +1,31 @@
+name: Google reachability probe (temporary)
+
+# Temporary, removed before merge: does Google's careers page answer GitHub's runners?
+on:
+  push:
+    branches: [google-alerts]
+    paths: [.github/workflows/google_probe.yml]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch the U.S. internships list five times
+        run: |
+          UA='Mozilla/5.0 (compatible; job-alert-bot/1.0; +https://github.com/Skirozik/job-alert-bot)'
+          URL='https://www.google.com/about/careers/applications/jobs/results/?location=United%20States&target_level=INTERN_AND_APPRENTICE&sort_by=date'
+          for i in 1 2 3 4 5; do
+            curl -s --compressed -A "$UA" -o page.html -w "try $i: HTTP %{http_code}, %{size_download} bytes, %{time_total}s\n" "$URL"
+            python3 - <<'PY'
+          import json, re
+          h = open("page.html", encoding="utf-8", errors="replace").read()
+          m = re.search(r"AF_initDataCallback\(\{key: 'ds:1', hash: '[^']*', data:(.*?), sideChannel: \{\}\}\);</script>", h, re.S)
+          if not m:
+              print("  no job data in the page")
+          else:
+              d = json.loads(m.group(1))
+              print(f"  {len(d[0] or [])} roles on the page, {d[2]} in all")
+          PY
+            sleep 20
+          done
