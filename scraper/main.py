@@ -148,9 +148,16 @@ def _is_new_grad_role(title: str) -> bool:
 # the same 30 days they matched 71 postings, overwhelmingly full-time new-grad
 # roles ("Software Engineer, Early Career"), which the rubric excludes anyway —
 # so they would add classifier calls without adding opportunities.
+#
+# "Student Researcher" is how Google (and ByteDance) title a paid research
+# internship. In the 90 days to 2026-11-02 the pre-filter dropped 28 such
+# titles unread: 25 ByteDance (blocked as an employer anyway, so no classifier
+# call), Google's BS/MS Student Researcher roles, and one other. Not a
+# "Graduate" or "PhD Student Researcher" (UC's graduate appointments): those
+# would each cost a classifier call to come back ineligible.
 _INTERN_TITLE_RE = re.compile(
     r"\bintern(?:ship)?s?(?![a-z0-9])|\bco[\s-]?ops?(?![a-z0-9])|\bapprentice(?:ship)?s?(?![a-z0-9])"
-    r"|\bsummer\s+analyst\b|\bsummer\s+associate\b|\btrainee\b"
+    r"|\bsummer\s+analyst\b|\bsummer\s+associate\b|\btrainee\b|(?<!graduate )(?<!phd )\bstudent\s+researchers?\b"
 )
 
 # Paid student-worker roles are functionally internships but rarely contain the

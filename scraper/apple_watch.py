@@ -447,8 +447,8 @@ def _check_drill_ran(now: float) -> None:
     if now - passed.timestamp() >= DRILL_STALE_S and not d.get("alerted"):
         what = (f"has never passed (watching since {_day(passed.isoformat())})" if d.get("clock_started")
                 else f"has not passed since {_day(passed.isoformat())}")
-        if notifier.push_canary(f"The weekly Apple drill {what}. Run it from GitHub: Actions → Apple Alert Drill → "
-                                "Run workflow, and check why it stopped."):
+        if notifier.push_canary(f"The weekly Apple drill {what}. Run it from GitHub: Actions → Apple and Google "
+                                "Alert Drill → Run workflow, and check why it stopped."):
             set_state(DRILL_KEY, json.dumps(dict(d, alerted=True)))
 
 
@@ -485,7 +485,7 @@ def _delivered(msg_id: str, since: float) -> bool:
             if any(json.loads(line).get("id") == msg_id for line in r.text.splitlines() if line.strip()):
                 return True
         except Exception as exc:
-            log.warning("Apple drill: could not read the push back (%s)", type(exc).__name__)
+            log.warning("Drill: could not read the push back (%s)", type(exc).__name__)
     return False
 
 

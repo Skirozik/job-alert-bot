@@ -17,7 +17,8 @@ GitHub-tracker step in main.py's own run() does.
 
 Apple goes first on every pass: its internships page is one request, and a new
 posting there is classified and pushed (apple_watch.alert) before the ~1.5-minute
-board sweep starts rather than after it.
+board sweep starts rather than after it. Google's U.S. internships list goes
+second, the same way (google_watch.check).
 
 Uses an ATS-specific run lock (db.start_run/finish_run). LinkedIn and GitHub
 have their own locks, so a long ATS sweep cannot cancel a punctual source pass.
@@ -34,6 +35,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import apple_watch
+import google_watch
 from ats_config import ATS_COMPANIES
 from ats_sources import fetch_all_listings
 import career_sitemaps
@@ -167,6 +169,16 @@ def run():
             except Exception as exc:
                 log.error("Apple alerts skipped this pass: %s", exc)
 
+        # Google's U.S. internships list next, also one request, before the board
+        # sweep for the same reason. google_watch.check keeps its own three guards.
+        try:
+            n, k, raw = google_watch.check(lambda rows: _sweep(rows, seen_ids, seen_norm_keys))
+            new_jobs, notified, total_raw = new_jobs + n, notified + k, total_raw + raw
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            log.error("Google check skipped this pass: %s", exc)
+
         listings = fetch_all_listings(ATS_COMPANIES)
         # Employers that only post on their own careers sites (Meta, Apple,
         # D. E. Shaw), read from their crawler sitemaps about once an hour.
@@ -208,6 +220,13 @@ def run():
             raise
         except Exception as exc:
             log.error("Apple checks skipped this pass: %s", exc)
+        # The hourly proof that the Google reader still sees Google's new jobs.
+        try:
+            google_watch.shadow_check()
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            log.error("Google shadow watch skipped this pass: %s", exc)
         if sweep_error:
             raise sweep_error
 

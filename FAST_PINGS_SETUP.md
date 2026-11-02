@@ -52,7 +52,7 @@ URL and schedule. The URL uses the workflow's **filename**, not its display name
 | ATS watcher       | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/watch_ats.yml/dispatches`    | every **5 min**  |
 | LinkedIn fast path| `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/watch_linkedin.yml/dispatches` | every **5 min** |
 | Main scrape       | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/scrape.yml/dispatches`       | every **15 min** |
-| Apple alert drill | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/apple_drill.yml/dispatches`  | **Mondays 09:00**, time zone America/New_York |
+| Apple and Google alert drill | `https://api.github.com/repos/Skirozik/job-alert-bot/actions/workflows/apple_drill.yml/dispatches`  | **Mondays 09:00**, time zone America/New_York |
 
 These are deliberately *faster than GitHub's own 5-minute schedule floor* on the
 fast watchers — an external pinger is the only way to get there. It is safe

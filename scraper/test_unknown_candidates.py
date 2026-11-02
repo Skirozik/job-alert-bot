@@ -203,6 +203,9 @@ _orig_apple = (w.career_sitemaps.collect_apple_students, w.apple_watch.seen_reqs
 w.career_sitemaps.collect_apple_students = lambda force=False, full=False, seen_reqs=None: w.career_sitemaps.AppleStudents()
 w.apple_watch.seen_reqs = lambda: set()
 w.apple_watch.shadow_check = lambda now=None: None
+_orig_google = (w.google_watch.check, w.google_watch.shadow_check)
+w.google_watch.check = lambda sweep: (0, 0, 0)
+w.google_watch.shadow_check = lambda now=None: None
 
 LISTINGS = [
     {"id": "ats:new1",   "company": "Acme",  "title": "Software Engineer Intern", "location": "Atlanta"},
@@ -254,6 +257,7 @@ for k, v in _w_orig.items():
     setattr(w, k, v)
 w.career_sitemaps.collect_listings = _orig_sitemaps
 w.career_sitemaps.collect_apple_students, w.apple_watch.seen_reqs, w.apple_watch.shadow_check = _orig_apple
+w.google_watch.check, w.google_watch.shadow_check = _orig_google
 
 print(f"\n{_ran - _fails} passed, {_fails} failed")
 sys.exit(1 if _fails else 0)

@@ -340,6 +340,9 @@ w.find_unknown_candidates = fake_unknown
 w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: None
 w.fetch_all_listings = lambda cfg: (ORDER.append("boards"), [])[1]
+# Google's check runs in the same pass; test_google_watch.py covers it. Here it reads nothing.
+w.google_watch.check = lambda sweep: (0, 0, 0)
+w.google_watch.shadow_check = lambda now=None: None
 _real_collect_listings = cs.collect_listings
 
 
