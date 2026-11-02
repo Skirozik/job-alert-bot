@@ -1,0 +1,39 @@
+name: Google reader probe (temporary)
+
+# Temporary, deleted in the next commit: does the bot's own reader (Python requests, its own headers)
+# get Google's lists from GitHub's runners?
+on:
+  push:
+    branches: [google-alerts]
+    paths: [.github/workflows/google_probe.yml]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+      - run: pip install -r scraper/requirements.txt
+      - name: Read both lists with google_watch.read_list, five times
+        working-directory: scraper
+        env:
+          SUPABASE_URL: http://offline.invalid
+          SUPABASE_SERVICE_KEY: offline
+          ANTHROPIC_API_KEY: offline
+        run: |
+          python - <<'PY'
+          import time
+          import google_watch as gw
+          for i in range(5):
+              if i:
+                  time.sleep(20)
+              for name, url, interns in (("internships", gw.INTERNS_URL, True), ("all U.S.", gw.ALL_US_URL, False)):
+                  t = time.time()
+                  r = gw.read_list(url, interns=interns)
+                  print(f"try {i + 1} {name}: {r.outcome} {r.problem} {len(r.postings)} of {r.total} in {time.time() - t:.2f}s")
+          PY
