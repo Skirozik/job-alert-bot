@@ -88,12 +88,22 @@ def push_apple(title: str, body: str, url: str, drill: bool = False) -> str | No
     push_job is ascii-encoded, which is why emoji there arrive as "?". Top priority is shared with
     push_canary on purpose -- a new Apple role is as rare as a broken scraper, and as urgent.
     """
+    return _push_top("🍎", "Apple", title, body, url, drill)
+
+
+def push_google(title: str, body: str, url: str, drill: bool = False) -> str | None:
+    """The Google push (google_watch): "🔎 GOOGLE - <title>", sent the same way as push_apple."""
+    return _push_top("🔎", "Google", title, body, url, drill)
+
+
+def _push_top(emoji: str, company: str, title: str, body: str, url: str, drill: bool) -> str | None:
     if not NTFY_TOPIC:
-        log.warning("NTFY_TOPIC not set — skipping Apple push")
+        log.warning("NTFY_TOPIC not set — skipping %s push", company)
         return None
+    name = company.upper()
     payload = {
         "topic": NTFY_TOPIC,
-        "title": ("🍎 DRILL - APPLE - " if drill else "🍎 APPLE - ") + title,
+        "title": (f"{emoji} DRILL - {name} - " if drill else f"{emoji} {name} - ") + title,
         "message": body,
         "priority": 5,
         "tags": ["drill"] if drill else [],
@@ -103,10 +113,10 @@ def push_apple(title: str, body: str, url: str, drill: bool = False) -> str | No
         resp = requests.post(NTFY_BASE, json=payload, timeout=10)
         resp.raise_for_status()
         msg_id = (resp.json() or {}).get("id") or "sent"
-        log.info("Apple push sent%s: %s", " (drill)" if drill else "", title)
+        log.info("%s push sent%s: %s", company, " (drill)" if drill else "", title)
         return msg_id
     except Exception as exc:
-        log.error("Apple push failed (%s): %s", title, exc)
+        log.error("%s push failed (%s): %s", company, title, exc)
         return None
 
 

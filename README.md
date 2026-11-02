@@ -216,8 +216,17 @@ To verify the zero-results alert works, temporarily edit `config.py` and change 
 Apple posts its internships only on jobs.apple.com. The ATS watcher reads its U.S. internships page on every 5-minute pass and sends a 🍎 push for each new requisition (`scraper/apple_watch.py`). Three things keep proving it works when Apple posts nothing new:
 
 - **Shadow watch**: hourly, the same reader on every U.S. Apple job, where Apple posts dozens a day. 48 hours with nothing new sends a "Job scraper alert".
-- **Weekly drill**: `.github/workflows/apple_drill.yml`, Mondays 9 AM Eastern from the external pinger (see `FAST_PINGS_SETUP.md`), with GitHub's own schedule as a later fallback. It first checks the 5-minute Apple check is running, then one real posting is taken through the whole path and both pushes arrive marked DRILL; nothing is written to the tracker. A week with no passing drill sends a "Job scraper alert". Run it any time from Actions → Apple Alert Drill → Run workflow.
+- **Weekly drill**: `.github/workflows/apple_drill.yml`, Mondays 9 AM Eastern from the external pinger (see `FAST_PINGS_SETUP.md`), with GitHub's own schedule as a later fallback. It first checks the 5-minute Apple check is running, then one real posting is taken through the whole path and both pushes arrive marked DRILL; nothing is written to the tracker. A week with no passing drill sends a "Job scraper alert". Run it any time from Actions → Apple and Google Alert Drill → Run workflow.
 - **Tests**: `scraper/test_apple_watch.py` replays real arrivals on Apple's own pages, saved in `fixtures/apple/`. Every offline test runs on each push (`.github/workflows/tests.yml`).
+
+## The Google alert
+
+The same alert for Google's U.S. internships (`scraper/google_watch.py`), read from the first page of google.com/about/careers results on the same 5-minute pass, right after Apple. Each new role gets a 🔎 push with the bot's verdict, unless its title is for PhD, Masters or MBA students only. Only that first page is ever read: Google's robots.txt disallows the later ones, and the U.S. internship list (18 roles on 2026-11-02) fits on it.
+
+- **Alarms**: the list unreadable or empty twice running, refused for an hour, or answering with far more roles than an internship list holds (Google ignores a filter it does not know and returns every U.S. job).
+- **Shadow watch**: hourly, the same reader on every U.S. Google job. Google publishes nothing on weekends, so the alarm counts weekday hours: 72 of them with nothing new sends a "Job scraper alert".
+- **Weekly drill**: `scraper/google_drill.py`, run by the same workflow right after the Apple drill, and on its own: one failing does not skip the other.
+- **Tests**: `scraper/test_google_watch.py`, on Google's real pages saved in `fixtures/google/`.
 
 ---
 
@@ -259,6 +268,7 @@ LinkedIn_Job_Bot/
 │   ├── classifier.py                    # Claude Haiku classifier (cached prompt, tool output)
 │   ├── notifier.py                      # ntfy.sh push notifications
 │   ├── apple_watch.py                   # the 🍎 Apple push, its alarms, shadow watch and drill
+│   ├── google_watch.py                  # the 🔎 Google push, its alarms, shadow watch and drill
 │   ├── digest.py                        # Resend email digest, run on its own schedule
 │   ├── db.py                            # Supabase client + dedup + insert + run-lock/stats
 │   ├── config.py                        # search terms, locations, env vars
@@ -271,7 +281,7 @@ LinkedIn_Job_Bot/
 ├── .github/
 │   └── workflows/
 │       ├── scrape.yml                   # GitHub Actions cron (every 20 min)
-│       ├── apple_drill.yml              # weekly end-to-end drill of the Apple alert
+│       ├── apple_drill.yml              # weekly end-to-end drill of the Apple and Google alerts
 │       ├── tests.yml                    # every offline scraper test, on each push
 │       └── digest.yml                   # GitHub Actions cron (8am & 6pm ET)
 ├── Candidate_Profile_and_Filters.md     # your profile — classifier reads this
