@@ -521,7 +521,7 @@ check("found on page 1: no other search page was read", searches() == [cs.APPLE_
 check("classified once, with the description from the posting's page",
       CLASSIFIED == ["Applied Data Solutions Program, Internships – Summer 2027"], str(CLASSIFIED))
 check("stored in the tracker", any(r["title"].startswith("Applied Data Solutions") for r in STORE.values()))
-check("the 🍎 push lands before the 104-board sweep starts",
+check("the 🍎 push lands before the 165-board sweep starts",
       "apple-push" in ORDER and ORDER.index("apple-push") < ORDER.index("boards"), str(ORDER))
 pushes = run_pass()
 check("the pass after: no push, no second classification", pushes == [] and CLASSIFIED == [], str(pushes))

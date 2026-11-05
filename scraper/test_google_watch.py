@@ -481,7 +481,7 @@ check("the usual push goes out too", [p["title"] for p in kinds(pushes, "job")]
       str([p["title"] for p in kinds(pushes, "job")]))
 check("classified once, on the description from the list itself", CLASSIFIED == [NEW_TITLE], str(CLASSIFIED))
 check("stored in the tracker, under the id-only link", STORE.get(id_of(NEW_ID), {}).get("url") == url_of(NEW_ID))
-check("the 🔎 push lands before the 104-board sweep starts",
+check("the 🔎 push lands before the 165-board sweep starts",
       "google-push" in ORDER and ORDER.index("google-push") < ORDER.index("boards"), str(ORDER))
 check("recorded", NEW_ID in ledger())
 pushes = run_pass()

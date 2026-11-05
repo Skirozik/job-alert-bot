@@ -79,7 +79,7 @@ DRILL_KEY = "google_drill_passed"
 # Every 5-minute ATS pass. The gate only stops a pass that starts under 4 minutes after the last one
 # (a manual dispatch landing next to a scheduled run) from doubling the requests.
 INTERVAL_S = 240
-# Half the shared 30 s: the read sits in front of the 104-board sweep on every pass, and answers in ~0.3 s.
+# Half the shared 30 s: the read sits in front of the 165-board sweep on every pass, and answers in ~0.3 s.
 GOOGLE_TIMEOUT_S = 15
 # Ids kept in the ledger. Oldest go first, never one still on the list; a few hundred a year are posted.
 LEDGER_MAX = 500

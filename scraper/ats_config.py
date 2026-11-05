@@ -176,6 +176,82 @@ ATS_COMPANIES["GoodRx"] = {"platform": "workday", "token": "goodrx:wd1:Careers"}
 ATS_COMPANIES["Tempus"] = {"platform": "workday", "token": "tempus:wd5:Tempus_Careers"}
 ATS_COMPANIES["CrowdStrike"] = {"platform": "workday", "token": "crowdstrike:wd5:crowdstrikecareers"}
 
+# --- added 2026-11-05: fast-poll expansion, verified live against ats_sources.py's own
+# fetchers before being added (same bar as the rest of this file). Two buckets:
+#  - named here from the jobs table's own history: the company had already produced an
+#    intern-titled posting through LinkedIn or a GitHub tracker, and that posting's own
+#    apply_url gave the real token directly (comment notes how many such rows exist).
+#  - found by guessing the common lowercase-company-name token against each platform's
+#    public API and confirming it returns real postings for the right company (comment
+#    is the live job count at verification time, not a historical intern count — these
+#    hadn't been seen posting an internship through this bot before).
+# --- greenhouse ---
+ATS_COMPANIES["Adyen"] = {"platform": "greenhouse", "token": "adyen"}  # 246 open postings at verification
+ATS_COMPANIES["Baidu"] = {"platform": "greenhouse", "token": "baidu"}  # 28 open postings at verification
+ATS_COMPANIES["Box"] = {"platform": "greenhouse", "token": "boxinc"}  # 1 intern-titled rows already seen
+ATS_COMPANIES["Carvana"] = {"platform": "greenhouse", "token": "carvana"}  # 1688 open postings at verification
+ATS_COMPANIES["Coursera"] = {"platform": "greenhouse", "token": "coursera"}  # 33 open postings at verification
+ATS_COMPANIES["Dropbox"] = {"platform": "greenhouse", "token": "dropbox"}  # 31 open postings at verification
+ATS_COMPANIES["Elastic"] = {"platform": "greenhouse", "token": "elastic"}  # 424 open postings at verification
+ATS_COMPANIES["Flatiron Health"] = {"platform": "greenhouse", "token": "flatironhealth"}  # 25 open postings at verification
+ATS_COMPANIES["Glean"] = {"platform": "greenhouse", "token": "gleanwork"}  # 1 intern-titled rows already seen
+ATS_COMPANIES["GoDaddy"] = {"platform": "greenhouse", "token": "godaddy"}  # 28 open postings at verification
+ATS_COMPANIES["IMC Trading"] = {"platform": "greenhouse", "token": "imc"}  # 158 open postings at verification
+ATS_COMPANIES["Jane Street"] = {"platform": "greenhouse", "token": "janestreet"}  # 219 open postings at verification
+ATS_COMPANIES["Mercury"] = {"platform": "greenhouse", "token": "mercury"}  # 76 open postings at verification
+ATS_COMPANIES["Monzo"] = {"platform": "greenhouse", "token": "monzo"}  # 57 open postings at verification
+ATS_COMPANIES["Peloton"] = {"platform": "greenhouse", "token": "peloton"}  # 47 open postings at verification
+ATS_COMPANIES["Point72"] = {"platform": "greenhouse", "token": "point72"}  # 4 intern-titled rows already seen
+ATS_COMPANIES["Samsara"] = {"platform": "greenhouse", "token": "samsara"}  # 312 open postings at verification
+ATS_COMPANIES["Squarespace"] = {"platform": "greenhouse", "token": "squarespace"}  # 23 open postings at verification
+ATS_COMPANIES["Upstart"] = {"platform": "greenhouse", "token": "upstart"}  # 87 open postings at verification
+ATS_COMPANIES["Virtu"] = {"platform": "greenhouse", "token": "virtu"}  # 48 open postings at verification
+ATS_COMPANIES["Zscaler"] = {"platform": "greenhouse", "token": "zscaler"}  # 371 open postings at verification
+ATS_COMPANIES["xAI"] = {"platform": "greenhouse", "token": "xai"}  # 3 intern-titled rows already seen
+# --- lever ---
+ATS_COMPANIES["Palantir"] = {"platform": "lever", "token": "palantir"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Shield AI"] = {"platform": "lever", "token": "shieldai"}  # 5 intern-titled rows already seen
+ATS_COMPANIES["Spotify"] = {"platform": "lever", "token": "spotify"}  # 86 open postings at verification
+ATS_COMPANIES["Veeva"] = {"platform": "lever", "token": "veeva"}  # 873 open postings at verification
+# --- ashby ---
+ATS_COMPANIES["Applied Intuition"] = {"platform": "ashby", "token": "applied"}  # 326 open postings at verification
+ATS_COMPANIES["Cognition"] = {"platform": "ashby", "token": "cognition"}  # 107 open postings at verification
+ATS_COMPANIES["Cohere"] = {"platform": "ashby", "token": "cohere"}  # 118 open postings at verification
+ATS_COMPANIES["Cursor (Anysphere)"] = {"platform": "ashby", "token": "cursor"}  # 120 open postings at verification
+ATS_COMPANIES["Rivian"] = {"platform": "ashby", "token": "rivianvw.tech"}  # 12 intern-titled rows already seen
+ATS_COMPANIES["Strava"] = {"platform": "ashby", "token": "strava"}  # 27 open postings at verification
+# --- smartrecruiters ---
+ATS_COMPANIES["ByteDance"] = {"platform": "smartrecruiters", "token": "bytedance"}  # 2 open postings at verification
+ATS_COMPANIES["Grab"] = {"platform": "smartrecruiters", "token": "grab"}  # 100 open postings at verification
+ATS_COMPANIES["LinkedIn"] = {"platform": "smartrecruiters", "token": "linkedin3"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Wayfair"] = {"platform": "smartrecruiters", "token": "wayfair"}  # 1 open postings at verification
+ATS_COMPANIES["Wise"] = {"platform": "smartrecruiters", "token": "wise"}  # 3 intern-titled rows already seen
+# --- workday ---
+ATS_COMPANIES["Analog Devices"] = {"platform": "workday", "token": "analogdevices:wd1:external"}  # 1 intern-titled rows already seen
+ATS_COMPANIES["Autodesk"] = {"platform": "workday", "token": "autodesk:wd1:Ext"}  # 10 intern-titled rows already seen
+ATS_COMPANIES["BlackRock"] = {"platform": "workday", "token": "blackrock:wd1:BlackRock_Professional"}  # 15 intern-titled rows already seen
+ATS_COMPANIES["Boeing"] = {"platform": "workday", "token": "boeing:wd1:EXTERNAL_CAREERS"}  # 4 intern-titled rows already seen
+ATS_COMPANIES["Cadence"] = {"platform": "workday", "token": "cadence:wd1:external_careers"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Cisco"] = {"platform": "workday", "token": "cisco:wd5:cisco_careers"}  # 1 intern-titled rows already seen
+ATS_COMPANIES["Citi"] = {"platform": "workday", "token": "citi:wd5:2"}  # 5 intern-titled rows already seen
+ATS_COMPANIES["Expedia Group"] = {"platform": "workday", "token": "expedia:wd108:private"}  # 7 intern-titled rows already seen
+ATS_COMPANIES["F5"] = {"platform": "workday", "token": "ffive:wd5:f5jobs"}  # 4 intern-titled rows already seen
+ATS_COMPANIES["Hewlett Packard Enterprise"] = {"platform": "workday", "token": "hpe:wd5:jobsathpe"}  # 5 intern-titled rows already seen
+ATS_COMPANIES["Home Depot"] = {"platform": "workday", "token": "homedepot:wd5:careerdepot"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Intel"] = {"platform": "workday", "token": "intel:wd1:external"}  # 18 intern-titled rows already seen
+ATS_COMPANIES["Marvell"] = {"platform": "workday", "token": "marvell:wd1:MarvellCareers"}  # 46 intern-titled rows already seen
+ATS_COMPANIES["Mastercard"] = {"platform": "workday", "token": "mastercard:wd1:CorporateCareers"}  # 4 intern-titled rows already seen
+ATS_COMPANIES["Motorola Solutions"] = {"platform": "workday", "token": "motorolasolutions:wd5:Careers"}  # 840 open postings at verification
+ATS_COMPANIES["Netflix"] = {"platform": "workday", "token": "netflix:wd108:netflix"}  # 3 intern-titled rows already seen
+ATS_COMPANIES["Northrop Grumman"] = {"platform": "workday", "token": "ngc:wd1:Northrop_Grumman_External_Site"}  # 51 intern-titled rows already seen
+ATS_COMPANIES["Nvidia"] = {"platform": "workday", "token": "nvidia:wd5:NVIDIAExternalCareerSite"}  # 2000 open postings at verification
+ATS_COMPANIES["Palo Alto Networks"] = {"platform": "workday", "token": "paloaltonetworks:wd5:hidden-private-pawn-temp-gateway-147258369"}  # 1 intern-titled rows already seen
+ATS_COMPANIES["RTX"] = {"platform": "workday", "token": "globalhr:wd5:rec_rtx_ext_gateway"}  # 55 intern-titled rows already seen
+ATS_COMPANIES["Sony"] = {"platform": "workday", "token": "sonyglobal:wd1:SonyGlobalCareers"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Target"] = {"platform": "workday", "token": "target:wd5:targetcareers"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Wells Fargo"] = {"platform": "workday", "token": "wf:wd1:wellsfargojobs"}  # 2 intern-titled rows already seen
+ATS_COMPANIES["Workday"] = {"platform": "workday", "token": "workday:wd5:Workday_Early_Career"}  # 5 intern-titled rows already seen
+
 # Guard against a silently-truncated edit. Must stay at the END of the file:
 # the previous assertion sat above later additions and validated a stale count.
-assert len(ATS_COMPANIES) == 104, f"expected 104 companies, got {len(ATS_COMPANIES)}"
+assert len(ATS_COMPANIES) == 165, f"expected 165 companies, got {len(ATS_COMPANIES)}"
