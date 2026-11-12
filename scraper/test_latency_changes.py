@@ -157,7 +157,7 @@ print("\n-- run() end-to-end with stubs: gh job pushes even when LinkedIn is blo
 
 _orig = {k: getattr(main, k) for k in (
     "start_run", "finish_run", "find_known_candidates", "fetch_pending_jobs",
-    "fetch_github_listings", "fetch_listings", "fetch_external_description",
+    "fetch_github_listings", "fetch_listings", "fetch_external_posting",
     "classify", "insert_job", "push_job", "push_canary", "time",
     "get_job_row", "claim_notification",
 )}
@@ -176,7 +176,7 @@ main.find_known_candidates = lambda jobs: (set(), set())
 main.fetch_pending_jobs = lambda limit: []
 main.fetch_github_listings = lambda: [dict(GH_JOB)]
 main.fetch_listings = lambda *a, **kw: ([], None)          # LinkedIn: nothing, every page
-main.fetch_external_description = lambda url: "a description"
+main.fetch_external_posting = lambda url: ("a description", None)
 main.classify = lambda job: {"tier": "APPLY", "reason": "fit", "suggested_resume": "General"}
 main.insert_job = lambda job: True
 # Both are new gates on the push path and both must be stubbed here, or this
