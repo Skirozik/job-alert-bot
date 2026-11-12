@@ -356,9 +356,13 @@ def collect_jobright(state: RunState) -> list[dict]:
 # ── processing ───────────────────────────────────────────────────────────────
 
 def _queue_key(job: dict):
-    """Entry-marked titles and the primary families first, then discovery order."""
-    return (0 if title_gate.is_entry_marked(job.get("title", "")) else 1,
-            title_gate.FAMILY_RANK.get(job.get("family"), 9), job.get("_order", 0))
+    """Selling roles after every other title, so they only take a cap's slack; then entry-marked titles and the
+    primary families first, then discovery order."""
+    title, family = job.get("title", ""), job.get("family")
+    selling = family == "TECH_SALES" or (family is None and title_gate.is_sales_title(title))   # None: LinkedIn
+    return (1 if selling else 0,
+            0 if title_gate.is_entry_marked(title) else 1,
+            title_gate.FAMILY_RANK.get(family, 9), job.get("_order", 0))
 
 
 def _time_left(state: RunState) -> bool:
