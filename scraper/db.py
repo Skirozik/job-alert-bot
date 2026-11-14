@@ -543,16 +543,8 @@ def finish_run(run_id: Optional[int], **stats) -> None:
         log.error("Failed to record run completion for run %s: %s", run_id, exc)
 
 
-def insert_job(job: dict) -> bool:
-    """Insert a classified job into Supabase. Returns True on success, False on failure.
-
-    NOTE the asymmetry with update_job_classification(): this upserts with
-    ignore_duplicates=True (ON CONFLICT DO NOTHING), so calling it for a row
-    that already exists changes NOTHING. Promoting a parked PENDING row must go
-    through update_job_classification, not through here.
-    """
-    client = get_client()
-    payload = {
+def _job_payload(job: dict) -> dict:
+    return {
         "id": job["id"],
         "title": job.get("title", ""),
         "company": job.get("company", ""),
@@ -576,6 +568,18 @@ def insert_job(job: dict) -> bool:
         "is_easy_apply": job.get("is_easy_apply", False),
         "salary": job.get("salary"),
     }
+
+
+def insert_job(job: dict) -> bool:
+    """Insert a classified job into Supabase. Returns True on success, False on failure.
+
+    NOTE the asymmetry with update_job_classification(): this upserts with
+    ignore_duplicates=True (ON CONFLICT DO NOTHING), so calling it for a row
+    that already exists changes NOTHING. Promoting a parked PENDING row must go
+    through update_job_classification, not through here.
+    """
+    client = get_client()
+    payload = _job_payload(job)
     try:
         client.table("jobs").upsert(payload, on_conflict="id", ignore_duplicates=True).execute()
         log.info("DB: stored %s [%s]", job.get("id"), job.get("tier"))
@@ -587,6 +591,37 @@ def insert_job(job: dict) -> bool:
         _raise_if_quota(exc)
         log.error("DB insert failed for job %s: %s", job.get("id"), exc)
         return False
+
+
+# Rows per request for insert_jobs. A Greenhouse row can carry a 12,000-char
+# description, so 100 rows keeps a request near 1 MB at worst.
+INSERT_BATCH_SIZE = 100
+
+
+def insert_jobs(jobs: list[dict], batch_size: int = INSERT_BATCH_SIZE) -> int:
+    """insert_job for many rows at once: same payload, same ON CONFLICT DO NOTHING,
+    one request per batch_size rows. Returns how many rows were sent successfully.
+
+    Exists for the title pre-filter. The first pass over a newly added board stores
+    every posting already on it, nearly all of them full-time roles, and one request
+    per row made the 61 boards added on 2026-11-14 about 20,000 round trips. A batch
+    that fails is retried row by row, so one bad row costs its own insert, not 99.
+    """
+    stored = 0
+    for start in range(0, len(jobs), batch_size):
+        batch = jobs[start:start + batch_size]
+        try:
+            get_client().table("jobs").upsert(
+                [_job_payload(j) for j in batch], on_conflict="id", ignore_duplicates=True,
+            ).execute()
+            stored += len(batch)
+        except Exception as exc:
+            _raise_if_quota(exc)
+            log.warning("DB batch insert of %d rows failed (%s) — retrying one at a time", len(batch), exc)
+            stored += sum(1 for j in batch if insert_job(j))
+    if jobs:
+        log.info("DB: stored %d of %d rows in batches of %d", stored, len(jobs), batch_size)
+    return stored
 
 
 def claim_notification(job_id: str) -> tuple[bool, str]:

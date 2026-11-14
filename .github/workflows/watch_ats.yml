@@ -1,6 +1,6 @@
 name: ATS Fast-Path Watcher
 
-# Polls ~104 companies' own ATS boards directly (Greenhouse, Lever, Ashby,
+# Polls 160 companies' own ATS boards directly (Greenhouse, Lever, Ashby,
 # SmartRecruiters, Workday), catching a posting the moment it goes live on the
 # company's own careers page rather than waiting for LinkedIn syndication —
 # which ATS vendors' own docs put at 6-48+ hours on the default sync path.
@@ -20,7 +20,7 @@ on:
     # gap over 200 runs, and offsetting off the herd minute did not help.
     # The external pinger drives the real 5-minute cadence by POSTing to the
     # workflow-dispatch API, which is not deferred — see FAST_PINGS_SETUP.md.
-    # Affordable at 5 min since fetch_all_listings was parallelized (3.0-min runs).
+    # Affordable at 5 min: a normal pass reads all 160 boards in under a minute.
     - cron: '4,14,24,34,44,54 * * * *'
   workflow_dispatch:
 
@@ -34,10 +34,11 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    # 104 boards, several of them large (NVIDIA ~2,000 postings, Capital One
-    # ~1,800, Salesforce ~1,500), and Workday pages 20 at a time. A full sweep
-    # measured ~30,700 postings. 25 minutes leaves real headroom while still
-    # capping a hung run well inside the next slot.
+    # 160 boards. A normal pass reads Workday boards only back to two days old
+    # (measured 2026-11-14: 44 s for all 160 boards, 350 Workday page requests).
+    # Once a day, first pass after 08:00 UTC, every Workday board is read in full
+    # (~1,800 page requests, Northrop Grumman alone ~5 minutes). 25 minutes
+    # covers that day's pass with room to spare while still capping a hung run.
     timeout-minutes: 25
 
     steps:

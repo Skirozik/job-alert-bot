@@ -298,11 +298,16 @@ gw.get_client = _Query
 gw.classify = main.classify = fake_classify
 main.get_job_row = lambda jid: ({k: STORE[jid][k] for k in ("id", "tier", "status")} if jid in STORE else None)
 main.insert_job = w.insert_job = fake_insert
+# The board read's daily-full-sweep decision and its batch insert are covered in
+# test_workday_early_stop.py. Here: recent-pages mode, and batches that go through the fake insert.
+w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
+w._full_sweep_due = lambda now: False
+w._always_full_tokens = lambda: frozenset()
 main.claim_notification = fake_claim
 w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: None
 BOARD_LISTINGS: list[dict] = []
-w.fetch_all_listings = lambda cfg: (ORDER.append("boards"), [dict(j) for j in BOARD_LISTINGS])[1]
+w.fetch_all_listings = lambda cfg, **kw: (ORDER.append("boards"), [dict(j) for j in BOARD_LISTINGS])[1]
 # Apple's checks run in the same pass; test_apple_watch.py covers them. Here they read nothing.
 w.career_sitemaps.collect_apple_students = lambda force=False, full=False, seen_reqs=None: w.career_sitemaps.AppleStudents()
 w.career_sitemaps.collect_listings = lambda force=False, apple_sitemap=None: []
@@ -481,7 +486,7 @@ check("the usual push goes out too", [p["title"] for p in kinds(pushes, "job")]
       str([p["title"] for p in kinds(pushes, "job")]))
 check("classified once, on the description from the list itself", CLASSIFIED == [NEW_TITLE], str(CLASSIFIED))
 check("stored in the tracker, under the id-only link", STORE.get(id_of(NEW_ID), {}).get("url") == url_of(NEW_ID))
-check("the 🔎 push lands before the 165-board sweep starts",
+check("the 🔎 push lands before the 160-board sweep starts",
       "google-push" in ORDER and ORDER.index("google-push") < ORDER.index("boards"), str(ORDER))
 check("recorded", NEW_ID in ledger())
 pushes = run_pass()

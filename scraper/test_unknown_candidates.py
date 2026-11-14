@@ -188,13 +188,19 @@ print("\n-- the rewired ATS loop: the actual place a job can go missing --")
 import ats_watch as w
 
 _w_orig = {k: getattr(w, k) for k in
-           ("start_run", "finish_run", "insert_job", "process_job",
-            "fetch_all_listings", "find_unknown_candidates")}
+           ("start_run", "finish_run", "insert_job", "insert_jobs", "process_job",
+            "fetch_all_listings", "find_unknown_candidates", "_full_sweep_due",
+            "_always_full_tokens")}
 
 processed: list = []
 w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: kw
 w.insert_job = lambda job: True
+# The board read's daily-full-sweep decision and its batch insert are covered in
+# test_workday_early_stop.py. Here: recent-pages mode, and batches that go through the fake insert.
+w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
+w._full_sweep_due = lambda now: False
+w._always_full_tokens = lambda: frozenset()
 w.process_job = lambda job: (processed.append(job["id"]), False)[1]
 # The career-sitemap and Apple passes read live sites; this test is about the board loop.
 _orig_sitemaps = w.career_sitemaps.collect_listings
@@ -217,7 +223,7 @@ LISTINGS = [
     {"id": "ats:dupB",   "company": "Gamma", "title": "Data Intern",              "location": "NYC"},
     {"id": "ats:senior", "company": "Delta", "title": "Senior Staff Engineer",    "location": "SF"},
 ]
-w.fetch_all_listings = lambda cfg: [dict(j) for j in LISTINGS]
+w.fetch_all_listings = lambda cfg, **kw: [dict(j) for j in LISTINGS]
 w.find_unknown_candidates = lambda jobs: {j["id"] for j in jobs if j["id"] != "ats:known"}
 
 w.run()
@@ -243,7 +249,7 @@ TWINS = [
     {"id": "ats:meta-ft", "company": "Meta", "title": "Production Engineering",        "location": "Menlo Park"},
     {"id": "ats:meta-in", "company": "Meta", "title": "Production Engineering Intern", "location": "Menlo Park"},
 ]
-w.fetch_all_listings = lambda cfg: [dict(j) for j in TWINS]
+w.fetch_all_listings = lambda cfg, **kw: [dict(j) for j in TWINS]
 w.find_unknown_candidates = lambda jobs: {j["id"] for j in jobs}
 
 w.run()

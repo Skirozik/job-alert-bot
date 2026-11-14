@@ -210,7 +210,6 @@ ATS_COMPANIES["Zscaler"] = {"platform": "greenhouse", "token": "zscaler"}  # 371
 ATS_COMPANIES["xAI"] = {"platform": "greenhouse", "token": "xai"}  # 3 intern-titled rows already seen
 # --- lever ---
 ATS_COMPANIES["Palantir"] = {"platform": "lever", "token": "palantir"}  # 2 intern-titled rows already seen
-ATS_COMPANIES["Shield AI"] = {"platform": "lever", "token": "shieldai"}  # 5 intern-titled rows already seen
 ATS_COMPANIES["Spotify"] = {"platform": "lever", "token": "spotify"}  # 86 open postings at verification
 ATS_COMPANIES["Veeva"] = {"platform": "lever", "token": "veeva"}  # 873 open postings at verification
 # --- ashby ---
@@ -221,10 +220,8 @@ ATS_COMPANIES["Cursor (Anysphere)"] = {"platform": "ashby", "token": "cursor"}  
 ATS_COMPANIES["Rivian"] = {"platform": "ashby", "token": "rivianvw.tech"}  # 12 intern-titled rows already seen
 ATS_COMPANIES["Strava"] = {"platform": "ashby", "token": "strava"}  # 27 open postings at verification
 # --- smartrecruiters ---
-ATS_COMPANIES["ByteDance"] = {"platform": "smartrecruiters", "token": "bytedance"}  # 2 open postings at verification
 ATS_COMPANIES["Grab"] = {"platform": "smartrecruiters", "token": "grab"}  # 100 open postings at verification
 ATS_COMPANIES["LinkedIn"] = {"platform": "smartrecruiters", "token": "linkedin3"}  # 2 intern-titled rows already seen
-ATS_COMPANIES["Wayfair"] = {"platform": "smartrecruiters", "token": "wayfair"}  # 1 open postings at verification
 ATS_COMPANIES["Wise"] = {"platform": "smartrecruiters", "token": "wise"}  # 3 intern-titled rows already seen
 # --- workday ---
 ATS_COMPANIES["Analog Devices"] = {"platform": "workday", "token": "analogdevices:wd1:external"}  # 1 intern-titled rows already seen
@@ -242,16 +239,25 @@ ATS_COMPANIES["Intel"] = {"platform": "workday", "token": "intel:wd1:external"} 
 ATS_COMPANIES["Marvell"] = {"platform": "workday", "token": "marvell:wd1:MarvellCareers"}  # 46 intern-titled rows already seen
 ATS_COMPANIES["Mastercard"] = {"platform": "workday", "token": "mastercard:wd1:CorporateCareers"}  # 4 intern-titled rows already seen
 ATS_COMPANIES["Motorola Solutions"] = {"platform": "workday", "token": "motorolasolutions:wd5:Careers"}  # 840 open postings at verification
-ATS_COMPANIES["Netflix"] = {"platform": "workday", "token": "netflix:wd108:netflix"}  # 3 intern-titled rows already seen
 ATS_COMPANIES["Northrop Grumman"] = {"platform": "workday", "token": "ngc:wd1:Northrop_Grumman_External_Site"}  # 51 intern-titled rows already seen
 ATS_COMPANIES["Nvidia"] = {"platform": "workday", "token": "nvidia:wd5:NVIDIAExternalCareerSite"}  # 2000 open postings at verification
 ATS_COMPANIES["Palo Alto Networks"] = {"platform": "workday", "token": "paloaltonetworks:wd5:hidden-private-pawn-temp-gateway-147258369"}  # 1 intern-titled rows already seen
 ATS_COMPANIES["RTX"] = {"platform": "workday", "token": "globalhr:wd5:rec_rtx_ext_gateway"}  # 55 intern-titled rows already seen
 ATS_COMPANIES["Sony"] = {"platform": "workday", "token": "sonyglobal:wd1:SonyGlobalCareers"}  # 2 intern-titled rows already seen
-ATS_COMPANIES["Target"] = {"platform": "workday", "token": "target:wd5:targetcareers"}  # 2 intern-titled rows already seen
 ATS_COMPANIES["Wells Fargo"] = {"platform": "workday", "token": "wf:wd1:wellsfargojobs"}  # 2 intern-titled rows already seen
 ATS_COMPANIES["Workday"] = {"platform": "workday", "token": "workday:wd5:Workday_Early_Career"}  # 5 intern-titled rows already seen
 
+# Taken back out of this batch on 2026-11-14, before it ever ran, because the
+# boards were dead by then: Target (Workday answers with a non-JSON page),
+# Netflix (Workday board empty), Shield AI (Lever board empty), ByteDance and
+# Wayfair (SmartRecruiters boards holding one or two postings from 2017-18).
+#
+# Adding a board is safe at any size. Its existing postings are stored on the
+# first pass (Greenhouse, Lever, Ashby, SmartRecruiters answer in one request)
+# or the next daily full sweep (Workday, ats_watch.FULL_SWEEP_HOUR_UTC). The
+# title pre-filter stores the full-time ones in batches, and only internship
+# titles the bot has never seen go to the classifier.
+
 # Guard against a silently-truncated edit. Must stay at the END of the file:
 # the previous assertion sat above later additions and validated a stale count.
-assert len(ATS_COMPANIES) == 165, f"expected 165 companies, got {len(ATS_COMPANIES)}"
+assert len(ATS_COMPANIES) == 160, f"expected 160 companies, got {len(ATS_COMPANIES)}"

@@ -24,8 +24,10 @@ Uses an ATS-specific run lock (db.start_run/finish_run). LinkedIn and GitHub
 have their own locks, so a long ATS sweep cannot cancel a punctual source pass.
 """
 
+import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -37,11 +39,12 @@ if hasattr(sys.stdout, "reconfigure"):
 import apple_watch
 import google_watch
 from ats_config import ATS_COMPANIES
-from ats_sources import fetch_all_listings
+from ats_sources import fetch_all_listings, WORKDAY_UNSORTED_COMPANIES
 import career_sitemaps
-from db import (QuotaExceeded, find_unknown_candidates, job_norm_key, make_norm_key, start_run,
-                finish_run, insert_job)
-from main import process_job, _is_senior_role, _is_new_grad_role, _is_non_internship_title
+from db import (QuotaExceeded, StateUnavailable, find_unknown_candidates, job_norm_key,
+                make_norm_key, start_run, finish_run, insert_job, insert_jobs, read_state, set_state)
+from main import (process_job, _freshest_first, _is_senior_role, _is_new_grad_role,
+                  _is_non_internship_title)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +53,58 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 log = logging.getLogger(__name__)
+
+# Once a UTC day, on the first pass at or after this hour, every Workday board is
+# read in full instead of back to ats_sources.WORKDAY_RECENT_DAYS. 08:00 UTC is 3 to
+# 4 AM Eastern, when a slow pass delays nothing anyone is waiting on. The full read
+# is the backstop for anything the recent-only reads can miss (a posting given a
+# back-dated start, a board that stops sorting by date), it is how a board added to
+# ats_config.py gets its existing postings stored, and it re-checks which boards
+# are sorted newest first.
+FULL_SWEEP_HOUR_UTC = 8
+_FULL_SWEEP_DAY_KEY = "ats_full_sweep_day"
+_UNSORTED_KEY = "ats_workday_unsorted"
+
+
+def _full_sweep_due(now: datetime) -> bool:
+    if now.hour < FULL_SWEEP_HOUR_UTC:
+        return False
+    try:
+        return read_state(_FULL_SWEEP_DAY_KEY) != now.date().isoformat()
+    except StateUnavailable as exc:
+        # Not a reason for a six-minute pass: the next readable pass decides.
+        log.warning("Full-sweep state unreadable (%s) — reading recent pages only this pass", exc)
+        return False
+
+
+def _stored_unsorted() -> set[str]:
+    try:
+        stored = json.loads(read_state(_UNSORTED_KEY) or "[]")
+    except (StateUnavailable, ValueError) as exc:
+        log.warning("Unsorted-board list unreadable (%s) — using the built-in list only", exc)
+        return set()
+    return {t for t in stored if isinstance(t, str)} if isinstance(stored, list) else set()
+
+
+def _always_full_tokens() -> frozenset:
+    """Workday boards the recent-only read cannot be trusted on: the built-in
+    list plus whatever the last full sweep found not sorted newest first."""
+    built_in = {cfg["token"] for name, cfg in ATS_COMPANIES.items()
+                if cfg["platform"] == "workday" and name in WORKDAY_UNSORTED_COMPANIES}
+    return frozenset(built_in | _stored_unsorted())
+
+
+def _record_full_sweep(now: datetime, sort_report: dict) -> None:
+    """Mark today's full sweep done and save which boards are not newest-first.
+    A board whose read could not tell (None, e.g. it failed part-way) keeps its
+    previous verdict rather than silently losing it."""
+    set_state(_FULL_SWEEP_DAY_KEY, now.date().isoformat())
+    previous = _stored_unsorted()
+    unsorted = sorted(t for t in set(sort_report) | previous
+                      if sort_report.get(t) is False or (sort_report.get(t) is None and t in previous))
+    set_state(_UNSORTED_KEY, json.dumps(unsorted))
+    if unsorted:
+        log.info("Workday boards not sorted newest first, read in full every pass: %s", ", ".join(unsorted))
 
 
 def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str]) -> tuple[int, int]:
@@ -78,7 +133,8 @@ def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str]) -
     # mutating the downloaded index: a full board dump can list the same
     # norm_key twice (two postings of one role) with neither stored yet, and
     # without this both would be processed.
-    new_jobs = notified = 0
+    prefiltered: list[dict] = []
+    to_classify: list[dict] = []
     for job in listings:
         if job["id"] not in unknown:
             continue
@@ -91,26 +147,29 @@ def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str]) -
         # Same pre-filter as the main LinkedIn scan — a full company
         # board dump includes every level/role, not just internships.
         if _is_senior_role(job["title"]):
-            job["tier"] = "INELIGIBLE"
-            job["reason"] = "Pre-filtered: seniority keyword in title"
-            job["suggested_resume"] = "General"
-            insert_job(job)
+            reason = "Pre-filtered: seniority keyword in title"
+        elif _is_new_grad_role(job["title"]):
+            reason = "Pre-filtered: new grad / full-time role, not an internship"
+        elif _is_non_internship_title(job["title"]):
+            reason = "Pre-filtered: no internship marker in title"
+        else:
+            to_classify.append(job)
             continue
+        job["tier"] = "INELIGIBLE"
+        job["reason"] = reason
+        job["suggested_resume"] = "General"
+        prefiltered.append(job)
 
-        if _is_new_grad_role(job["title"]):
-            job["tier"] = "INELIGIBLE"
-            job["reason"] = "Pre-filtered: new grad / full-time role, not an internship"
-            job["suggested_resume"] = "General"
-            insert_job(job)
-            continue
+    # Stored in batches, and before any classifying, so a pass that dies on a slow
+    # model call has still recorded the cheap rows. A newly added board's first
+    # full read is ~99% pre-filtered rows: 20,000 of them for the 61 boards added
+    # on 2026-11-14, which one insert per row turned into a pass of its own.
+    insert_jobs(prefiltered)
 
-        if _is_non_internship_title(job["title"]):
-            job["tier"] = "INELIGIBLE"
-            job["reason"] = "Pre-filtered: no internship marker in title"
-            job["suggested_resume"] = "General"
-            insert_job(job)
-            continue
-
+    # Newest postings first: they are the ones where minutes matter, and a full
+    # sweep can hand this loop a hundred older internships at once.
+    new_jobs = notified = 0
+    for job in _freshest_first(to_classify):
         new_jobs += 1
         if process_job(job):
             notified += 1
@@ -179,7 +238,20 @@ def run():
         except Exception as exc:
             log.error("Google check skipped this pass: %s", exc)
 
-        listings = fetch_all_listings(ATS_COMPANIES)
+        now = datetime.now(timezone.utc)
+        full = _full_sweep_due(now)
+        sort_report: dict = {}
+        listings = fetch_all_listings(
+            ATS_COMPANIES, full=full,
+            always_full=frozenset() if full else _always_full_tokens(),
+            sort_report=sort_report if full else None,
+        )
+        # Recorded once the boards are read, not after classifying: a crash in the
+        # sweep below should not turn every following pass into another full read.
+        # Anything it failed to store is read again by tomorrow's full sweep.
+        if full:
+            _record_full_sweep(now, sort_report)
+        log.info("Board read: %s", "FULL (daily)" if full else "recent pages")
         # Employers that only post on their own careers sites (Meta, Apple,
         # D. E. Shaw), read from their crawler sitemaps about once an hour.
         # A sitemap problem must never cost the board sweep; a spent quota

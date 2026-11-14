@@ -335,11 +335,16 @@ aw.get_client = _Query
 aw.classify = main.classify = fake_classify
 main.get_job_row = lambda jid: ({k: STORE[jid][k] for k in ("id", "tier", "status")} if jid in STORE else None)
 main.insert_job = w.insert_job = fake_insert
+# The board read's daily-full-sweep decision and its batch insert are covered in
+# test_workday_early_stop.py. Here: recent-pages mode, and batches that go through the fake insert.
+w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
+w._full_sweep_due = lambda now: False
+w._always_full_tokens = lambda: frozenset()
 main.claim_notification = fake_claim
 w.find_unknown_candidates = fake_unknown
 w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: None
-w.fetch_all_listings = lambda cfg: (ORDER.append("boards"), [])[1]
+w.fetch_all_listings = lambda cfg, **kw: (ORDER.append("boards"), [])[1]
 # Google's check runs in the same pass; test_google_watch.py covers it. Here it reads nothing.
 w.google_watch.check = lambda sweep: (0, 0, 0)
 w.google_watch.shadow_check = lambda now=None: None
@@ -521,7 +526,7 @@ check("found on page 1: no other search page was read", searches() == [cs.APPLE_
 check("classified once, with the description from the posting's page",
       CLASSIFIED == ["Applied Data Solutions Program, Internships – Summer 2027"], str(CLASSIFIED))
 check("stored in the tracker", any(r["title"].startswith("Applied Data Solutions") for r in STORE.values()))
-check("the 🍎 push lands before the 165-board sweep starts",
+check("the 🍎 push lands before the 160-board sweep starts",
       "apple-push" in ORDER and ORDER.index("apple-push") < ORDER.index("boards"), str(ORDER))
 pushes = run_pass()
 check("the pass after: no push, no second classification", pushes == [] and CLASSIFIED == [], str(pushes))
@@ -799,7 +804,7 @@ run_pass()
 SITEMAP_ROWS.append(sitemap_row("Treasury Internships Summer", "200712362-3810"))
 STATE.pop(aw.SHADOW_CHECKED_KEY, None)
 _orig_process, _orig_fetch = w.process_job, w.fetch_all_listings
-w.fetch_all_listings = lambda cfg: [{"id": "ats:board1", "company": "Acme", "title": "Software Engineer Intern",
+w.fetch_all_listings = lambda cfg, **kw: [{"id": "ats:board1", "company": "Acme", "title": "Software Engineer Intern",
                                      "location": "Atlanta", "url": "https://acme.example/1"}]
 w.process_job = lambda job: (_ for _ in ()).throw(RuntimeError("star rules missing"))
 STATE[cs.APPLE_STUDENTS_STATE_KEY] = (_now() - timedelta(minutes=5)).isoformat()
