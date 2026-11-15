@@ -136,7 +136,9 @@ ATS_COMPANIES["Kairos Power"] = {"platform": "greenhouse", "token": "kairospower
 ATS_COMPANIES["Nava PBC"] = {"platform": "greenhouse", "token": "navapbc"}  # 16 postings, 0 intern
 ATS_COMPANIES["Nintendo of America"] = {"platform": "greenhouse", "token": "nintendo"}  # 48 postings, 0 intern
 ATS_COMPANIES["Nuro"] = {"platform": "greenhouse", "token": "nuro"}  # 108 postings, 1 intern
-ATS_COMPANIES["Old Mission"] = {"platform": "greenhouse", "token": "oldmissioncapital"}  # 35 postings, 3 intern
+# Old Mission left Greenhouse (the oldmissioncapital board has answered 404 since at
+# least 2026-11-14); its careers page now embeds Ashby (42 postings, 2 intern, on 2026-11-14).
+ATS_COMPANIES["Old Mission"] = {"platform": "ashby", "token": "old-mission-capital"}
 ATS_COMPANIES["PlayOn Sports"] = {"platform": "greenhouse", "token": "playonsports"}  # 19 postings, 0 intern
 ATS_COMPANIES["Pure Storage"] = {"platform": "greenhouse", "token": "purestorage"}  # 292 postings, 1 intern
 ATS_COMPANIES["Rocket Lab"] = {"platform": "greenhouse", "token": "rocketlab"}  # 405 postings, 33 intern

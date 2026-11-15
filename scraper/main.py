@@ -204,6 +204,36 @@ def _is_non_internship_title(title: str) -> bool:
     return not (_INTERN_TITLE_RE.search(title.lower()) or _is_student_worker_title(title))
 
 
+# The owner is a senior (since 2026-09): a co-op term during the school year
+# would push back graduation, so pure co-ops were dismissed by hand on sight
+# (293 of them on 2026-09-13, and 44 of the 45 co-ops ever applied to were found
+# before that day). They kept arriving at ~50 a week, 315 of them unread in the
+# review queue by 2026-11-14, and one was pushed as a phone alert.
+#
+# Kept: "Intern/Co-op" combos, which can be taken as a summer internship, and a
+# co-op whose title names only the summer ("2027 Summer Software Engineer Co-op",
+# 9 in that queue), which cannot overlap a school term. A title that names any
+# other term or a month ("Co-op (Summer/Fall)", "Spring 2027 ... Co-op - January
+# - June") is blocked.
+#
+# Same trailing boundary as _INTERN_TITLE_RE, so "Co-op_Fall 2027" matches.
+# "Cooperative Education" is how some utilities and universities title one.
+_COOP_TITLE_RE = re.compile(r"\bco[\s-]?ops?(?![a-z0-9])|\bcooperative\s+education\b")
+_INTERN_WORD_RE = re.compile(r"\bintern(?:ship)?s?(?![a-z0-9])")
+_SUMMER_RE = re.compile(r"\bsummer\b")
+_OTHER_TERM_RE = re.compile(
+    r"\b(?:spring|fall|autumn|winter|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?"
+    r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b"
+)
+
+
+def _is_pure_coop_title(title: str) -> bool:
+    t = title.lower()
+    if not _COOP_TITLE_RE.search(t) or _INTERN_WORD_RE.search(t):
+        return False
+    return not (_SUMMER_RE.search(t) and not _OTHER_TERM_RE.search(t))
+
+
 # Employers the candidate cannot be hired by, so a posting from one is noise no
 # matter how well it classifies. Kept as a plain set rather than a fixture file
 # because nothing else reads it -- gold_star.py does not need to know, since a
@@ -303,6 +333,17 @@ def process_job(job: dict) -> bool:
         log.info("  Pre-filter SKIP (blocked employer)")
         job["tier"] = "INELIGIBLE"
         job["reason"] = "Pre-filtered: employer on the blocked list"
+        job["suggested_resume"] = "General"
+        insert_job(job)
+        return False
+
+    # Same placement and the same reasons as the employer block above: every
+    # source (LinkedIn, trackers, company boards, Apple, Google) comes through
+    # here, so one check covers them all before the page fetch and model call.
+    if _is_pure_coop_title(job.get("title", "")):
+        log.info("  Pre-filter SKIP (co-op, no internship option)")
+        job["tier"] = "INELIGIBLE"
+        job["reason"] = "Pre-filtered: co-op with no internship option"
         job["suggested_resume"] = "General"
         insert_job(job)
         return False
