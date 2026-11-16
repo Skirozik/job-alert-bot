@@ -303,6 +303,7 @@ main.insert_job = w.insert_job = fake_insert
 w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
 w._full_sweep_due = lambda now: False
 w._always_full_tokens = lambda: frozenset()
+w._tesla_relay_rows = lambda now: []
 main.claim_notification = fake_claim
 w.start_run = lambda source="ats": 1
 w.finish_run = lambda run_id, **kw: None

@@ -190,7 +190,7 @@ import ats_watch as w
 _w_orig = {k: getattr(w, k) for k in
            ("start_run", "finish_run", "insert_job", "insert_jobs", "process_job",
             "fetch_all_listings", "find_unknown_candidates", "_full_sweep_due",
-            "_always_full_tokens")}
+            "_always_full_tokens", "_tesla_relay_rows")}
 
 processed: list = []
 w.start_run = lambda source="ats": 1
@@ -201,6 +201,7 @@ w.insert_job = lambda job: True
 w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
 w._full_sweep_due = lambda now: False
 w._always_full_tokens = lambda: frozenset()
+w._tesla_relay_rows = lambda now: []
 w.process_job = lambda job: (processed.append(job["id"]), False)[1]
 # The career-sitemap and Apple passes read live sites; this test is about the board loop.
 _orig_sitemaps = w.career_sitemaps.collect_listings

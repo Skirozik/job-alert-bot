@@ -66,6 +66,31 @@ _FULL_SWEEP_DAY_KEY = "ats_full_sweep_day"
 _UNSORTED_KEY = "ats_workday_unsorted"
 
 
+# Tesla's careers site refuses GitHub's runners (Akamai), so the owner's Mac reads
+# it (tesla_relay.py) and leaves the U.S. internships the database has not seen in
+# bot_state. Read every pass: the value is a few rows, and empty most of the time.
+TESLA_RELAY_KEY = "tesla_relay"
+TESLA_RELAY_STALE_MINUTES = 30
+
+
+def _tesla_relay_rows(now: datetime) -> list[dict]:
+    raw = read_state(TESLA_RELAY_KEY)
+    if not raw:
+        return []
+    payload = json.loads(raw)
+    at = datetime.fromisoformat(payload["at"])
+    age_min = (now - at).total_seconds() / 60
+    rows = [j for j in payload.get("jobs") or []
+            if isinstance(j, dict) and str(j.get("id", "")).startswith("ats:")
+            and j.get("title") and j.get("url") and j.get("company") == "Tesla"]
+    log.info("Tesla relay: %s U.S. internships listed, %s not yet stored, %d handed over, read %.0f min ago",
+             payload.get("listed"), payload.get("unseen", "?"), len(rows), age_min)
+    if age_min > TESLA_RELAY_STALE_MINUTES:
+        log.warning("Tesla relay is %.0f minutes old: the Mac that reads Tesla is asleep, off, "
+                    "or being refused", age_min)
+    return rows
+
+
 def _full_sweep_due(now: datetime) -> bool:
     if now.hour < FULL_SWEEP_HOUR_UTC:
         return False
@@ -237,6 +262,17 @@ def run():
             raise
         except Exception as exc:
             log.error("Google check skipped this pass: %s", exc)
+
+        # Tesla, as relayed from the Mac. Same guards: it never costs the board sweep.
+        try:
+            rows = _tesla_relay_rows(datetime.now(timezone.utc))
+            if rows:
+                n, k = _sweep(rows, seen_ids, seen_norm_keys)
+                new_jobs, notified, total_raw = new_jobs + n, notified + k, total_raw + len(rows)
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            log.error("Tesla relay skipped this pass: %s", exc)
 
         now = datetime.now(timezone.utc)
         full = _full_sweep_due(now)
