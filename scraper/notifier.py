@@ -1,13 +1,54 @@
 """Push notifications (ntfy.sh) and canary alerts."""
 
 import logging
+import re
+from urllib.parse import urlparse
+
 import requests
+from ats_config import ATS_COMPANIES
 from config import NTFY_TOPIC
 from gold_star import is_starred, reason_summary
 
 log = logging.getLogger(__name__)
 
 NTFY_BASE = "https://ntfy.sh"
+
+_GH_JID = re.compile(r"[?&]gh_jid=(\d+)")
+_PAGE_CHECK_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+}
+
+
+def greenhouse_form_url(job: dict) -> str | None:
+    """Greenhouse's own page for a posting whose link goes to the company's careers site, else None.
+
+    39 of the 84 Greenhouse boards (Airbnb, Stripe, Databricks, Jane Street, ...) hand out a link
+    on the company's own site, carrying ?gh_jid=<Greenhouse id>. The company's site builds those
+    pages on its own schedule, so a posting the watcher finds within a minute can still 404 there:
+    Airbnb's Software Engineering Intern was listed by Greenhouse at 05:00 UTC on 2026-11-18 and
+    its careers page was still "Oops!" minutes later. Greenhouse's embedded form is live as soon as
+    the board lists the posting, with the full description and the apply button.
+    """
+    cfg = ATS_COMPANIES.get(job.get("company") or "")
+    if not cfg or cfg.get("platform") != "greenhouse":
+        return None
+    for link in (job.get("url"), job.get("apply_url")):
+        m = _GH_JID.search(link or "")
+        if m and not urlparse(link).netloc.endswith("greenhouse.io"):
+            return f"https://job-boards.greenhouse.io/embed/job_app?for={cfg['token']}&token={m.group(1)}"
+    return None
+
+
+def _page_missing(url: str) -> bool:
+    """True only when the page answers 404 or 410. Anything else, a block or a timeout included,
+    counts as there: the alert then keeps the company's link and offers the form as a button."""
+    try:
+        resp = requests.get(url, headers=_PAGE_CHECK_HEADERS, timeout=6, allow_redirects=True, stream=True)
+        resp.close()
+        return resp.status_code in (404, 410)
+    except Exception:
+        return False
 
 _TIER_EMOJI = {"APPLY": "🟢", "APPLY_CAVEAT": "🟢"}
 _TIER_TAGS = {"APPLY": "green_circle", "APPLY_CAVEAT": "warning"}
@@ -47,6 +88,21 @@ def push_job(job: dict, title_prefix: str = "") -> bool:
         body_lines.append(f"Why: {job['reason']}")
     if job.get("suggested_resume"):
         body_lines.append(f"Resume: {job['suggested_resume']}")
+
+    # Tapping the alert opens the posting. When that posting is on a company site that has not
+    # built its page yet, open Greenhouse's form instead and keep the company page as a button.
+    click = job.get("url", "")
+    actions = None
+    form = greenhouse_form_url(job)
+    if form:
+        # Only the company's own page is checked (it carries gh_jid); a LinkedIn link is left alone.
+        if _GH_JID.search(click) and _page_missing(click):
+            body_lines.append("Opens Greenhouse's application page (the company's page isn't up yet)")
+            actions = f"view, Company page, {click}"
+            click = form
+        else:
+            body_lines.append(f"If the page 404s, apply here: {form}")
+            actions = f"view, Greenhouse form, {form}"
     body = "\n".join(line for line in body_lines if line)
 
     try:
@@ -68,7 +124,8 @@ def push_job(job: dict, title_prefix: str = "") -> bool:
                 # ntfy renders the "star" shortcode as a real star in the
                 # notification list, so it is scannable without opening it.
                 "Tags": ("star," if starred else "") + _TIER_TAGS.get(tier, "yellow_circle"),
-                "Click": job.get("url", ""),
+                "Click": click,
+                **({"Actions": actions} if actions else {}),
             },
             timeout=10,
         )
