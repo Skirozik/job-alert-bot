@@ -30,6 +30,8 @@ import hashlib
 import html
 import logging
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
@@ -415,12 +417,149 @@ def fetch_workday_listings(company: str, token: str, full: bool = True,
             sort_report[token] = workday_sorted_by_date(page_medians)
 
 
+# amazon.jobs is Amazon's own site, with a JSON search behind it. "intern" as the
+# search text, one country, newest first, 100 per page. 97 U.S. hits on 2026-11-18,
+# so one page is the usual read; the cap keeps a surprise never costing more than
+# three requests. GitHub's runners are answered (checked the same day, 3 of 3).
+_AMAZON_SEARCH = "https://www.amazon.jobs/en/search.json"
+_AMAZON_PAGE = 100
+_AMAZON_MAX_PAGES = 3
+
+
+def _amazon_posted_at(posted: str | None) -> str | None:
+    """"November 14, 2026" (sometimes "November  2, 2026") -> ISO, midnight UTC."""
+    if not posted:
+        return None
+    try:
+        return datetime.strptime(posted.strip(), "%B %d, %Y").replace(tzinfo=timezone.utc).isoformat()
+    except ValueError:
+        return None
+
+
+def fetch_amazon_listings(company: str, token: str) -> list[dict]:
+    """token is the country code amazon.jobs filters on ("USA")."""
+    result: list[dict] = []
+    offset, hits = 0, None
+    try:
+        for _ in range(_AMAZON_MAX_PAGES):
+            resp = requests.get(
+                _AMAZON_SEARCH, headers=HEADERS, timeout=TIMEOUT,
+                params={"base_query": "intern", "normalized_country_code[]": token,
+                        "result_limit": _AMAZON_PAGE, "sort": "recent", "offset": offset},
+            )
+            if not resp.ok:
+                log.warning("Amazon fetch failed for %s at offset %d: HTTP %s", company, offset, resp.status_code)
+                break
+            data = resp.json() or {}
+            jobs = data.get("jobs") or []
+            hits = data.get("hits")
+            for j in jobs:
+                path = j.get("job_path") or ""
+                if not path:
+                    continue
+                city, state = j.get("city") or "", j.get("state") or ""
+                location = f"{city}, {state}" if city and state else (j.get("normalized_location") or j.get("location") or "")
+                desc = "\n\n".join(html.unescape(j[k]) for k in ("description", "basic_qualifications", "preferred_qualifications")
+                                   if j.get(k)) or None
+                job = _make_job(company, j.get("title", ""), location, "https://www.amazon.jobs" + path,
+                                desc, _amazon_posted_at(j.get("posted_date")))
+                if job:
+                    result.append(job)
+            offset += len(jobs)
+            if not jobs or (isinstance(hits, int) and offset >= hits):
+                break
+    except Exception as exc:
+        log.error("Amazon fetch error for %s: %s", company, exc)
+    return result
+
+
+# Eightfold career sites (Microsoft, Qualcomm, PayPal, Boston Scientific) answer
+# /api/pcsx/search with 10 positions a page whatever `num` says (checked with 100
+# and 200 on 2026-11-18). "intern" as the query text matches descriptions too, so
+# titles are checked here; the newest come first. Descriptions are not in the
+# list: external_descriptions reads one per new posting, as for every board whose
+# list has none. Eightfold rate-limits by address across all its sites, and tightly:
+# on 2026-11-18 two readers paging at once got HTTP 429, and so did a second site
+# read right after five pages of the first, four seconds apart. So the sites are
+# read one at a time, two seconds apart, a 429 is tried once more after a longer
+# wait, and a pass reads only the two newest pages (20 postings) per site: the list
+# is newest first, so a posting is missed only if a site lists more than twenty
+# intern roles between two passes. A one-time seed raises the page cap.
+_EIGHTFOLD_PAGE = 10
+_EIGHTFOLD_MAX_PAGES = 2
+_EIGHTFOLD_PAGE_PAUSE_S = 2.0
+_EIGHTFOLD_RETRY_PAUSE_S = 15.0
+_EIGHTFOLD_LOCK = threading.Lock()
+_INTERN_TITLE = re.compile(r"\bintern", re.I)
+
+
+def _eightfold_location(standardized) -> str:
+    """["Redmond, WA, US", "Mountain View, CA, US"] -> "Redmond, WA; Mountain View, CA".
+    Entries that are not city-state-US ("US" alone, "Markham, ON, CA") are left out;
+    a list with none of the full shape is joined as it came."""
+    places = []
+    for entry in standardized or []:
+        parts = [x.strip() for x in str(entry).split(",")]
+        if len(parts) == 3 and parts[2] == "US" and parts[0] and parts[1]:
+            places.append(f"{parts[0]}, {parts[1]}")
+    return "; ".join(dict.fromkeys(places)) or ", ".join(str(e) for e in standardized or [])
+
+
+def fetch_eightfold_listings(company: str, token: str) -> list[dict]:
+    """token is "host:domain", the site's hostname and the `domain` its own pages pass
+    the API ("apply.careers.microsoft.com:microsoft.com")."""
+    host, _, domain = token.partition(":")
+    if not host or not domain:
+        log.error("Eightfold token for %s must be host:domain, got %r", company, token)
+        return []
+    result: list[dict] = []
+    start = 0
+    retried = False
+    try:
+        with _EIGHTFOLD_LOCK:
+            for page_no in range(_EIGHTFOLD_MAX_PAGES):
+                resp = requests.get(
+                    f"https://{host}/api/pcsx/search", headers=HEADERS, timeout=TIMEOUT,
+                    params={"domain": domain, "query": "intern", "location": "United States",
+                            "start": start, "num": _EIGHTFOLD_PAGE, "hl": "en", "sort_by": "timestamp"},
+                )
+                if resp.status_code == 429 and not retried:
+                    retried = True
+                    log.info("Eightfold rate-limited %s (%s) at start %d; trying once more", company, host, start)
+                    time.sleep(_EIGHTFOLD_RETRY_PAUSE_S)
+                    continue
+                if not resp.ok:
+                    log.warning("Eightfold fetch failed for %s (%s) at start %d: HTTP %s", company, host, start, resp.status_code)
+                    break
+                data = (resp.json() or {}).get("data") or {}
+                positions = data.get("positions") or []
+                for p in positions:
+                    title = p.get("name") or ""
+                    path = p.get("positionUrl") or ""
+                    if not path or not _INTERN_TITLE.search(title):
+                        continue
+                    job = _make_job(company, title, _eightfold_location(p.get("standardizedLocations")),
+                                    f"https://{host}{path}", None, _epoch_ms_posted_at(p.get("postedTs")))
+                    if job:
+                        result.append(job)
+                start += len(positions)
+                count = data.get("count")
+                if not positions or (isinstance(count, int) and start >= count) or page_no == _EIGHTFOLD_MAX_PAGES - 1:
+                    break
+                time.sleep(_EIGHTFOLD_PAGE_PAUSE_S)
+    except Exception as exc:
+        log.error("Eightfold fetch error for %s (%s): %s", company, host, exc)
+    return result
+
+
 _FETCHERS = {
     "greenhouse": fetch_greenhouse_listings,
     "lever": fetch_lever_listings,
     "ashby": fetch_ashby_listings,
     "smartrecruiters": fetch_smartrecruiters_listings,
     "workday": fetch_workday_listings,
+    "amazon": fetch_amazon_listings,
+    "eightfold": fetch_eightfold_listings,
 }
 
 

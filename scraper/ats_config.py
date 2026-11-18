@@ -2,8 +2,8 @@
 
 Every entry below was verified live (real HTTP request, real job data
 returned) before being added here — see the project's ATS verification
-research. Platform must be one of the 4 handled by ats_sources.py:
-"greenhouse", "lever", "ashby", "smartrecruiters".
+research. Platform must be one handled by ats_sources.py: "greenhouse", "lever",
+"ashby", "smartrecruiters", "workday", "amazon", "eightfold".
 
 Companies were picked for a mix of stack fit (iOS/mobile, full-stack/web,
 Python/backend, AI-application — the candidate's strongest lanes) and broad
@@ -260,6 +260,68 @@ ATS_COMPANIES["Workday"] = {"platform": "workday", "token": "workday:wd5:Workday
 # title pre-filter stores the full-time ones in batches, and only internship
 # titles the bot has never seen go to the classifier.
 
+# Added 2026-11-18, from where the apply-worthy postings of the previous 45 days sent the
+# candidate to apply: each of these boards produced postings that reached the bot only
+# through LinkedIn or a GitHub tracker, days late. Every board was read live before being
+# added (postings / intern-titled postings on 2026-11-18). Seeded the same day, so the
+# postings already on them were stored without a classifier call.
+ATS_COMPANIES["The New York Times"] = {"platform": "greenhouse", "token": "thenewyorktimes"}  # 160 / 22
+ATS_COMPANIES["Skydio"] = {"platform": "ashby", "token": "skydio"}  # 189 / 30
+ATS_COMPANIES["Bosch"] = {"platform": "smartrecruiters", "token": "boschgroup"}  # 5084 / 12 (newest 100 read per pass)
+ATS_COMPANIES["NBCUniversal"] = {"platform": "smartrecruiters", "token": "nbcuniversal3"}  # 536 / 18
+ATS_COMPANIES["1Password"] = {"platform": "ashby", "token": "1password"}  # 76 / 0
+ATS_COMPANIES["Amplify"] = {"platform": "ashby", "token": "amplify"}  # 33 / 13
+ATS_COMPANIES["Inversion Space"] = {"platform": "greenhouse", "token": "inversionspace"}  # 65 / 7
+ATS_COMPANIES["DriveWealth"] = {"platform": "greenhouse", "token": "drivewealth"}  # 25 / 3
+ATS_COMPANIES["Lightmatter"] = {"platform": "greenhouse", "token": "lightmatter"}  # 71 / 14
+ATS_COMPANIES["Zoox"] = {"platform": "lever", "token": "zoox"}  # 242 / 17
+ATS_COMPANIES["Muon Space"] = {"platform": "greenhouse", "token": "muonspace"}  # 141 / 16
+ATS_COMPANIES["Graphcore"] = {"platform": "greenhouse", "token": "graphcore"}  # 194 / 10
+ATS_COMPANIES["Addepar"] = {"platform": "greenhouse", "token": "addepar1"}  # 120 / 8
+ATS_COMPANIES["Ursa Major"] = {"platform": "greenhouse", "token": "ursamajor"}  # 132 / 8
+ATS_COMPANIES["Reliable Robotics"] = {"platform": "ashby", "token": "reliable-robotics"}  # 78 / 16
+ATS_COMPANIES["Allen Institute for AI"] = {"platform": "greenhouse", "token": "thealleninstitute"}  # 20 / 4
+ATS_COMPANIES["Match Group"] = {"platform": "lever", "token": "matchgroup"}  # 69 / 13
+ATS_COMPANIES["CapTech"] = {"platform": "smartrecruiters", "token": "captechconsulting"}  # 108 / 4
+ATS_COMPANIES["Patreon"] = {"platform": "ashby", "token": "patreon"}  # 22 / 3
+ATS_COMPANIES["Field AI"] = {"platform": "lever", "token": "field-ai"}  # 95 / 6
+ATS_COMPANIES["Hive Financial Systems"] = {"platform": "greenhouse", "token": "hivefinancialsystems"}  # 7 / 4
+ATS_COMPANIES["Intuitive"] = {"platform": "smartrecruiters", "token": "intuitive"}  # 856 / 5
+ATS_COMPANIES["Formlabs"] = {"platform": "greenhouse", "token": "formlabs"}  # 266 / 34
+ATS_COMPANIES["Sigma Computing"] = {"platform": "greenhouse", "token": "sigmacomputing"}  # 82 / 6
+ATS_COMPANIES["Pattern"] = {"platform": "lever", "token": "pattern"}  # 92 / 6
+ATS_COMPANIES["Schonfeld"] = {"platform": "greenhouse", "token": "schonfeld"}  # 72 / 17
+ATS_COMPANIES["Toyota Research Institute"] = {"platform": "lever", "token": "tri"}  # 47 / 37
+ATS_COMPANIES["HP IQ"] = {"platform": "greenhouse", "token": "hpiq"}  # 30 / 7
+ATS_COMPANIES["Commonwealth Fusion Systems"] = {"platform": "lever", "token": "cfsenergy"}  # 136 / 19
+ATS_COMPANIES["Samsung Research America"] = {"platform": "greenhouse", "token": "samsungresearchamericainternship"}  # 4 / 3
+ATS_COMPANIES["Capstone Investment Advisors"] = {"platform": "greenhouse", "token": "capstoneinvestmentadvisors"}  # 13 / 7
+ATS_COMPANIES["Hasbro"] = {"platform": "greenhouse", "token": "hasbro"}  # 95 / 6
+ATS_COMPANIES["Veeam"] = {"platform": "greenhouse", "token": "veeamsoftware"}  # 208 / 16
+ATS_COMPANIES["Crusoe"] = {"platform": "ashby", "token": "crusoe"}  # 323 / 7
+ATS_COMPANIES["Western Digital"] = {"platform": "smartrecruiters", "token": "westerndigital"}  # 327 / 4
+ATS_COMPANIES["Figure AI"] = {"platform": "greenhouse", "token": "figureai"}  # 104 / 11
+ATS_COMPANIES["Together AI"] = {"platform": "greenhouse", "token": "togetherai"}  # 73 / 3
+ATS_COMPANIES["STR"] = {"platform": "greenhouse", "token": "systemstechnologyresearch"}  # 148 / 2
+ATS_COMPANIES["Twitch"] = {"platform": "greenhouse", "token": "twitch"}  # 52 / 6
+ATS_COMPANIES["Qube Research & Technologies"] = {"platform": "greenhouse", "token": "quberesearchandtechnologies"}  # 203 / 15
+ATS_COMPANIES["KnowBe4"] = {"platform": "greenhouse", "token": "knowbe4"}  # 55 / 11
+ATS_COMPANIES["SharkNinja"] = {"platform": "greenhouse", "token": "sharkninjaoperatingllc"}  # 157 / 20
+ATS_COMPANIES["Rubrik"] = {"platform": "greenhouse", "token": "rubrik"}  # 195 / 11
+ATS_COMPANIES["Wing"] = {"platform": "greenhouse", "token": "wing"}  # 45 / 12
+ATS_COMPANIES["SageSure"] = {"platform": "greenhouse", "token": "sagesure"}  # 21 / 10
+ATS_COMPANIES["PrizePicks"] = {"platform": "greenhouse", "token": "prizepicks"}  # 32 / 3
+
+# Two more site kinds, added 2026-11-18. amazon.jobs and the Eightfold career sites
+# have JSON searches of their own (ats_sources.fetch_amazon_listings and
+# fetch_eightfold_listings); both answered GitHub's runners 3 of 3 that day. Numbers
+# are U.S. "intern" search hits when added.
+ATS_COMPANIES["Amazon"] = {"platform": "amazon", "token": "USA"}  # 97
+ATS_COMPANIES["Microsoft"] = {"platform": "eightfold", "token": "apply.careers.microsoft.com:microsoft.com"}  # 50
+ATS_COMPANIES["Qualcomm"] = {"platform": "eightfold", "token": "qualcomm.eightfold.ai:qualcomm.com"}  # 21
+ATS_COMPANIES["PayPal"] = {"platform": "eightfold", "token": "paypal.eightfold.ai:paypal.com"}  # 6
+ATS_COMPANIES["Boston Scientific"] = {"platform": "eightfold", "token": "bostonscientific.eightfold.ai:bostonscientific.com"}  # 8
+
 # Guard against a silently-truncated edit. Must stay at the END of the file:
 # the previous assertion sat above later additions and validated a stale count.
-assert len(ATS_COMPANIES) == 160, f"expected 160 companies, got {len(ATS_COMPANIES)}"
+assert len(ATS_COMPANIES) == 211, f"expected 211 companies, got {len(ATS_COMPANIES)}"
