@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Image from 'next/image'
 import type { Job, Status } from '@/types/job'
+import { greenhouseFormUrl } from '@/lib/greenhouseForm'
 
 const TIER_BADGE: Record<string, string> = {
   APPLY: 'bg-green-500/20 text-green-400 border border-green-500/30',
@@ -36,6 +37,7 @@ export function JobCard({
   const [pending, setPending] = useState(false)
   const [saveError, setSaveError] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const greenhouseForm = greenhouseFormUrl(job)
 
   async function setStatus(status: Status) {
     setPending(true)
@@ -212,6 +214,17 @@ export function JobCard({
           >
             {job.is_easy_apply ? 'Easy Apply ↗' : 'Apply ↗'}
           </a>
+          {greenhouseForm && (
+            <a
+              href={greenhouseForm}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Greenhouse's own application form, in case the company's page is not up yet"
+              className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors"
+            >
+              Greenhouse form ↗
+            </a>
+          )}
           <button
             onClick={() => setStatus('applied')}
             disabled={pending || currentStatus === 'applied'}

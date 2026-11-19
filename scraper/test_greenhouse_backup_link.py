@@ -9,6 +9,7 @@ same posting was live. Offline: the ntfy post and the page check are both stubbe
 Run: cd scraper && python test_greenhouse_backup_link.py
 """
 
+import json
 import sys
 import types
 from pathlib import Path
@@ -16,6 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import notifier
+
+FIXTURE = Path(__file__).parent.parent / "fixtures" / "greenhouse_form_links.json"
 
 _fails = 0
 _ran = 0
@@ -75,6 +78,16 @@ check("a company-site link without gh_jid gets none",
 linkedin = {**AIRBNB, "id": "li:1", "url": "https://www.linkedin.com/jobs/view/4450000001/"}
 check("a LinkedIn row whose apply link is Airbnb's page still gets the form (from apply_url)",
       notifier.greenhouse_form_url(linkedin) == AIRBNB_FORM, notifier.greenhouse_form_url(linkedin))
+
+print("\n-- shared fixture: python must match web/lib/greenhouseForm.ts exactly --")
+# Every case here is also run by web/lib/__tests__/greenhouseForm.test.mjs, so
+# the alert and the dashboard cannot drift apart on which postings get the
+# form, or what the link is, without a red test in one suite or the other.
+cases = json.loads(FIXTURE.read_text(encoding="utf-8"))["cases"]
+check("the fixture is not empty", len(cases) > 0)
+for case in cases:
+    got = notifier.greenhouse_form_url(case["job"])
+    check(case["name"], got == case["expected"], f"expected {case['expected']!r}, got {got!r}")
 
 print("\n-- the company page is up: tap opens it, the form is a button --")
 page.update({"status": 200, "raise": None})

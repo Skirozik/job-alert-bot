@@ -115,11 +115,15 @@ def definitive_target_key(job: dict) -> str | None:
         m = _GREENHOUSE_PATH.search(path)
         if m:
             return f"greenhouse:{m.group(1).lower()}:{m.group(2)}"
-        # dupes.ts also accepts the ?gh_jid= form, keyed by host because the
-        # board token is not in the path there.
-        for key, value in _query_pairs(parts.query):
-            if key == "gh_jid" and value:
-                return f"greenhouse:{host}:{value}"
+    # The ?gh_jid= form, on any host: Greenhouse's embed parameter, carrying the
+    # job's Greenhouse id, on the company's own careers page (careers.airbnb.com,
+    # careers.withwaymo.com) as well as on greenhouse.io. Keyed by host because the
+    # board token is not in the URL there. Until 2026-11 only greenhouse.io hosts
+    # were accepted, so Waymo's board row and the tracker's row for one posting,
+    # both careers.withwaymo.com/jobs?gh_jid=..., had no key and were never matched.
+    for key, value in _query_pairs(parts.query):
+        if key == "gh_jid" and value.isdigit():
+            return f"greenhouse:{host}:{value}"
 
     m = _LEVER_ID.search(path)
     if host.endswith("lever.co") and m:

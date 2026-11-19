@@ -1,0 +1,116 @@
+{
+  "_comment": [
+    "Shared contract between scraper/notifier.py greenhouse_form_url (Python)",
+    "and web/lib/greenhouseForm.ts greenhouseFormUrl (TypeScript). Both are",
+    "asserted against this file, so the phone alert and the dashboard cannot",
+    "disagree about which postings get a Greenhouse backup link, or what it is.",
+    "",
+    "A company whose board in scraper/ats_config.py is Greenhouse, and whose",
+    "link is on the company's own site carrying ?gh_jid=<id>, gets Greenhouse's",
+    "embedded form for the same posting. Every other row gets null. The url is",
+    "checked first, then apply_url. Board tokens come from ats_config.py, which",
+    "web/lib/greenhouse_boards.json mirrors."
+  ],
+
+  "cases": [
+    {
+      "name": "Airbnb's company-site link with gh_jid gives Greenhouse's form for the same posting",
+      "job": {
+        "company": "Airbnb",
+        "url": "https://careers.airbnb.com/positions/8360478?gh_jid=8360478",
+        "apply_url": "https://careers.airbnb.com/positions/8360478?gh_jid=8360478"
+      },
+      "expected": "https://job-boards.greenhouse.io/embed/job_app?for=airbnb&token=8360478"
+    },
+    {
+      "name": "a link already on a greenhouse.io host needs no backup",
+      "job": {
+        "company": "Airbnb",
+        "url": "https://job-boards.greenhouse.io/airbnb/jobs/8360478?gh_jid=8360478",
+        "apply_url": "https://job-boards.greenhouse.io/airbnb/jobs/8360478?gh_jid=8360478"
+      },
+      "expected": null
+    },
+    {
+      "name": "a boards.greenhouse.io link is on Greenhouse too",
+      "job": {
+        "company": "Stripe",
+        "url": "https://boards.greenhouse.io/stripe/jobs/7000001?gh_jid=7000001",
+        "apply_url": null
+      },
+      "expected": null
+    },
+    {
+      "name": "a company that is not a Greenhouse board gets none, even with gh_jid in the link",
+      "job": {
+        "company": "Some Startup",
+        "url": "https://careers.example.com/positions/8360478?gh_jid=8360478",
+        "apply_url": null
+      },
+      "expected": null
+    },
+    {
+      "name": "a company on another ATS (Snowflake, Ashby) gets none",
+      "job": {
+        "company": "Snowflake",
+        "url": "https://careers.snowflake.com/us/en/job/123?gh_jid=123",
+        "apply_url": null
+      },
+      "expected": null
+    },
+    {
+      "name": "a Greenhouse company whose company-site link has no gh_jid gets none",
+      "job": {
+        "company": "Airbnb",
+        "url": "https://careers.airbnb.com/positions/8360478",
+        "apply_url": null
+      },
+      "expected": null
+    },
+    {
+      "name": "gh_jid present only in apply_url still gives the form (a LinkedIn row)",
+      "job": {
+        "company": "Airbnb",
+        "url": "https://www.linkedin.com/jobs/view/4450000001/",
+        "apply_url": "https://careers.airbnb.com/positions/8360478?gh_jid=8360478"
+      },
+      "expected": "https://job-boards.greenhouse.io/embed/job_app?for=airbnb&token=8360478"
+    },
+    {
+      "name": "gh_jid as a later query parameter is read too",
+      "job": {
+        "company": "Stripe",
+        "url": "https://stripe.com/jobs/listing/software-engineer-intern/7000001?utm_source=x&gh_jid=7000001",
+        "apply_url": null
+      },
+      "expected": "https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=7000001"
+    },
+    {
+      "name": "a board whose token differs from its name uses the token (Scale AI)",
+      "job": {
+        "company": "Scale AI",
+        "url": "https://scale.com/careers/4400000?gh_jid=4400000",
+        "apply_url": null
+      },
+      "expected": "https://job-boards.greenhouse.io/embed/job_app?for=scaleai&token=4400000"
+    },
+    {
+      "name": "a non-numeric gh_jid is not a Greenhouse id",
+      "job": {
+        "company": "Airbnb",
+        "url": "https://careers.airbnb.com/positions/abc?gh_jid=abc",
+        "apply_url": null
+      },
+      "expected": null
+    },
+    {
+      "name": "a missing company and empty links do not throw",
+      "job": {
+        "company": null,
+        "url": null,
+        "apply_url": null
+      },
+      "expected": null
+    }
+  ]
+}

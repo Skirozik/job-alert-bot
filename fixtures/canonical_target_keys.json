@@ -12,7 +12,6 @@
     "URLs are real, taken from web/lib/__tests__/dupes.test.mjs and from",
     "scraper/ats_config.py's platforms."
   ],
-
   "cases": [
     {
       "name": "workday: locale + tenant-path variants of one Chevron req",
@@ -136,6 +135,34 @@
     {
       "name": "NOT DEFINITIVE: malformed URL is not evidence two rows match",
       "url": "not a url at all",
+      "apply_url": null,
+      "is_easy_apply": false,
+      "expected": null
+    },
+    {
+      "name": "greenhouse: gh_jid on the company's own careers page (Waymo board row)",
+      "url": "https://careers.withwaymo.com/jobs?gh_jid=8258070",
+      "apply_url": null,
+      "is_easy_apply": false,
+      "expected": "greenhouse:careers.withwaymo.com:8258070"
+    },
+    {
+      "name": "greenhouse: the tracker's copy of the same posting, tracking params and all",
+      "url": "https://careers.withwaymo.com/jobs?gh_jid=8258070&utm_source=Simplify&ref=Simplify",
+      "apply_url": null,
+      "is_easy_apply": false,
+      "expected": "greenhouse:careers.withwaymo.com:8258070"
+    },
+    {
+      "name": "greenhouse: gh_jid on a greenhouse.io host, keyed by host",
+      "url": "https://boards.greenhouse.io/embed/job_app?for=airbnb&token=8360478",
+      "apply_url": "https://job-boards.greenhouse.io/embed/job_app?gh_jid=8360478&for=airbnb",
+      "is_easy_apply": false,
+      "expected": "greenhouse:job-boards.greenhouse.io:8360478"
+    },
+    {
+      "name": "greenhouse: a gh_jid that is not a number proves nothing",
+      "url": "https://careers.example.com/jobs?gh_jid=latest",
       "apply_url": null,
       "is_easy_apply": false,
       "expected": null

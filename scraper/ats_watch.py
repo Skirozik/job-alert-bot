@@ -45,6 +45,7 @@ from db import (QuotaExceeded, StateUnavailable, find_unknown_candidates, job_no
                 make_norm_key, start_run, finish_run, insert_job, insert_jobs, read_state, set_state)
 from main import (process_job, _freshest_first, _is_senior_role, _is_new_grad_role,
                   _is_non_internship_title)
+from target_key import definitive_target_key
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,29 +67,60 @@ _FULL_SWEEP_DAY_KEY = "ats_full_sweep_day"
 _UNSORTED_KEY = "ats_workday_unsorted"
 
 
-# Tesla's careers site refuses GitHub's runners (Akamai), so the owner's Mac reads
-# it (tesla_relay.py) and leaves the U.S. internships the database has not seen in
-# bot_state. Read every pass: the value is a few rows, and empty most of the time.
+# Relays: sources GitHub's runners cannot read, read from the owner's Mac instead.
+# Tesla's careers site refuses the runners outright (Akamai), and every Workday
+# board has answered them HTTP 429 since 2026-11-16. tesla_relay.py and
+# workday_relay.py run on the Mac every few minutes and leave the postings the
+# database has not seen in bot_state. Read every pass: each value is a few rows,
+# and empty most of the time.
 TESLA_RELAY_KEY = "tesla_relay"
-TESLA_RELAY_STALE_MINUTES = 30
+WORKDAY_RELAY_KEY = "workday_relay"
+RELAY_STALE_MINUTES = 30
+TESLA_RELAY_STALE_MINUTES = RELAY_STALE_MINUTES
 
 
-def _tesla_relay_rows(now: datetime) -> list[dict]:
-    raw = read_state(TESLA_RELAY_KEY)
+def _relay_rows(key: str, label: str, now: datetime, accept) -> tuple[list[dict], float | None]:
+    """(the well-formed rows a relay left under key, minutes since the Mac read the
+    source). The age is None when there is no relay payload at all."""
+    raw = read_state(key)
     if not raw:
-        return []
+        return [], None
     payload = json.loads(raw)
     at = datetime.fromisoformat(payload["at"])
     age_min = (now - at).total_seconds() / 60
     rows = [j for j in payload.get("jobs") or []
             if isinstance(j, dict) and str(j.get("id", "")).startswith("ats:")
-            and j.get("title") and j.get("url") and j.get("company") == "Tesla"]
-    log.info("Tesla relay: %s U.S. internships listed, %s not yet stored, %d handed over, read %.0f min ago",
-             payload.get("listed"), payload.get("unseen", "?"), len(rows), age_min)
-    if age_min > TESLA_RELAY_STALE_MINUTES:
-        log.warning("Tesla relay is %.0f minutes old: the Mac that reads Tesla is asleep, off, "
-                    "or being refused", age_min)
-    return rows
+            and j.get("title") and j.get("url") and accept(j)]
+    log.info("%s relay: %s listed, %s not yet stored, %d handed over, read %.0f min ago",
+             label, payload.get("listed"), payload.get("unseen", "?"), len(rows), age_min)
+    if age_min > RELAY_STALE_MINUTES:
+        log.warning("%s relay is %.0f minutes old: the Mac that reads %s is asleep, off, "
+                    "or being refused", label, age_min, label)
+    return rows, age_min
+
+
+def _tesla_relay_rows(now: datetime) -> list[dict]:
+    return _relay_rows(TESLA_RELAY_KEY, "Tesla", now, lambda j: j.get("company") == "Tesla")[0]
+
+
+def _workday_relay_rows(now: datetime) -> tuple[list[dict], float | None]:
+    """Rows for the companies whose board in ats_config.py is a Workday board, and
+    how old the relay is: while it is fresh, the runner leaves those boards to it."""
+    def is_workday(job: dict) -> bool:
+        return (ATS_COMPANIES.get(job.get("company") or "") or {}).get("platform") == "workday"
+    return _relay_rows(WORKDAY_RELAY_KEY, "Workday", now, is_workday)
+
+
+def title_gate(title: str) -> str | None:
+    """The INELIGIBLE reason a title alone earns, or None when it goes to the model.
+    One function, so the watcher and the relays rule out exactly the same titles."""
+    if _is_senior_role(title):
+        return "Pre-filtered: seniority keyword in title"
+    if _is_new_grad_role(title):
+        return "Pre-filtered: new grad / full-time role, not an internship"
+    if _is_non_internship_title(title):
+        return "Pre-filtered: no internship marker in title"
+    return None
 
 
 def _full_sweep_due(now: datetime) -> bool:
@@ -124,6 +156,12 @@ def _record_full_sweep(now: datetime, sort_report: dict) -> None:
     A board whose read could not tell (None, e.g. it failed part-way) keeps its
     previous verdict rather than silently losing it."""
     set_state(_FULL_SWEEP_DAY_KEY, now.date().isoformat())
+    _record_unsorted(sort_report)
+
+
+def _record_unsorted(sort_report: dict) -> None:
+    """Save which Workday boards a full read found not sorted newest first. Also
+    called by workday_relay.py after its own full reads."""
     previous = _stored_unsorted()
     unsorted = sorted(t for t in set(sort_report) | previous
                       if sort_report.get(t) is False or (sort_report.get(t) is None and t in previous))
@@ -132,12 +170,16 @@ def _record_full_sweep(now: datetime, sort_report: dict) -> None:
         log.info("Workday boards not sorted newest first, read in full every pass: %s", ", ".join(unsorted))
 
 
-def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str]) -> tuple[int, int]:
+def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str],
+           seen_target_keys: set[str] | None = None) -> tuple[int, int]:
     """Dedup, pre-filter, classify and push one batch of listings. Returns (new, notified).
-    seen_ids/seen_norm_keys carry across the batches of one pass, so a posting listed by two
-    sources in the same pass (the Apple students page and Apple's sitemap) is handled once."""
+    seen_ids/seen_norm_keys/seen_target_keys carry across the batches of one pass, so a
+    posting listed by two sources in the same pass (the Apple students page and Apple's
+    sitemap, a tracker and the company's board) is handled once."""
     if not listings:
         return 0, 0
+    if seen_target_keys is None:
+        seen_target_keys = set()
 
     # norm_key has to exist before the dedup call, because the answer is
     # computed server-side from both keys.
@@ -164,20 +206,20 @@ def _sweep(listings: list[dict], seen_ids: set[str], seen_norm_keys: set[str]) -
         if job["id"] not in unknown:
             continue
         nk = job["norm_key"]
-        if job["id"] in seen_ids or nk in seen_norm_keys:
+        # The provable identity too (see db._known_by_target): a tracker row and the
+        # board's own row for one posting can arrive in the same pass under two titles.
+        tk = definitive_target_key(job)
+        if job["id"] in seen_ids or nk in seen_norm_keys or (tk and tk in seen_target_keys):
             continue
         seen_ids.add(job["id"])
         seen_norm_keys.add(nk)
+        if tk:
+            seen_target_keys.add(tk)
 
         # Same pre-filter as the main LinkedIn scan — a full company
         # board dump includes every level/role, not just internships.
-        if _is_senior_role(job["title"]):
-            reason = "Pre-filtered: seniority keyword in title"
-        elif _is_new_grad_role(job["title"]):
-            reason = "Pre-filtered: new grad / full-time role, not an internship"
-        elif _is_non_internship_title(job["title"]):
-            reason = "Pre-filtered: no internship marker in title"
-        else:
+        reason = title_gate(job["title"])
+        if reason is None:
             to_classify.append(job)
             continue
         job["tier"] = "INELIGIBLE"
@@ -212,6 +254,7 @@ def run():
     total_raw = 0
     seen_ids: set[str] = set()
     seen_norm_keys: set[str] = set()
+    seen_target_keys: set[str] = set()
     try:
         # Apple's student postings first, every pass: page 1 of its U.S.
         # internships page is one request, and a new posting is pushed before
@@ -238,7 +281,7 @@ def run():
                 log.error("Apple page health not recorded: %s", exc2)
         if apple and apple.rows:
             try:
-                n, k = _sweep(apple.rows, seen_ids, seen_norm_keys)
+                n, k = _sweep(apple.rows, seen_ids, seen_norm_keys, seen_target_keys)
                 new_jobs, notified, total_raw = new_jobs + n, notified + k, total_raw + len(apple.rows)
             except QuotaExceeded:
                 raise
@@ -256,7 +299,7 @@ def run():
         # Google's U.S. internships list next, also one request, before the board
         # sweep for the same reason. google_watch.check keeps its own three guards.
         try:
-            n, k, raw = google_watch.check(lambda rows: _sweep(rows, seen_ids, seen_norm_keys))
+            n, k, raw = google_watch.check(lambda rows: _sweep(rows, seen_ids, seen_norm_keys, seen_target_keys))
             new_jobs, notified, total_raw = new_jobs + n, notified + k, total_raw + raw
         except QuotaExceeded:
             raise
@@ -267,18 +310,40 @@ def run():
         try:
             rows = _tesla_relay_rows(datetime.now(timezone.utc))
             if rows:
-                n, k = _sweep(rows, seen_ids, seen_norm_keys)
+                n, k = _sweep(rows, seen_ids, seen_norm_keys, seen_target_keys)
                 new_jobs, notified, total_raw = new_jobs + n, notified + k, total_raw + len(rows)
         except QuotaExceeded:
             raise
         except Exception as exc:
             log.error("Tesla relay skipped this pass: %s", exc)
 
+        # The Workday boards, as relayed from the Mac. While the relay is fresh the
+        # runner leaves those boards to it (every one has answered the runners HTTP
+        # 429 since 2026-11-16, and a read that is refused still costs a request per
+        # board); once it goes quiet the runner tries them itself again.
+        workday_relayed = False
+        try:
+            rows, age_min = _workday_relay_rows(datetime.now(timezone.utc))
+            workday_relayed = age_min is not None and age_min <= RELAY_STALE_MINUTES
+            if rows:
+                n, k = _sweep(rows, seen_ids, seen_norm_keys, seen_target_keys)
+                new_jobs, notified, total_raw = new_jobs + n, notified + k, total_raw + len(rows)
+        except QuotaExceeded:
+            raise
+        except Exception as exc:
+            log.error("Workday relay skipped this pass: %s", exc)
+
+        boards = ATS_COMPANIES
+        if workday_relayed:
+            boards = {name: cfg for name, cfg in ATS_COMPANIES.items() if cfg["platform"] != "workday"}
+            log.info("Workday boards: left to the Mac relay this pass (%d of %d boards)",
+                     len(ATS_COMPANIES) - len(boards), len(ATS_COMPANIES))
+
         now = datetime.now(timezone.utc)
         full = _full_sweep_due(now)
         sort_report: dict = {}
         listings = fetch_all_listings(
-            ATS_COMPANIES, full=full,
+            boards, full=full,
             always_full=frozenset() if full else _always_full_tokens(),
             sort_report=sort_report if full else None,
         )
@@ -307,7 +372,7 @@ def run():
         # checks below, which must not wait for whatever broke the boards.
         sweep_error = None
         try:
-            n, k = _sweep(listings, seen_ids, seen_norm_keys)
+            n, k = _sweep(listings, seen_ids, seen_norm_keys, seen_target_keys)
             new_jobs, notified = new_jobs + n, notified + k
         except QuotaExceeded:
             raise

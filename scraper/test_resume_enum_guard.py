@@ -19,6 +19,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 import classifier
 
+# CI sets CLASSIFIER_MODEL; a bare local run would otherwise park every job before the
+# stubbed client is ever called, and the checks below would fail for the wrong reason.
+classifier.MODEL = classifier.MODEL or "offline-model"
+
 # The real profile is a secret, not in the repo; these checks never read it.
 classifier._profile = "(test profile)"
 

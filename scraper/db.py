@@ -404,7 +404,52 @@ def find_unknown_candidates(jobs: Iterable[dict], batch_size: int = 5000) -> set
         log.error("Candidate dedup lookup failed (%s) — treating every candidate as new", exc)
         return set(ids)
 
+    if unknown:
+        unknown -= _known_by_target(client, rows, unknown)
     return unknown
+
+
+def _known_by_target(client, rows: list[dict], unknown: set[str]) -> set[str]:
+    """The ids in unknown whose application target is already stored under another title.
+
+    The RPC matches id and norm_key, and norm_key is built from the title. So one
+    posting reaching us under two titles gets two rows: Waymo's "Research Scientist
+    Intern" from a GitHub tracker and "Research Scientist Intern, PhD" from Waymo's
+    own board were the same Greenhouse job (same gh_jid), and the shorter title was
+    classified APPLY and pushed after the board's copy had been ruled INELIGIBLE
+    (2026-11). target_key is the provable identity (target_key.py: the LinkedIn id,
+    the Workday requisition, the Greenhouse job id, ...), so a candidate whose target
+    is stored is known whatever its title says. One indexed query per hundred
+    targets, only for candidates the RPC called new, which are few.
+
+    Fails open, like the RPC call: on any error nothing is dropped.
+    """
+    by_target: dict[str, list[str]] = {}
+    for j in rows:
+        job_id = str(j.get("id") or "")
+        if job_id not in unknown:
+            continue
+        key = j.get("target_key") or definitive_target_key(j)
+        if key:
+            by_target.setdefault(key, []).append(job_id)
+    if not by_target:
+        return set()
+
+    keys = list(by_target)
+    known: set[str] = set()
+    try:
+        for offset in range(0, len(keys), 100):
+            result = (client.table("jobs").select("target_key")
+                      .in_("target_key", keys[offset:offset + 100]).execute())
+            for row in result.data or []:
+                known.update(by_target.get(row.get("target_key") or "", []))
+    except Exception as exc:
+        _raise_if_quota(exc)
+        log.error("Target-key dedup lookup failed (%s) — keeping every candidate as new", exc)
+        return set()
+    if known:
+        log.info("%d candidate(s) already stored under another title (same application target)", len(known))
+    return known
 
 
 def get_job_row(job_id: str) -> Optional[dict]:

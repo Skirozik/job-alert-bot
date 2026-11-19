@@ -341,6 +341,7 @@ w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
 w._full_sweep_due = lambda now: False
 w._always_full_tokens = lambda: frozenset()
 w._tesla_relay_rows = lambda now: []
+w._workday_relay_rows = lambda now: ([], None)
 main.claim_notification = fake_claim
 w.find_unknown_candidates = fake_unknown
 w.start_run = lambda source="ats": 1

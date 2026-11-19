@@ -190,7 +190,7 @@ w.finish_run = lambda run_id, **kw: None
 w.fetch_all_listings = lambda cfg, **kw: []
 w._full_sweep_due = lambda now: False
 w._always_full_tokens = lambda: frozenset()
-w._sweep = lambda rows, ids, nks: (swept.append([r["id"] for r in rows]), (len(rows), 0))[1]
+w._sweep = lambda rows, ids, nks, tks=None: (swept.append([r["id"] for r in rows]), (len(rows), 0))[1]
 w.career_sitemaps.collect_listings = lambda force=False, apple_sitemap=None: []
 w.career_sitemaps.collect_apple_students = lambda force=False, full=False, seen_reqs=None: w.career_sitemaps.AppleStudents()
 w.apple_watch.seen_reqs = lambda: set()

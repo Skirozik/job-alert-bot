@@ -374,10 +374,13 @@ export function canonicalTargetKey(job: Job): string {
 
     if (host.includes('greenhouse.io')) {
       const pathMatch = /\/([^/]+)\/jobs\/(\d+)/i.exec(decodedPath)
-      const queryId = url.searchParams.get('gh_jid')
       if (pathMatch) return `greenhouse:${pathMatch[1].toLowerCase()}:${pathMatch[2]}`
-      if (queryId) return `greenhouse:${host}:${queryId}`
     }
+    // The ?gh_jid= form on any host: Greenhouse's embed parameter on the company's
+    // own careers page (careers.airbnb.com, careers.withwaymo.com) as well as on
+    // greenhouse.io. Keyed by host because the board token is not in the URL there.
+    const queryId = url.searchParams.get('gh_jid')
+    if (queryId && /^\d+$/.test(queryId)) return `greenhouse:${host}:${queryId}`
 
     const leverId = /\/([0-9a-f]{8}-[0-9a-f-]{27,})(?:\/apply)?$/i.exec(decodedPath)?.[1]
     if (host.endsWith('lever.co') && leverId) return `lever:${leverId.toLowerCase()}`

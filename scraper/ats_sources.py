@@ -238,6 +238,12 @@ WORKDAY_UNSORTED_COMPANIES = frozenset({"Adobe", "Cisco", "CrowdStrike", "Intel"
 # means the board is not sorted by date. Slack for ties and the odd pinned post.
 _WORKDAY_SORT_SLACK_DAYS = 3
 
+# Workday rate-limits a burst of page requests even from a home connection: a
+# full read of the 44 boards on 2026-11-19 got two HTTP 429s in ~1,800 pages
+# (BlackRock at offset 100, Northrop Grumman at 3720), each cutting a board
+# short. One retry after a pause recovers the page; a second 429 ends the read.
+_WORKDAY_RETRY_PAUSE_S = 10.0
+
 _WORKDAY_DAYS_AGO = re.compile(r"(\d+)\+?\s+days?\s+ago", re.I)
 
 
@@ -327,19 +333,51 @@ def fetch_workday_listings(company: str, token: str, full: bool = True,
     these jobs come back with description=None and are classified on
     title/company/location.
     """
+    result: list[dict] = []
+    page_medians: list[float] = []
+    try:
+        for jobs, ages in iter_workday_pages(company, token):
+            result.extend(jobs)
+            known = [a for a in ages if a is not None]
+            if known:
+                page_medians.append(_median(known))
+
+            # The whole page is old, and every age on it was readable: on a
+            # newest-first board nothing further down is new.
+            if (not full and len(known) == len(ages)
+                    and all(a > WORKDAY_RECENT_DAYS for a in known)):
+                break
+        return result
+    finally:
+        if sort_report is not None and full:
+            sort_report[token] = workday_sorted_by_date(page_medians)
+
+
+def iter_workday_pages(company: str, token: str):
+    """The pages of a Workday board, newest first, as (jobs, ages) pairs.
+
+    Token format: see fetch_workday_listings. Each page is one POST of
+    _WORKDAY_PAGE_SIZE postings; ages holds the age in days of every posting
+    on the page (None where Workday gave no readable date), in the same order
+    the board listed them. The generator ends at the board's last page, on a
+    request that fails (the pages before it have already been handed out, so
+    a page-3 blip does not discard 40 good jobs), and when Workday wraps back
+    to postings already seen. The consumer decides how far to read:
+    fetch_workday_listings stops at the first page that is entirely old,
+    workday_relay.py at the first page the database already knows in full.
+    """
     parts = token.split(":")
     if len(parts) != 3 or not all(p.strip() for p in parts):
         log.error("Workday token for %s must be 'tenant:host:site', got %r — skipping", company, token)
-        return []
+        return
     tenant, host, site = (p.strip() for p in parts)
 
     base = f"https://{tenant}.{host}.myworkdayjobs.com"
     endpoint = f"{base}/wday/cxs/{tenant}/{site}/jobs"
     headers = {**HEADERS, "Accept": "application/json", "Content-Type": "application/json"}
 
-    result: list[dict] = []
     seen_paths: set[str] = set()
-    page_medians: list[float] = []
+    retried = False
     try:
         offset = 0
         total: int | None = None
@@ -350,17 +388,22 @@ def fetch_workday_listings(company: str, token: str, full: bool = True,
                       "offset": offset, "searchText": ""},
                 headers=headers, timeout=TIMEOUT,
             )
+            if resp.status_code == 429 and not retried:
+                retried = True
+                log.info("Workday rate-limited %s (token=%s) at offset %d; trying once more",
+                         company, token, offset)
+                time.sleep(_WORKDAY_RETRY_PAUSE_S)
+                continue
             if not resp.ok:
-                # Keep whatever earlier pages produced — a page-3 blip
-                # shouldn't discard 40 good jobs.
                 log.warning("Workday fetch failed for %s (token=%s) at offset %d: HTTP %s",
                             company, token, offset, resp.status_code)
-                break
+                return
+            retried = False
 
             payload = resp.json()
             postings = payload.get("jobPostings", [])
             if not postings:
-                break
+                return
 
             # `total` is only populated on the first page — every later
             # page reports total=0 (verified against crowdstrike/wd5:
@@ -371,50 +414,36 @@ def fetch_workday_listings(company: str, token: str, full: bool = True,
                 page_total = payload.get("total")
                 total = page_total if isinstance(page_total, int) and page_total > 0 else None
 
-            new_on_page = 0
+            jobs: list[dict] = []
             ages: list[int | None] = []
             for p in postings:
                 path = p.get("externalPath", "")
                 if not path or path in seen_paths:
                     continue  # wrap-around guard, see _WORKDAY_MAX_PAGES
                 seen_paths.add(path)
-                new_on_page += 1
                 ages.append(_workday_age_days(p.get("postedOn")))
                 job = _make_job(
                     company, p.get("title", ""), p.get("locationsText", ""),
                     f"{base}/{site}{path}", None, _workday_posted_at(p.get("postedOn")),
                 )
                 if job:
-                    result.append(job)
+                    jobs.append(job)
 
             # Every posting was one we'd already seen: Workday has wrapped
             # us back to an earlier page, so the board is exhausted.
-            if new_on_page == 0:
-                break
+            if not ages:
+                return
 
-            known = [a for a in ages if a is not None]
-            if known:
-                page_medians.append(_median(known))
-
-            # The whole page is old, and every age on it was readable: on a
-            # newest-first board nothing further down is new.
-            if (not full and len(known) == len(ages)
-                    and all(a > WORKDAY_RECENT_DAYS for a in known)):
-                break
+            yield jobs, ages
 
             offset += _WORKDAY_PAGE_SIZE
             if len(postings) < _WORKDAY_PAGE_SIZE or (total is not None and offset >= total):
-                break
+                return
         else:
             log.warning("Workday pagination for %s (token=%s) hit the %d-page cap",
                         company, token, _WORKDAY_MAX_PAGES)
-        return result
     except Exception as exc:
         log.error("Workday fetch error for %s (token=%s): %s", company, token, exc)
-        return result
-    finally:
-        if sort_report is not None and full:
-            sort_report[token] = workday_sorted_by_date(page_medians)
 
 
 # amazon.jobs is Amazon's own site, with a JSON search behind it. "intern" as the

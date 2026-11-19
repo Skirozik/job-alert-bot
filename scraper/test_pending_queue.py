@@ -23,6 +23,10 @@ import types
 import anthropic
 
 import classifier
+
+# CI sets CLASSIFIER_MODEL; a bare local run would otherwise park every job before the
+# stubbed client is ever called, and the checks below would fail for the wrong reason.
+classifier.MODEL = classifier.MODEL or "offline-model"
 import main
 
 _pass = _fail = 0

@@ -8,6 +8,7 @@ import type { Grouped } from '@/lib/dupes'
 import { splitLocations, isLocationCountOnly, fullTimestamp, isDirect, applicationHref } from '@/lib/jobView'
 import { IconApplyFilled, IconApplyOutline, IconClose, IconBolt, IconStar } from './icons'
 import { starReasons, REASON_LABEL } from '@/lib/goldStar'
+import { greenhouseFormUrl } from '@/lib/greenhouseForm'
 
 const TIER_LABEL: Record<string, string> = {
   APPLY: 'Apply', APPLY_CAVEAT: 'Apply — caveat', INELIGIBLE: 'Ineligible',
@@ -56,6 +57,7 @@ export function JobDrawer({
   const status = job.status ?? 'new'
   const easy = job.is_easy_apply
   const applyHref = applicationHref(job)
+  const greenhouseForm = greenhouseFormUrl(job)
   const stars = starReasons(job)
 
   // Escape closes. Arrow keys are handled by the table so they keep working
@@ -237,6 +239,25 @@ export function JobDrawer({
           {easy ? <IconApplyFilled /> : <IconApplyOutline />}
           {easy ? 'Easy Apply on LinkedIn' : 'Open original posting'}
         </a>
+        {/* The same backup link the phone alert carries: the company's own page
+            can lag Greenhouse's listing by a while, and Greenhouse's embedded
+            form is live as soon as the board lists the posting. */}
+        {greenhouseForm && (
+          <a
+            href={greenhouseForm}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Greenhouse's own application form, in case the company's page is not up yet"
+            className="w-full flex items-center justify-center gap-2"
+            style={{
+              minHeight: 44, fontSize: 'var(--text-data)', borderRadius: 'var(--radius)',
+              color: 'var(--fg-muted)', background: 'var(--bg-active)',
+              border: '1px solid var(--border)', marginBottom: 'var(--s2)',
+            }}
+          >
+            Greenhouse form ↗
+          </a>
+        )}
         <div className="grid grid-cols-3" style={{ gap: 'var(--s2)' }}>
           <Action label={pending ? 'Saving…' : 'Applied'} onClick={() => onStatus(job.id, 'applied')}
                   disabled={pending || status === 'applied'} />

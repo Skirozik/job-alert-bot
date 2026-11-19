@@ -49,7 +49,20 @@ def _client(returns, raises=None):
         idx = len(_sent) - 1
         data = returns[idx] if isinstance(returns, list) and idx < len(returns) else returns
         return types.SimpleNamespace(execute=lambda: types.SimpleNamespace(data=data))
-    return types.SimpleNamespace(rpc=rpc)
+
+    # The target-key follow-up (db._known_by_target) selects from the jobs table.
+    # Unless a test says otherwise, nothing is stored under any target.
+    def table(name):
+        _sent.append(("table", name))
+        q = types.SimpleNamespace()
+        q.select = lambda cols: q
+        q.in_ = lambda col, values: (_sent.append(("in", col, list(values))), q)[1]
+        q.execute = lambda: types.SimpleNamespace(data=list(_targets_stored))
+        return q
+    return types.SimpleNamespace(rpc=rpc, table=table)
+
+
+_targets_stored: list = []
 
 
 def use(client):
@@ -183,6 +196,47 @@ db.RPC_ROW_CAP = _cap_orig
 
 db.get_client = _orig
 
+
+print("\n-- a candidate whose application target is already stored is known, whatever its title --")
+# Waymo, 2026-11: a GitHub tracker listed "Research Scientist Intern" and Waymo's own
+# board "Research Scientist Intern, PhD", both careers.withwaymo.com/jobs?gh_jid=8258070.
+# Two titles, two norm_keys, one application. The RPC called the second one new.
+_targets_stored[:] = [{"target_key": "greenhouse:careers.withwaymo.com:8258070"}]
+use(_client([["gh:short", "ats:other"]]))
+out = db.find_unknown_candidates([
+    {"id": "gh:short", "company": "Waymo", "title": "Research Scientist Intern",
+     "url": "https://careers.withwaymo.com/jobs?gh_jid=8258070&utm_source=Simplify"},
+    {"id": "ats:other", "company": "Waymo", "title": "Software Engineer Intern",
+     "url": "https://careers.withwaymo.com/jobs?gh_jid=9999999"},
+    {"id": "ats:known", "company": "Waymo", "title": "Research Scientist Intern, PhD",
+     "url": "https://careers.withwaymo.com/jobs?gh_jid=8258070"},
+])
+check("the tracker's copy of a stored posting is known", "gh:short" not in out, str(out))
+check("a posting with its own target is still new", out == {"ats:other"}, str(out))
+asked_targets = [v for k, *v in _sent if k == "in"]
+check("only the candidates the RPC called new are looked up, by target key",
+      asked_targets == [["target_key", ["greenhouse:careers.withwaymo.com:8258070",
+                                        "greenhouse:careers.withwaymo.com:9999999"]]], str(asked_targets))
+
+_targets_stored[:] = []
+use(_client([["li:1"]]))
+out = db.find_unknown_candidates([{"id": "li:1", "company": "Acme", "title": "SWE Intern",
+                                   "url": "https://acme.example.com/careers/123"}])
+check("a candidate with no provable target makes no table query", out == {"li:1"}
+      and not any(k == "table" for k, *_ in _sent), str(_sent))
+
+
+def _broken_table(name):
+    raise RuntimeError("socket closed")
+
+
+c = _client([["gh:short"]])
+c.table = _broken_table
+use(c)
+out = db.find_unknown_candidates([{"id": "gh:short", "company": "Waymo", "title": "Research Scientist Intern",
+                                   "url": "https://careers.withwaymo.com/jobs?gh_jid=8258070"}])
+check("the target lookup fails OPEN too: a broken table query drops nothing", out == {"gh:short"}, str(out))
+
 print("\n-- the rewired ATS loop: the actual place a job can go missing --")
 
 import ats_watch as w
@@ -190,7 +244,7 @@ import ats_watch as w
 _w_orig = {k: getattr(w, k) for k in
            ("start_run", "finish_run", "insert_job", "insert_jobs", "process_job",
             "fetch_all_listings", "find_unknown_candidates", "_full_sweep_due",
-            "_always_full_tokens", "_tesla_relay_rows")}
+            "_always_full_tokens", "_tesla_relay_rows", "_workday_relay_rows")}
 
 processed: list = []
 w.start_run = lambda source="ats": 1
@@ -202,6 +256,7 @@ w.insert_jobs = lambda jobs: sum(1 for j in jobs if w.insert_job(j))
 w._full_sweep_due = lambda now: False
 w._always_full_tokens = lambda: frozenset()
 w._tesla_relay_rows = lambda now: []
+w._workday_relay_rows = lambda now: ([], None)
 w.process_job = lambda job: (processed.append(job["id"]), False)[1]
 # The career-sitemap and Apple passes read live sites; this test is about the board loop.
 _orig_sitemaps = w.career_sitemaps.collect_listings
